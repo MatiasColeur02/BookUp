@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 from ..persistence.models import UserRole
 
@@ -73,6 +73,19 @@ class UserOut(BaseModel):
     language: str
     role: UserRole
     library_id: int | None = None
+
+
+class UserCreate(BaseModel):
+    email: EmailStr
+    password: str = Field(min_length=8)
+    name: str
+    language: str = "es"
+
+
+class UserUpdate(BaseModel):
+    name: str | None = None
+    language: str | None = None
+    password: str | None = Field(default=None, min_length=8)
 
 
 class ReservationCreate(BaseModel):
