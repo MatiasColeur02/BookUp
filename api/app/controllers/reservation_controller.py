@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from ..persistence.database import get_db
@@ -18,10 +18,6 @@ def list_reservations(library_id: int | None = None, db: Session = Depends(get_d
     return reservation_service.list_reservations(db, library_id)
 
 
-@router.patch("/{reservation_id}/confirm", response_model=schemas.ReservationOut)
-def confirm_reservation(
-    reservation_id: int,
-    librarian: str = Query(..., description="Name of the librarian confirming the reservation"),
-    db: Session = Depends(get_db),
-):
-    return reservation_service.confirm_reservation(db, reservation_id, librarian=librarian)
+@router.patch("/{reservation_id}/pickup", response_model=schemas.ReservationOut)
+def mark_picked_up(reservation_id: int, db: Session = Depends(get_db)):
+    return reservation_service.mark_picked_up(db, reservation_id)

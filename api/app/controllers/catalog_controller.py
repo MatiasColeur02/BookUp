@@ -13,16 +13,20 @@ def search_books(q: str = Query(..., min_length=1), db: Session = Depends(get_db
     return catalog_service.search_books(db, q)
 
 
-@router.get("/{book_id}", response_model=schemas.BookOut)
-def get_book(book_id: int, db: Session = Depends(get_db)):
-    return catalog_service.get_book(db, book_id)
+@router.get("/{isbn}", response_model=schemas.BookOut)
+def get_book(isbn: str, db: Session = Depends(get_db)):
+    return catalog_service.get_book(db, isbn)
 
 
-@router.get("/{book_id}/availability", response_model=schemas.BookAvailability)
-def get_availability(book_id: int, db: Session = Depends(get_db)):
-    book, rows = catalog_service.get_availability(db, book_id)
+@router.get("/{isbn}/availability", response_model=schemas.BookAvailability)
+def get_availability(isbn: str, db: Session = Depends(get_db)):
+    book, rows = catalog_service.get_availability(db, isbn)
     libraries = [
-        schemas.LibraryAvailability(library=library, available_copies=len(copies), copy_id=copies[0].id)
-        for library, copies in rows
+        schemas.LibraryAvailability(
+            library=library,
+            available_copies=len(physical_books),
+            physical_book_id=physical_books[0].id,
+        )
+        for library, physical_books in rows
     ]
     return schemas.BookAvailability(book=book, libraries=libraries)
