@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { CatalogView } from "./components/CatalogView";
+import { BookIcon } from "./components/icons";
 import { LibrarianPanel } from "./components/LibrarianPanel";
 
 type View = "catalog" | "librarian";
@@ -10,8 +11,16 @@ export default function App() {
   return (
     <div className="app">
       <header className="app-header">
-        <h1>BookUp</h1>
-        <nav>
+        <div className="brand">
+          <span className="brand-mark">
+            <BookIcon />
+          </span>
+          <div>
+            <h1>BookUp</h1>
+            <p className="tagline">Catálogo y reservas de la red de bibliotecas</p>
+          </div>
+        </div>
+        <nav className="tabs">
           <button className={view === "catalog" ? "active" : ""} onClick={() => setView("catalog")}>
             Catálogo
           </button>

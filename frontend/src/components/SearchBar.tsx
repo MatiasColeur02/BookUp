@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from "react";
+import { SearchIcon } from "./icons";
 
 interface Props {
   onSearch: (query: string) => void;
@@ -15,6 +16,7 @@ export function SearchBar({ onSearch, loading }: Props) {
 
   return (
     <form className="search-bar" onSubmit={handleSubmit}>
+      <SearchIcon className="search-bar-icon" />
       <input
         value={value}
         onChange={(event) => setValue(event.target.value)}

@@ -1,4 +1,5 @@
 import type { Book } from "../types";
+import { BookIcon } from "./icons";
 
 interface Props {
   books: Book[];
@@ -8,7 +9,12 @@ interface Props {
 
 export function BookResults({ books, selectedId, onSelect }: Props) {
   if (books.length === 0) {
-    return <p className="empty">Buscá un título, autor o ISBN para ver resultados.</p>;
+    return (
+      <div className="empty-state">
+        <BookIcon className="empty-state-icon" />
+        <p>Buscá un título, autor o ISBN para ver resultados.</p>
+      </div>
+    );
   }
 
   return (

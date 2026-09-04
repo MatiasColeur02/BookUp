@@ -18,7 +18,9 @@ export function ReservationForm({ copyId, submitting, onSubmit, onCancel }: Prop
 
   return (
     <form className="reservation-form" onSubmit={handleSubmit}>
-      <h3>Reservar ejemplar #{copyId}</h3>
+      <h3>
+        Reservar ejemplar <span className="badge">#{copyId}</span>
+      </h3>
       <label>
         Nombre
         <input value={name} onChange={(event) => setName(event.target.value)} required />

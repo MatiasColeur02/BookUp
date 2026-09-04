@@ -1,6 +1,18 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../api";
-import type { Reservation } from "../types";
+import type { Reservation, ReservationStatus } from "../types";
+import { CheckIcon } from "./icons";
+
+const STATUS_LABEL: Record<ReservationStatus, string> = {
+  pending: "Pendiente",
+  confirmed: "Confirmada",
+  cancelled: "Cancelada",
+  fulfilled: "Retirada",
+};
+
+function StatusBadge({ status }: { status: ReservationStatus }) {
+  return <span className={`status-badge status-${status}`}>{STATUS_LABEL[status]}</span>;
+}
 
 export function LibrarianPanel() {
   const [reservations, setReservations] = useState<Reservation[]>([]);
@@ -57,38 +69,47 @@ export function LibrarianPanel() {
       {error && <p className="error">{error}</p>}
 
       {loading ? (
-        <p>Cargando reservas...</p>
+        <p className="muted">Cargando reservas...</p>
       ) : reservations.length === 0 ? (
         <p className="empty">No hay reservas todavía.</p>
       ) : (
-        <table>
-          <thead>
-            <tr>
-              <th>Ejemplar</th>
-              <th>Solicitante</th>
-              <th>Estado</th>
-              <th>Confirmado por</th>
-              <th />
-            </tr>
-          </thead>
-          <tbody>
-            {reservations.map((reservation) => (
-              <tr key={reservation.id}>
-                <td>#{reservation.copy_id}</td>
-                <td>
-                  {reservation.patron_name} <span className="muted">({reservation.patron_email})</span>
-                </td>
-                <td>{reservation.status}</td>
-                <td>{reservation.confirmed_by ?? "-"}</td>
-                <td>
-                  {reservation.status === "pending" && (
-                    <button onClick={() => confirm(reservation.id)}>Confirmar</button>
-                  )}
-                </td>
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Ejemplar</th>
+                <th>Solicitante</th>
+                <th>Estado</th>
+                <th>Confirmado por</th>
+                <th />
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {reservations.map((reservation) => (
+                <tr key={reservation.id}>
+                  <td>
+                    <span className="badge">#{reservation.copy_id}</span>
+                  </td>
+                  <td>
+                    {reservation.patron_name} <span className="muted">({reservation.patron_email})</span>
+                  </td>
+                  <td>
+                    <StatusBadge status={reservation.status} />
+                  </td>
+                  <td>{reservation.confirmed_by ?? <span className="muted">—</span>}</td>
+                  <td>
+                    {reservation.status === "pending" && (
+                      <button className="confirm-button" onClick={() => confirm(reservation.id)}>
+                        <CheckIcon />
+                        Confirmar
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
     </div>
   );

@@ -1,4 +1,5 @@
 import type { BookAvailability } from "../types";
+import { PinIcon } from "./icons";
 
 interface Props {
   availability: BookAvailability;
@@ -10,10 +11,11 @@ export function BookAvailabilityView({ availability, onReserve }: Props) {
 
   return (
     <div className="availability">
+      <span className="eyebrow">Ficha del libro</span>
       <h2>{book.title}</h2>
       <p className="author">{book.author}</p>
       {book.synopsis && <p className="synopsis">{book.synopsis}</p>}
-      <p className="isbn">ISBN: {book.isbn}</p>
+      <p className="isbn">ISBN {book.isbn}</p>
 
       <h3>Disponibilidad por biblioteca</h3>
       {libraries.length === 0 ? (
@@ -25,7 +27,11 @@ export function BookAvailabilityView({ availability, onReserve }: Props) {
               <div>
                 <strong>{library.name}</strong>
                 <span>
-                  {library.city} · {available_copies} disponible{available_copies === 1 ? "" : "s"}
+                  <PinIcon className="inline-icon" />
+                  {library.city}
+                  <span className="badge">
+                    {available_copies} disponible{available_copies === 1 ? "" : "s"}
+                  </span>
                 </span>
               </div>
               <button onClick={() => onReserve(copy_id)}>Reservar</button>
