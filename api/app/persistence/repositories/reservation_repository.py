@@ -1,7 +1,7 @@
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from ..models import Copy, Reservation
+from ..models import PhysicalBook, Reservation
 
 
 class ReservationRepository:
@@ -17,7 +17,7 @@ class ReservationRepository:
         return self.db.get(Reservation, reservation_id)
 
     def list(self, library_id: int | None = None) -> list[Reservation]:
-        stmt = select(Reservation).join(Copy)
+        stmt = select(Reservation).join(PhysicalBook)
         if library_id is not None:
-            stmt = stmt.where(Copy.library_id == library_id)
+            stmt = stmt.where(PhysicalBook.library_id == library_id)
         return list(self.db.scalars(stmt).all())

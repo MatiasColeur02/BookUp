@@ -1,14 +1,19 @@
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, EmailStr
+from pydantic import BaseModel, ConfigDict
 
-from ..persistence.models import ReservationStatus
+from ..persistence.models import UserRole
 
 
 class LibraryBase(BaseModel):
     name: str
+    address: str
+    state: str
     city: str
-    address: str | None = None
+    hours: str | None = None
+    phone: str | None = None
+    email: str | None = None
+    website: str | None = None
 
 
 class LibraryCreate(LibraryBase):
@@ -20,24 +25,38 @@ class LibraryOut(LibraryBase):
     id: int
 
 
+class AuthorOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    name: str
+
+
+class GenreOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    name: str
+
+
 class BookBase(BaseModel):
-    title: str
-    author: str
     isbn: str
+    title: str
+    language: str
+    pages: int | None = None
     synopsis: str | None = None
 
 
 class BookOut(BookBase):
     model_config = ConfigDict(from_attributes=True)
-    id: int
+    authors: list[AuthorOut] = []
+    genres: list[GenreOut] = []
 
 
 class LibraryAvailability(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     library: LibraryOut
     available_copies: int
-    # A representative copy id from this library, ready to be reserved.
-    copy_id: int
+    # A representative physical book id from this library, ready to be reserved.
+    physical_book_id: int
 
 
 class BookAvailability(BaseModel):
@@ -46,18 +65,27 @@ class BookAvailability(BaseModel):
     libraries: list[LibraryAvailability]
 
 
+class UserOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    email: str
+    name: str
+    language: str
+    role: UserRole
+    library_id: int | None = None
+
+
 class ReservationCreate(BaseModel):
-    copy_id: int
-    patron_name: str
-    patron_email: EmailStr
+    physical_book_id: int
+    user_id: int
+    expires_at: datetime
 
 
 class ReservationOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: int
-    copy_id: int
-    patron_name: str
-    patron_email: str
-    status: ReservationStatus
-    created_at: datetime
-    confirmed_by: str | None = None
+    user_id: int
+    physical_book_id: int
+    reserved_at: datetime
+    expires_at: datetime
+    picked_up: bool

@@ -1,7 +1,7 @@
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
-from ..models import Book
+from ..models import Author, Book
 
 
 class BookRepository:
@@ -19,17 +19,18 @@ class BookRepository:
         pattern = f"%{query}%"
         stmt = (
             select(Book)
+            .outerjoin(Book.authors)
             .where(
                 or_(
                     Book.title.ilike(pattern),
-                    Book.author.ilike(pattern),
                     Book.isbn.ilike(pattern),
                     Book.synopsis.ilike(pattern),
+                    Author.name.ilike(pattern),
                 )
             )
             .limit(limit)
         )
-        return list(self.db.scalars(stmt).all())
+        return list(self.db.scalars(stmt).unique().all())
 
-    def get(self, book_id: int) -> Book | None:
-        return self.db.get(Book, book_id)
+    def get(self, isbn: str) -> Book | None:
+        return self.db.get(Book, isbn)

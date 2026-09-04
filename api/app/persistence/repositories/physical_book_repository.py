@@ -1,27 +1,27 @@
 from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload
 
-from ..models import Copy, CopyStatus, Library
+from ..models import Library, PhysicalBook, PhysicalBookStatus
 
 
-class CopyRepository:
+class PhysicalBookRepository:
     def __init__(self, db: Session):
         self.db = db
 
-    def get(self, copy_id: int) -> Copy | None:
-        return self.db.get(Copy, copy_id)
+    def get(self, physical_book_id: int) -> PhysicalBook | None:
+        return self.db.get(PhysicalBook, physical_book_id)
 
-    def available_by_book(self, book_id: int) -> list[tuple[Library, list[Copy]]]:
+    def available_by_book(self, isbn: str) -> list[tuple[Library, list[PhysicalBook]]]:
         """Available copies of a book, grouped by the library that holds them."""
         stmt = (
-            select(Copy)
-            .options(joinedload(Copy.library))
-            .where(Copy.book_id == book_id, Copy.status == CopyStatus.available)
+            select(PhysicalBook)
+            .options(joinedload(PhysicalBook.library))
+            .where(PhysicalBook.isbn == isbn, PhysicalBook.status == PhysicalBookStatus.available)
         )
-        copies = list(self.db.scalars(stmt).unique().all())
+        physical_books = list(self.db.scalars(stmt).unique().all())
 
-        grouped: dict[int, tuple[Library, list[Copy]]] = {}
-        for copy in copies:
-            _, bucket = grouped.setdefault(copy.library_id, (copy.library, []))
-            bucket.append(copy)
+        grouped: dict[int, tuple[Library, list[PhysicalBook]]] = {}
+        for physical_book in physical_books:
+            _, bucket = grouped.setdefault(physical_book.library_id, (physical_book.library, []))
+            bucket.append(physical_book)
         return list(grouped.values())

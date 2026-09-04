@@ -12,29 +12,52 @@ def seed() -> None:
             print("Data already present, skipping seed.")
             return
 
-        central = models.Library(name="Biblioteca Central", city="Buenos Aires", address="Av. Corrientes 1234")
-        norte = models.Library(name="Biblioteca del Norte", city="Rosario", address="San Martín 500")
+        central = models.Library(
+            name="Biblioteca Central",
+            address="Av. Corrientes 1234",
+            state="Buenos Aires",
+            city="Buenos Aires",
+        )
+        norte = models.Library(
+            name="Biblioteca del Norte",
+            address="San Martín 500",
+            state="Santa Fe",
+            city="Rosario",
+        )
         db.add_all([central, norte])
+        db.flush()
+
+        garcia_marquez = models.Author(name="Gabriel García Márquez")
+        borges = models.Author(name="Jorge Luis Borges")
+        cortazar = models.Author(name="Julio Cortázar")
+        fiction = models.Genre(name="Ficción")
+        db.add_all([garcia_marquez, borges, cortazar, fiction])
         db.flush()
 
         books = [
             models.Book(
-                title="Cien años de soledad",
-                author="Gabriel García Márquez",
                 isbn="9780307474728",
+                title="Cien años de soledad",
+                language="es",
                 synopsis="La saga de la familia Buendía en Macondo.",
+                authors=[garcia_marquez],
+                genres=[fiction],
             ),
             models.Book(
-                title="Ficciones",
-                author="Jorge Luis Borges",
                 isbn="9788420633106",
+                title="Ficciones",
+                language="es",
                 synopsis="Cuentos fantásticos y filosóficos.",
+                authors=[borges],
+                genres=[fiction],
             ),
             models.Book(
-                title="Rayuela",
-                author="Julio Cortázar",
                 isbn="9788437604572",
+                title="Rayuela",
+                language="es",
                 synopsis="Novela experimental sobre Horacio Oliveira.",
+                authors=[cortazar],
+                genres=[fiction],
             ),
         ]
         db.add_all(books)
@@ -42,10 +65,10 @@ def seed() -> None:
 
         db.add_all(
             [
-                models.Copy(book_id=books[0].id, library_id=central.id),
-                models.Copy(book_id=books[0].id, library_id=norte.id),
-                models.Copy(book_id=books[1].id, library_id=central.id),
-                models.Copy(book_id=books[2].id, library_id=norte.id),
+                models.PhysicalBook(isbn=books[0].isbn, library_id=central.id),
+                models.PhysicalBook(isbn=books[0].isbn, library_id=norte.id),
+                models.PhysicalBook(isbn=books[1].isbn, library_id=central.id),
+                models.PhysicalBook(isbn=books[2].isbn, library_id=norte.id),
             ]
         )
         db.commit()
