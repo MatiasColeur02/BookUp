@@ -15,6 +15,9 @@ class BookRepository:
     def __init__(self, db: Session):
         self.db = db
 
+    def list_all(self, limit: int = 100) -> list[Book]:
+        return list(self.db.scalars(select(Book).order_by(Book.title).limit(limit)).all())
+
     def search(self, query: str, limit: int = 50) -> list[Book]:
         pattern = f"%{query}%"
         stmt = (
