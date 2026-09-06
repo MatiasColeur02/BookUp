@@ -5,6 +5,10 @@ from ..persistence.repositories import BookRepository, PhysicalBookRepository
 from .errors import NotFoundError
 
 
+def list_books(db: Session) -> list[Book]:
+    return BookRepository(db).list_all()
+
+
 def search_books(db: Session, query: str) -> list[Book]:
     return BookRepository(db).search(query)
 

@@ -2,15 +2,17 @@
 
 Revision ID: 0001_initial
 Revises:
-Create Date: 2026-09-04
+Create Date: 2026-09-05 00:41:32.450239
 
 """
 from typing import Sequence, Union
 
-import sqlalchemy as sa
 from alembic import op
+import sqlalchemy as sa
 
-revision: str = "0001_initial"
+
+# revision identifiers, used by Alembic.
+revision: str = '0001_initial'
 down_revision: Union[str, None] = None
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None

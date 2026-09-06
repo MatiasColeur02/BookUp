@@ -8,6 +8,11 @@ from . import schemas
 router = APIRouter(prefix="/books", tags=["catalog"])
 
 
+@router.get("", response_model=list[schemas.BookOut])
+def list_books(db: Session = Depends(get_db)):
+    return catalog_service.list_books(db)
+
+
 @router.get("/search", response_model=list[schemas.BookOut])
 def search_books(q: str = Query(..., min_length=1), db: Session = Depends(get_db)):
     return catalog_service.search_books(db, q)
