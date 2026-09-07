@@ -107,7 +107,8 @@ h3 {
   padding: 0.25rem;
 }
 
-.tabs button {
+.tabs button,
+.tabs a {
   background: none;
   border: none;
   border-radius: 999px;
@@ -116,10 +117,12 @@ h3 {
   color: var(--muted);
   font-size: 0.88rem;
   font-weight: 500;
+  text-decoration: none;
   transition: background-color 0.15s ease, color 0.15s ease;
 }
 
-.tabs button.active {
+.tabs button.active,
+.tabs a.active {
   background: var(--accent);
   color: var(--accent-contrast);
 }

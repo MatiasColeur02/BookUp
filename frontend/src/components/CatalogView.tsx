@@ -25,7 +25,7 @@ export function CatalogView() {
     setAvailability(null);
     setConfirmationMessage(null);
     try {
-      setResults(await api.searchBooks(query));
+      setResults(await api.books.search(query));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error al buscar");
     } finally {
@@ -38,7 +38,7 @@ export function CatalogView() {
     setReservingPhysicalBookId(null);
     setConfirmationMessage(null);
     try {
-      setAvailability(await api.getAvailability(book.isbn));
+      setAvailability(await api.books.availability(book.isbn));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error al consultar disponibilidad");
     }
@@ -49,18 +49,19 @@ export function CatalogView() {
     setSubmitting(true);
     setError(null);
     try {
-      // No hay login todavía: la reserva da de alta la cuenta del usuario en el mismo paso.
-      const user = await api.createUser(data);
+      // Pendiente (Fase 3): reservar dejó de ser "registrarse" — el dueño de la
+      // reserva sale del token, así que este alta de usuario se reemplaza por el
+      // login/registro previo y este flujo pasa a exigir sesión.
+      await api.users.create(data);
       const expiresAt = new Date(Date.now() + RESERVATION_WINDOW_DAYS * 24 * 60 * 60 * 1000).toISOString();
-      await api.createReservation({
+      await api.reservations.create({
         physical_book_id: reservingPhysicalBookId,
-        user_id: user.id,
         expires_at: expiresAt,
       });
       setConfirmationMessage("Reserva creada. Retirala en la biblioteca seleccionada.");
       setReservingPhysicalBookId(null);
       if (selectedBook) {
-        setAvailability(await api.getAvailability(selectedBook.isbn));
+        setAvailability(await api.books.availability(selectedBook.isbn));
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error al crear la reserva");

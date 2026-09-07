@@ -1,13 +1,9 @@
-import { useState } from "react";
+import { NavLink, Navigate, Route, Routes } from "react-router-dom";
 import { CatalogView } from "./components/CatalogView";
 import { BookIcon } from "./components/icons";
 import { LibrarianPanel } from "./components/LibrarianPanel";
 
-type View = "catalog" | "librarian";
-
 export default function App() {
-  const [view, setView] = useState<View>("catalog");
-
   return (
     <div className="app">
       <header className="app-header">
@@ -21,15 +17,21 @@ export default function App() {
           </div>
         </div>
         <nav className="tabs">
-          <button className={view === "catalog" ? "active" : ""} onClick={() => setView("catalog")}>
+          <NavLink to="/" className={({ isActive }) => (isActive ? "active" : "")} end>
             Catálogo
-          </button>
-          <button className={view === "librarian" ? "active" : ""} onClick={() => setView("librarian")}>
+          </NavLink>
+          <NavLink to="/panel" className={({ isActive }) => (isActive ? "active" : "")}>
             Panel bibliotecario
-          </button>
+          </NavLink>
         </nav>
       </header>
-      <main>{view === "catalog" ? <CatalogView /> : <LibrarianPanel />}</main>
+      <main>
+        <Routes>
+          <Route path="/" element={<CatalogView />} />
+          <Route path="/panel" element={<LibrarianPanel />} />
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </main>
     </div>
   );
 }

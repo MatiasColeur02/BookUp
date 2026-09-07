@@ -20,7 +20,7 @@ export function LibrarianPanel() {
     setLoading(true);
     setError(null);
     try {
-      setReservations(await api.listReservations());
+      setReservations(await api.reservations.list());
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error al cargar las reservas");
     } finally {
@@ -35,7 +35,7 @@ export function LibrarianPanel() {
   const markPickedUp = async (id: number) => {
     setError(null);
     try {
-      await api.markPickedUp(id);
+      await api.reservations.markPickedUp(id);
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error al marcar el retiro");
