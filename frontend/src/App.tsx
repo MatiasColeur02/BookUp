@@ -3,6 +3,7 @@ import { CatalogView } from "./components/CatalogView";
 import { BookIcon } from "./components/icons";
 import { LibrarianPanel } from "./components/LibrarianPanel";
 import { LoginForm } from "./components/LoginForm";
+import { MyReservationsView } from "./components/MyReservationsView";
 import { ProfileView } from "./components/ProfileView";
 import { RegisterForm } from "./components/RegisterForm";
 import { RequireRole } from "./components/RequireRole";
@@ -64,6 +65,11 @@ export default function App() {
           <NavLink to="/" className={navClass} end>
             Catálogo
           </NavLink>
+          {user && (
+            <NavLink to="/mis-reservas" className={navClass}>
+              Mis reservas
+            </NavLink>
+          )}
           {canSeePanel && (
             <NavLink to="/panel" className={navClass}>
               Panel bibliotecario
@@ -82,6 +88,14 @@ export default function App() {
           <Route path="/" element={<CatalogView />} />
           <Route path="/login" element={<LoginForm />} />
           <Route path="/registro" element={<RegisterForm />} />
+          <Route
+            path="/mis-reservas"
+            element={
+              <RequireRole>
+                <MyReservationsView />
+              </RequireRole>
+            }
+          />
           <Route
             path="/perfil"
             element={

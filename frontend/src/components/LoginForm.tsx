@@ -4,7 +4,7 @@ import { useSession } from "../context/SessionContext";
 import { describeError } from "../lib/errors";
 
 interface LocationState {
-  from?: { pathname: string };
+  from?: { pathname: string; search?: string };
 }
 
 export function LoginForm() {
@@ -16,8 +16,10 @@ export function LoginForm() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // A dónde iba antes de que `RequireRole` lo mandara acá.
-  const from = (location.state as LocationState | null)?.from?.pathname ?? "/";
+  // A dónde iba antes de llegar acá: `RequireRole` lo guarda, y el catálogo también
+  // cuando alguien sin sesión aprieta "Reservar" (el `search` lleva el ejemplar).
+  const origin = (location.state as LocationState | null)?.from;
+  const from = origin ? `${origin.pathname}${origin.search ?? ""}` : "/";
 
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault();
@@ -66,7 +68,7 @@ export function LoginForm() {
           </button>
         </div>
         <p className="hint">
-          ¿No tenés cuenta? <Link to="/registro">Creá una</Link>.
+          ¿No tenés cuenta? <Link to="/registro" state={location.state}>Creá una</Link>.
         </p>
       </form>
     </div>

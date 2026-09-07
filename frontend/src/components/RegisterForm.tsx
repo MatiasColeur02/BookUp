@@ -1,12 +1,17 @@
 import { useState, type FormEvent } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { api } from "../api";
 import { useSession } from "../context/SessionContext";
 import { describeError } from "../lib/errors";
 
+interface LocationState {
+  from?: { pathname: string; search?: string };
+}
+
 export function RegisterForm() {
   const { login } = useSession();
   const navigate = useNavigate();
+  const location = useLocation();
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -24,7 +29,9 @@ export function RegisterForm() {
       // El alta no devuelve token: hay que loguearse igual, así que lo hacemos acá
       // para no pedirle la password dos veces.
       await login(email, password);
-      navigate("/", { replace: true });
+      // Si venía de "Reservar" sin sesión, vuelve al ejemplar que había elegido.
+      const origin = (location.state as LocationState | null)?.from;
+      navigate(origin ? `${origin.pathname}${origin.search ?? ""}` : "/", { replace: true });
     } catch (err) {
       setError(describeError(err, { 409: "Ese email ya está registrado." }));
     } finally {
@@ -69,7 +76,7 @@ export function RegisterForm() {
           </button>
         </div>
         <p className="hint">
-          ¿Ya tenés cuenta? <Link to="/login">Ingresá</Link>.
+          ¿Ya tenés cuenta? <Link to="/login" state={location.state}>Ingresá</Link>.
         </p>
       </form>
     </div>

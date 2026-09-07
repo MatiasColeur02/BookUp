@@ -1,45 +1,70 @@
 import { useState, type FormEvent } from "react";
+import type { LibraryAvailability } from "../types";
+
+/** Ventana por defecto para retirar el ejemplar. */
+const RESERVATION_WINDOW_DAYS = 7;
+
+/** `YYYY-MM-DD` en hora local, que es lo que espera un `<input type="date">`. */
+function toDateInput(date: Date): string {
+  const offset = date.getTimezoneOffset() * 60 * 1000;
+  return new Date(date.getTime() - offset).toISOString().slice(0, 10);
+}
+
+function addDays(days: number): Date {
+  return new Date(Date.now() + days * 24 * 60 * 60 * 1000);
+}
+
+/** Fin del día elegido: reservar "hasta el 12" incluye todo el 12. */
+function endOfDay(value: string): Date {
+  return new Date(`${value}T23:59:59`);
+}
 
 interface Props {
-  physicalBookId: number;
+  option: LibraryAvailability;
   submitting?: boolean;
-  onSubmit: (data: { name: string; email: string; password: string }) => void;
+  onSubmit: (expiresAt: string) => void;
   onCancel: () => void;
 }
 
-export function ReservationForm({ physicalBookId, submitting, onSubmit, onCancel }: Props) {
-  const [name, setName] = useState("");
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
+export function ReservationForm({ option, submitting, onSubmit, onCancel }: Props) {
+  const [date, setDate] = useState(() => toDateInput(addDays(RESERVATION_WINDOW_DAYS)));
+  const [error, setError] = useState<string | null>(null);
 
   const handleSubmit = (event: FormEvent) => {
     event.preventDefault();
-    onSubmit({ name, email, password });
+    const expiresAt = endOfDay(date);
+    // La API exige un `expires_at` futuro (422). Chequearlo acá evita el ida y vuelta.
+    if (Number.isNaN(expiresAt.getTime()) || expiresAt <= new Date()) {
+      setError("La fecha de vencimiento tiene que ser futura.");
+      return;
+    }
+    setError(null);
+    onSubmit(expiresAt.toISOString());
   };
 
   return (
     <form className="reservation-form" onSubmit={handleSubmit}>
-      <h3>
-        Reservar ejemplar <span className="badge">#{physicalBookId}</span>
-      </h3>
+      <h3>Reservar en {option.library.name}</h3>
+      <p className="field-hint">
+        Ejemplar <span className="badge">#{option.physical_book_id}</span> · {option.library.city}
+      </p>
+
+      {error && <p className="error">{error}</p>}
+
       <label>
-        Nombre
-        <input value={name} onChange={(event) => setName(event.target.value)} required />
-      </label>
-      <label>
-        Email
-        <input type="email" value={email} onChange={(event) => setEmail(event.target.value)} required />
-      </label>
-      <label>
-        Contraseña
+        Retirar antes del
         <input
-          type="password"
-          value={password}
-          onChange={(event) => setPassword(event.target.value)}
-          minLength={8}
+          type="date"
+          value={date}
+          min={toDateInput(addDays(1))}
+          onChange={(event) => setDate(event.target.value)}
           required
         />
+        <span className="field-hint">
+          Pasada esa fecha la reserva se da de baja y el ejemplar vuelve a estar disponible.
+        </span>
       </label>
+
       <div className="actions">
         <button type="button" onClick={onCancel} disabled={submitting}>
           Cancelar

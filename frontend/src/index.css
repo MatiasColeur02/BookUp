@@ -668,6 +668,63 @@ tbody tr:hover {
   filter: brightness(0.92);
 }
 
+/* Acción secundaria dentro de una fila (cancelar, extender, devolver). */
+.row-button {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.4rem 0.75rem;
+  cursor: pointer;
+  font-weight: 500;
+  font-size: 0.85rem;
+  color: var(--text);
+}
+
+.row-button:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+.row-button.danger {
+  color: var(--danger);
+}
+
+.row-button.danger:hover:not(:disabled) {
+  border-color: var(--danger);
+}
+
+.confirm-button:disabled,
+.row-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* Filtros de listado (abiertas / cerradas / todas). */
+.filters {
+  display: inline-flex;
+  gap: 0.25rem;
+  background: var(--surface-muted);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0.2rem;
+  margin-bottom: 1rem;
+}
+
+.filters button {
+  background: none;
+  border: none;
+  border-radius: 999px;
+  padding: 0.35rem 0.85rem;
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 0.83rem;
+  font-weight: 500;
+}
+
+.filters button.active {
+  background: var(--accent);
+  color: var(--accent-contrast);
+}
+
 .status-badge {
   display: inline-flex;
   align-items: center;
