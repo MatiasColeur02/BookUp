@@ -57,6 +57,7 @@ La regla de dónde vive cada chequeo:
 
 - `Book` está keyed por `isbn` (string), no por un id autoincremental.
 - Autores y géneros son entidades propias (`Author`, `Genre`) vinculadas a `Book` mediante tablas intermedias N:M (`book_authors`, `book_genres`) — son `Table` de SQLAlchemy Core, no clases mapeadas, porque no tienen columnas propias más allá de la PK compuesta.
+- El ciclo de vida de `PhysicalBook.status` está partido en dos: `available ↔ lost` son transiciones manuales (`PATCH /physical-books/{id}/status`), mientras que `reserved` y `loaned` las maneja solo el flujo de reservas. `physical_book_service.MANUAL_STATUSES` es la lista que hace cumplir esa separación en ambas direcciones: no se puede pedir `reserved`/`loaned` a mano, ni tocar un ejemplar que hoy esté en uno de esos estados.
 - `PhysicalBook` es el ejemplar físico (referencia `Book.isbn` + `Library.id`, con su propio `status`: `available`/`reserved`/`loaned`/`lost`). Es la entidad que efectivamente se reserva, no el `Book` abstracto.
 - `Reservation` vincula `User` con `PhysicalBook`; no hay un enum de estados de reserva — el ciclo de vida se resuelve con `expires_at` (vencimiento) + el flag booleano `picked_up` (retirado en sede).
 - `User.role` (`customer`/`librarian`/`sysadmin`) junto con `User.library_id` (nullable) determinan si es un usuario final o el bibliotecario a cargo de una sede puntual — un usuario administra a lo sumo una `Library`.

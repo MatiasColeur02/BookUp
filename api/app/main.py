@@ -5,8 +5,11 @@ from fastapi.responses import JSONResponse
 from .config import settings
 from .controllers import (
     auth_controller,
+    author_controller,
     catalog_controller,
+    genre_controller,
     library_controller,
+    physical_book_controller,
     reservation_controller,
     user_controller,
 )
@@ -48,6 +51,9 @@ def handle_forbidden(request: Request, exc: ForbiddenError) -> JSONResponse:
 
 app.include_router(auth_controller.router)
 app.include_router(catalog_controller.router)
+app.include_router(author_controller.router)
+app.include_router(genre_controller.router)
+app.include_router(physical_book_controller.router)
 app.include_router(library_controller.router)
 app.include_router(reservation_controller.router)
 app.include_router(user_controller.router)

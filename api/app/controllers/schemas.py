@@ -1,8 +1,19 @@
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
-from ..persistence.models import UserRole
+from ..persistence.models import PhysicalBookStatus, UserRole
+
+
+def _validate_isbn13(isbn: str) -> str:
+    """`Book.isbn` is a String(13) primary key, so only well-formed ISBN-13 gets in."""
+    if len(isbn) != 13 or not isbn.isdigit():
+        raise ValueError("isbn must be 13 digits")
+    # Check digit: digits weighted 1,3,1,3,... must add up to a multiple of 10.
+    total = sum(int(digit) * (1 if index % 2 == 0 else 3) for index, digit in enumerate(isbn))
+    if total % 10 != 0:
+        raise ValueError("isbn has an invalid check digit")
+    return isbn
 
 
 class LibraryBase(BaseModel):
@@ -60,6 +71,64 @@ class BookOut(BookBase):
     model_config = ConfigDict(from_attributes=True)
     authors: list[AuthorOut] = []
     genres: list[GenreOut] = []
+
+
+class BookCreate(BookBase):
+    author_ids: list[int] = []
+    genre_ids: list[int] = []
+
+    @field_validator("isbn")
+    @classmethod
+    def check_isbn(cls, value: str) -> str:
+        return _validate_isbn13(value)
+
+
+class BookUpdate(BaseModel):
+    title: str | None = None
+    language: str | None = None
+    pages: int | None = None
+    synopsis: str | None = None
+    # Sending a list replaces the whole association; omitting it leaves it as is.
+    author_ids: list[int] | None = None
+    genre_ids: list[int] | None = None
+
+
+class AuthorCreate(BaseModel):
+    name: str = Field(min_length=1)
+
+
+class AuthorUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1)
+
+
+class GenreCreate(BaseModel):
+    name: str = Field(min_length=1)
+
+
+class GenreUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1)
+
+
+class PhysicalBookOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    isbn: str
+    library_id: int
+    status: PhysicalBookStatus
+
+
+class PhysicalBookCreate(BaseModel):
+    isbn: str
+    library_id: int
+
+    @field_validator("isbn")
+    @classmethod
+    def check_isbn(cls, value: str) -> str:
+        return _validate_isbn13(value)
+
+
+class PhysicalBookStatusUpdate(BaseModel):
+    status: PhysicalBookStatus
 
 
 class LibraryAvailability(BaseModel):

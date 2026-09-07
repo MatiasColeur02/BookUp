@@ -48,7 +48,7 @@ def seed() -> None:
                 genres=[fiction],
             ),
             models.Book(
-                isbn="9788420633106",
+                isbn="9788420633107",
                 title="Ficciones",
                 language="es",
                 synopsis="Cuentos fantásticos y filosóficos.",

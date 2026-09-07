@@ -14,7 +14,15 @@ tags:
   - name: auth
     description: Login y datos del usuario autenticado
   - name: catalog
-    description: Catálogo de libros (solo lectura)
+    description: >
+      Catálogo de libros. Lectura pública; la escritura requiere
+      `librarian`/`sysadmin`.
+  - name: authors
+    description: Autores del catálogo
+  - name: genres
+    description: Géneros del catálogo
+  - name: physical_books
+    description: Ejemplares físicos de un libro en una sede
   - name: libraries
     description: Sedes de biblioteca
   - name: reservations
@@ -101,6 +109,40 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/BookOut"
+    post:
+      tags: [catalog]
+      summary: Crear un libro en el catálogo
+      description: >
+        Requiere `librarian` o `sysadmin`. El `isbn` tiene que ser un ISBN-13
+        válido (13 dígitos y dígito verificador correcto), si no da 422.
+        `author_ids`/`genre_ids` referencian autores y géneros ya existentes:
+        si alguno no existe, 404.
+      operationId: createBook
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BookCreate"
+      responses:
+        "201":
+          description: Libro creado
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BookOut"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/ValidationError"
 
   /books/search:
     get:
@@ -145,6 +187,62 @@ paths:
                 $ref: "#/components/schemas/BookOut"
         "404":
           $ref: "#/components/responses/NotFound"
+    patch:
+      tags: [catalog]
+      summary: Actualizar un libro
+      description: >
+        Requiere `librarian` o `sysadmin`. Actualización parcial; solo se
+        aplican los campos enviados. Enviar `author_ids`/`genre_ids`
+        **reemplaza** la lista completa (mandar `[]` la vacía); omitirlos la
+        deja como estaba.
+      operationId: updateBook
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/IsbnPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BookUpdate"
+      responses:
+        "200":
+          description: Libro actualizado
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BookOut"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+    delete:
+      tags: [catalog]
+      summary: Eliminar un libro del catálogo
+      description: >
+        Requiere `librarian` o `sysadmin`. Falla con 409 si el libro todavía
+        tiene ejemplares físicos en alguna sede.
+      operationId: deleteBook
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/IsbnPath"
+      responses:
+        "204":
+          description: Libro eliminado
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
 
   /books/{isbn}/availability:
     get:
@@ -166,6 +264,378 @@ paths:
                 $ref: "#/components/schemas/BookAvailability"
         "404":
           $ref: "#/components/responses/NotFound"
+
+  /authors:
+    get:
+      tags: [authors]
+      summary: Listar autores
+      operationId: listAuthors
+      responses:
+        "200":
+          description: Lista de autores
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AuthorOut"
+    post:
+      tags: [authors]
+      summary: Crear un autor
+      description: >
+        Requiere `librarian` o `sysadmin`. `Author.name` no es único en el
+        modelo: se permiten homónimos (dos autores distintos pueden llamarse
+        igual) y la identidad es el `id`, así que crear el mismo nombre dos
+        veces devuelve dos autores distintos, no un 409.
+      operationId: createAuthor
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AuthorCreate"
+      responses:
+        "201":
+          description: Autor creado
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthorOut"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+
+  /authors/{author_id}:
+    get:
+      tags: [authors]
+      summary: Obtener un autor por id
+      operationId: getAuthor
+      parameters:
+        - $ref: "#/components/parameters/AuthorIdPath"
+      responses:
+        "200":
+          description: Autor encontrado
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthorOut"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    patch:
+      tags: [authors]
+      summary: Actualizar un autor
+      description: Requiere `librarian` o `sysadmin`.
+      operationId: updateAuthor
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/AuthorIdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AuthorUpdate"
+      responses:
+        "200":
+          description: Autor actualizado
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthorOut"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+    delete:
+      tags: [authors]
+      summary: Eliminar un autor
+      description: >
+        Requiere `librarian` o `sysadmin`. Falla con 409 si el autor todavía
+        está asociado a algún libro.
+      operationId: deleteAuthor
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/AuthorIdPath"
+      responses:
+        "204":
+          description: Autor eliminado
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+
+  /genres:
+    get:
+      tags: [genres]
+      summary: Listar géneros
+      operationId: listGenres
+      responses:
+        "200":
+          description: Lista de géneros
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/GenreOut"
+    post:
+      tags: [genres]
+      summary: Crear un género
+      description: >
+        Requiere `librarian` o `sysadmin`. A diferencia de los autores,
+        `Genre.name` **sí** es único: un nombre repetido da 409.
+      operationId: createGenre
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GenreCreate"
+      responses:
+        "201":
+          description: Género creado
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GenreOut"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+
+  /genres/{genre_id}:
+    get:
+      tags: [genres]
+      summary: Obtener un género por id
+      operationId: getGenre
+      parameters:
+        - $ref: "#/components/parameters/GenreIdPath"
+      responses:
+        "200":
+          description: Género encontrado
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GenreOut"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    patch:
+      tags: [genres]
+      summary: Actualizar un género
+      description: Requiere `librarian` o `sysadmin`. 409 si el nombre ya lo usa otro género.
+      operationId: updateGenre
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/GenreIdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GenreUpdate"
+      responses:
+        "200":
+          description: Género actualizado
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GenreOut"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+    delete:
+      tags: [genres]
+      summary: Eliminar un género
+      description: >
+        Requiere `librarian` o `sysadmin`. Falla con 409 si el género todavía
+        está asociado a algún libro.
+      operationId: deleteGenre
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/GenreIdPath"
+      responses:
+        "204":
+          description: Género eliminado
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+
+  /physical-books:
+    get:
+      tags: [physical_books]
+      summary: Listar ejemplares físicos
+      operationId: listPhysicalBooks
+      parameters:
+        - name: isbn
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: library_id
+          in: query
+          required: false
+          schema:
+            type: integer
+        - name: status
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/PhysicalBookStatus"
+      responses:
+        "200":
+          description: Lista de ejemplares
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/PhysicalBookOut"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+    post:
+      tags: [physical_books]
+      summary: Dar de alta un ejemplar en una sede
+      description: >
+        Requiere `sysadmin`, o el `librarian` de **esa** sede. El ejemplar nace
+        en estado `available`. 404 si el libro o la sede no existen.
+      operationId: createPhysicalBook
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PhysicalBookCreate"
+      responses:
+        "201":
+          description: Ejemplar creado
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PhysicalBookOut"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+
+  /physical-books/{physical_book_id}:
+    get:
+      tags: [physical_books]
+      summary: Obtener un ejemplar por id
+      operationId: getPhysicalBook
+      parameters:
+        - $ref: "#/components/parameters/PhysicalBookIdPath"
+      responses:
+        "200":
+          description: Ejemplar encontrado
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PhysicalBookOut"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    delete:
+      tags: [physical_books]
+      summary: Dar de baja un ejemplar
+      description: >
+        Requiere `sysadmin`, o el `librarian` de la sede que lo tiene. Falla con
+        409 si el ejemplar todavía tiene reservas asociadas.
+      operationId: deletePhysicalBook
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/PhysicalBookIdPath"
+      responses:
+        "204":
+          description: Ejemplar eliminado
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+
+  /physical-books/{physical_book_id}/status:
+    patch:
+      tags: [physical_books]
+      summary: Cambiar el estado de un ejemplar
+      description: >
+        Requiere `sysadmin`, o el `librarian` de la sede que lo tiene. Solo
+        admite las transiciones manuales `available` ↔ `lost`: pedir `reserved`
+        o `loaned` da 409 porque esos estados los maneja el flujo de reservas
+        (`POST /reservations`, `PATCH /reservations/{id}/pickup`), y un ejemplar
+        que hoy está `reserved`/`loaned` tampoco se puede tocar por acá — hay
+        que resolver su reserva primero.
+      operationId: updatePhysicalBookStatus
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/PhysicalBookIdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PhysicalBookStatusUpdate"
+      responses:
+        "200":
+          description: Ejemplar actualizado
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PhysicalBookOut"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/ValidationError"
 
   /libraries:
     get:
@@ -593,6 +1063,24 @@ components:
       required: true
       schema:
         type: integer
+    AuthorIdPath:
+      name: author_id
+      in: path
+      required: true
+      schema:
+        type: integer
+    GenreIdPath:
+      name: genre_id
+      in: path
+      required: true
+      schema:
+        type: integer
+    PhysicalBookIdPath:
+      name: physical_book_id
+      in: path
+      required: true
+      schema:
+        type: integer
 
   responses:
     NotFound:
@@ -735,6 +1223,22 @@ components:
         name:
           type: string
 
+    AuthorCreate:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 1
+
+    AuthorUpdate:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+          nullable: true
+
     GenreOut:
       type: object
       required: [id, name]
@@ -743,6 +1247,22 @@ components:
           type: integer
         name:
           type: string
+
+    GenreCreate:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 1
+
+    GenreUpdate:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+          nullable: true
 
     BookBase:
       type: object
@@ -776,6 +1296,90 @@ components:
               items:
                 $ref: "#/components/schemas/GenreOut"
               default: []
+
+    BookCreate:
+      allOf:
+        - $ref: "#/components/schemas/BookBase"
+        - type: object
+          properties:
+            isbn:
+              type: string
+              description: ISBN-13 válido (13 dígitos y dígito verificador correcto).
+              pattern: "^[0-9]{13}$"
+            author_ids:
+              type: array
+              items:
+                type: integer
+              default: []
+            genre_ids:
+              type: array
+              items:
+                type: integer
+              default: []
+
+    BookUpdate:
+      type: object
+      description: >
+        Actualización parcial. `author_ids`/`genre_ids` reemplazan la lista
+        completa cuando se envían.
+      properties:
+        title:
+          type: string
+          nullable: true
+        language:
+          type: string
+          nullable: true
+        pages:
+          type: integer
+          nullable: true
+        synopsis:
+          type: string
+          nullable: true
+        author_ids:
+          type: array
+          items:
+            type: integer
+          nullable: true
+        genre_ids:
+          type: array
+          items:
+            type: integer
+          nullable: true
+
+    PhysicalBookStatus:
+      type: string
+      enum: [available, reserved, loaned, lost]
+
+    PhysicalBookOut:
+      type: object
+      required: [id, isbn, library_id, status]
+      properties:
+        id:
+          type: integer
+        isbn:
+          type: string
+        library_id:
+          type: integer
+        status:
+          $ref: "#/components/schemas/PhysicalBookStatus"
+
+    PhysicalBookCreate:
+      type: object
+      required: [isbn, library_id]
+      properties:
+        isbn:
+          type: string
+          description: ISBN-13 válido de un libro ya existente en el catálogo.
+          pattern: "^[0-9]{13}$"
+        library_id:
+          type: integer
+
+    PhysicalBookStatusUpdate:
+      type: object
+      required: [status]
+      properties:
+        status:
+          $ref: "#/components/schemas/PhysicalBookStatus"
 
     LibraryAvailability:
       type: object
