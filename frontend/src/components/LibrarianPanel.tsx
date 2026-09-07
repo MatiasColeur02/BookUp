@@ -45,11 +45,6 @@ export function LibrarianPanel() {
   return (
     <div className="librarian-panel">
       <h2>Panel bibliotecario</h2>
-      <p className="hint">
-        Demo sin autenticación: en la arquitectura objetivo este panel requiere login (Cognito) antes de
-        exponerse.
-      </p>
-
       {error && <p className="error">{error}</p>}
 
       {loading ? (

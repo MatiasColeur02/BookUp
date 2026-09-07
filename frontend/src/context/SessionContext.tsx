@@ -1,4 +1,13 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { api } from "../api";
 import { clearToken, getToken, setToken, subscribe } from "../lib/session";
 import type { User } from "../types";
@@ -25,6 +34,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const [token, setTokenState] = useState<string | null>(() => getToken());
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState<boolean>(() => getToken() !== null);
+  // Token cuyo `User` ya trajimos: evita que el efecto de abajo repita el
+  // `GET /auth/me` que `login` acaba de hacer.
+  const resolvedToken = useRef<string | null>(null);
 
   // El token puede cambiar desde afuera de React: el interceptor de 401 de `api.ts`
   // lo limpia cuando la API rechaza la sesión.
@@ -32,7 +44,13 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (token === null) {
+      resolvedToken.current = null;
       setUser(null);
+      setLoading(false);
+      return;
+    }
+
+    if (resolvedToken.current === token) {
       setLoading(false);
       return;
     }
@@ -44,7 +62,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     api.auth
       .me()
       .then((me) => {
-        if (!cancelled) setUser(me);
+        if (cancelled) return;
+        resolvedToken.current = token;
+        setUser(me);
       })
       .catch(() => {
         if (!cancelled) setUser(null);
@@ -62,6 +82,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     const { access_token } = await api.auth.login({ email, password });
     setToken(access_token);
     const me = await api.auth.me();
+    resolvedToken.current = access_token;
     setUser(me);
     setLoading(false);
     return me;

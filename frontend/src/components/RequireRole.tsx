@@ -13,8 +13,8 @@ interface Props {
  * Guarda de ruta: sin sesión manda a `/login` (recordando a dónde iba, para poder
  * retomar después del login), y con un rol que no alcanza manda al catálogo.
  *
- * Queda declarado acá pero todavía no se aplica a ninguna ruta: la pantalla `/login`
- * llega en la Fase 2, y hasta entonces redirigir ahí dejaría el panel inalcanzable.
+ * Espera a que `loading` termine antes de decidir: si no, un refresh sobre una ruta
+ * protegida redirigiría a `/login` mientras `GET /auth/me` todavía está en vuelo.
  */
 export function RequireRole({ roles, children }: Props) {
   const { user, loading } = useSession();
