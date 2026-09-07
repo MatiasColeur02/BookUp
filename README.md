@@ -119,9 +119,21 @@ Salvo el catálogo, las sedes (lectura) y el auto-registro, todo pide un JWT en
 | GET    | `/auth/me`                         | Usuario autenticado                             | autenticado |
 | GET    | `/health`                          | Health check                                    | público |
 | GET    | `/books`                           | Listado del catálogo                            | público |
+| POST   | `/books`                           | Alta de un libro (ISBN-13 validado)             | librarian o sysadmin |
 | GET    | `/books/search?q=`                 | Búsqueda unificada por título/autor/ISBN/sinopsis | público |
 | GET    | `/books/{isbn}`                    | Detalle de un libro                             | público |
+| PATCH  | `/books/{isbn}`                    | Actualización parcial de un libro               | librarian o sysadmin |
+| DELETE | `/books/{isbn}`                    | Baja de un libro (409 si tiene ejemplares)      | librarian o sysadmin |
 | GET    | `/books/{isbn}/availability`       | Disponibilidad por biblioteca (stock cruzado)   | público |
+| GET    | `/authors`, `/authors/{id}`        | Autores del catálogo                            | público |
+| POST/PATCH/DELETE | `/authors[/{id}]`       | ABM de autores (409 al borrar si tiene libros)  | librarian o sysadmin |
+| GET    | `/genres`, `/genres/{id}`          | Géneros del catálogo                            | público |
+| POST/PATCH/DELETE | `/genres[/{id}]`        | ABM de géneros (nombre único)                   | librarian o sysadmin |
+| GET    | `/physical-books?isbn=&library_id=&status=` | Ejemplares físicos, filtrables         | público |
+| GET    | `/physical-books/{id}`             | Detalle de un ejemplar                          | público |
+| POST   | `/physical-books`                  | Alta de un ejemplar en una sede                 | sysadmin, o el librarian de esa sede |
+| PATCH  | `/physical-books/{id}/status`      | Marcar `lost` / volver a `available`            | sysadmin, o el librarian de esa sede |
+| DELETE | `/physical-books/{id}`             | Baja de un ejemplar (409 si tiene reservas)     | sysadmin, o el librarian de esa sede |
 | GET    | `/libraries`                       | Listado de bibliotecas/sedes                    | público |
 | POST   | `/libraries`                       | Alta de biblioteca                              | sysadmin |
 | GET    | `/libraries/{id}`                  | Detalle de una sede                             | público |
