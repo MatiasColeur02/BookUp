@@ -3,7 +3,7 @@ import { PinIcon } from "./icons";
 
 interface Props {
   availability: BookAvailability;
-  onReserve: (copyId: number) => void;
+  onReserve: (physicalBookId: number) => void;
 }
 
 export function BookAvailabilityView({ availability, onReserve }: Props) {
@@ -13,7 +13,7 @@ export function BookAvailabilityView({ availability, onReserve }: Props) {
     <div className="availability">
       <span className="eyebrow">Ficha del libro</span>
       <h2>{book.title}</h2>
-      <p className="author">{book.author}</p>
+      <p className="author">{book.authors.map((author) => author.name).join(", ") || "Autor desconocido"}</p>
       {book.synopsis && <p className="synopsis">{book.synopsis}</p>}
       <p className="isbn">ISBN {book.isbn}</p>
 
@@ -22,7 +22,7 @@ export function BookAvailabilityView({ availability, onReserve }: Props) {
         <p className="empty">No hay ejemplares disponibles en ninguna sede en este momento.</p>
       ) : (
         <ul className="library-list">
-          {libraries.map(({ library, available_copies, copy_id }) => (
+          {libraries.map(({ library, available_copies, physical_book_id }) => (
             <li key={library.id}>
               <div>
                 <strong>{library.name}</strong>
@@ -34,7 +34,7 @@ export function BookAvailabilityView({ availability, onReserve }: Props) {
                   </span>
                 </span>
               </div>
-              <button onClick={() => onReserve(copy_id)}>Reservar</button>
+              <button onClick={() => onReserve(physical_book_id)}>Reservar</button>
             </li>
           ))}
         </ul>

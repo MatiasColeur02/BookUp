@@ -1,24 +1,20 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../api";
-import type { Reservation, ReservationStatus } from "../types";
+import type { Reservation } from "../types";
 import { CheckIcon } from "./icons";
 
-const STATUS_LABEL: Record<ReservationStatus, string> = {
-  pending: "Pendiente",
-  confirmed: "Confirmada",
-  cancelled: "Cancelada",
-  fulfilled: "Retirada",
-};
-
-function StatusBadge({ status }: { status: ReservationStatus }) {
-  return <span className={`status-badge status-${status}`}>{STATUS_LABEL[status]}</span>;
+function StatusBadge({ pickedUp }: { pickedUp: boolean }) {
+  return (
+    <span className={`status-badge ${pickedUp ? "status-fulfilled" : "status-pending"}`}>
+      {pickedUp ? "Retirada" : "Pendiente"}
+    </span>
+  );
 }
 
 export function LibrarianPanel() {
   const [reservations, setReservations] = useState<Reservation[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [librarian, setLibrarian] = useState("");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -36,17 +32,13 @@ export function LibrarianPanel() {
     load();
   }, [load]);
 
-  const confirm = async (id: number) => {
-    if (!librarian.trim()) {
-      setError("Ingresá tu nombre para confirmar reservas.");
-      return;
-    }
+  const markPickedUp = async (id: number) => {
     setError(null);
     try {
-      await api.confirmReservation(id, librarian.trim());
+      await api.markPickedUp(id);
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Error al confirmar la reserva");
+      setError(err instanceof Error ? err.message : "Error al marcar el retiro");
     }
   };
 
@@ -57,14 +49,6 @@ export function LibrarianPanel() {
         Demo sin autenticación: en la arquitectura objetivo este panel requiere login (Cognito) antes de
         exponerse.
       </p>
-      <label className="librarian-name">
-        Bibliotecario/a
-        <input
-          value={librarian}
-          onChange={(event) => setLibrarian(event.target.value)}
-          placeholder="Tu nombre"
-        />
-      </label>
 
       {error && <p className="error">{error}</p>}
 
@@ -78,9 +62,10 @@ export function LibrarianPanel() {
             <thead>
               <tr>
                 <th>Ejemplar</th>
-                <th>Solicitante</th>
+                <th>Usuario</th>
+                <th>Reservada</th>
+                <th>Vence</th>
                 <th>Estado</th>
-                <th>Confirmado por</th>
                 <th />
               </tr>
             </thead>
@@ -88,20 +73,19 @@ export function LibrarianPanel() {
               {reservations.map((reservation) => (
                 <tr key={reservation.id}>
                   <td>
-                    <span className="badge">#{reservation.copy_id}</span>
+                    <span className="badge">#{reservation.physical_book_id}</span>
+                  </td>
+                  <td>#{reservation.user_id}</td>
+                  <td>{new Date(reservation.reserved_at).toLocaleDateString()}</td>
+                  <td>{new Date(reservation.expires_at).toLocaleDateString()}</td>
+                  <td>
+                    <StatusBadge pickedUp={reservation.picked_up} />
                   </td>
                   <td>
-                    {reservation.patron_name} <span className="muted">({reservation.patron_email})</span>
-                  </td>
-                  <td>
-                    <StatusBadge status={reservation.status} />
-                  </td>
-                  <td>{reservation.confirmed_by ?? <span className="muted">—</span>}</td>
-                  <td>
-                    {reservation.status === "pending" && (
-                      <button className="confirm-button" onClick={() => confirm(reservation.id)}>
+                    {!reservation.picked_up && (
+                      <button className="confirm-button" onClick={() => markPickedUp(reservation.id)}>
                         <CheckIcon />
-                        Confirmar
+                        Marcar retirada
                       </button>
                     )}
                   </td>

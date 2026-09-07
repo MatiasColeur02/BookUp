@@ -3,11 +3,11 @@ import { BookIcon } from "./icons";
 
 interface Props {
   books: Book[];
-  selectedId?: number;
+  selectedIsbn?: string;
   onSelect: (book: Book) => void;
 }
 
-export function BookResults({ books, selectedId, onSelect }: Props) {
+export function BookResults({ books, selectedIsbn, onSelect }: Props) {
   if (books.length === 0) {
     return (
       <div className="empty-state">
@@ -20,10 +20,10 @@ export function BookResults({ books, selectedId, onSelect }: Props) {
   return (
     <ul className="book-list">
       {books.map((book) => (
-        <li key={book.id} className={book.id === selectedId ? "selected" : ""}>
+        <li key={book.isbn} className={book.isbn === selectedIsbn ? "selected" : ""}>
           <button onClick={() => onSelect(book)}>
             <strong>{book.title}</strong>
-            <span>{book.author}</span>
+            <span>{book.authors.map((author) => author.name).join(", ") || "Autor desconocido"}</span>
           </button>
         </li>
       ))}

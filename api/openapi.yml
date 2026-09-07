@@ -1,0 +1,581 @@
+openapi: 3.0.3
+info:
+  title: BookUp API
+  description: >
+    API del MVP de BookUp: catálogo de libros, sedes de biblioteca, reservas de
+    ejemplares físicos y usuarios. Generado a partir del código en
+    `api/app/controllers/` (routers FastAPI) y `api/app/controllers/schemas.py`.
+  version: "0.1.0"
+servers:
+  - url: http://localhost:8000
+    description: Desarrollo local
+
+tags:
+  - name: catalog
+    description: Catálogo de libros (solo lectura)
+  - name: libraries
+    description: Sedes de biblioteca
+  - name: reservations
+    description: Reservas de ejemplares físicos
+  - name: users
+    description: Usuarios (clientes, bibliotecarios, sysadmins)
+  - name: health
+    description: Chequeo de salud del servicio
+
+paths:
+  /health:
+    get:
+      tags: [health]
+      summary: Health check
+      operationId: health
+      responses:
+        "200":
+          description: El servicio está operativo
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+
+  /books:
+    get:
+      tags: [catalog]
+      summary: Listar todos los libros del catálogo
+      operationId: listBooks
+      responses:
+        "200":
+          description: Lista de libros
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/BookOut"
+
+  /books/search:
+    get:
+      tags: [catalog]
+      summary: Buscar libros por texto libre
+      description: >
+        Búsqueda por título/ISBN/autor usando `ILIKE` (placeholder; en la
+        arquitectura target se reemplaza por OpenSearch).
+      operationId: searchBooks
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema:
+            type: string
+            minLength: 1
+      responses:
+        "200":
+          description: Libros que matchean la búsqueda
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/BookOut"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+
+  /books/{isbn}:
+    get:
+      tags: [catalog]
+      summary: Obtener un libro por ISBN
+      operationId: getBook
+      parameters:
+        - $ref: "#/components/parameters/IsbnPath"
+      responses:
+        "200":
+          description: Libro encontrado
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BookOut"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /books/{isbn}/availability:
+    get:
+      tags: [catalog]
+      summary: Disponibilidad de un libro por sede
+      description: >
+        Agrupa los ejemplares físicos (`PhysicalBook`) disponibles del libro
+        por sede, e informa un `physical_book_id` representativo listo para
+        reservar en cada sede.
+      operationId: getBookAvailability
+      parameters:
+        - $ref: "#/components/parameters/IsbnPath"
+      responses:
+        "200":
+          description: Disponibilidad por sede
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BookAvailability"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /libraries:
+    get:
+      tags: [libraries]
+      summary: Listar sedes de biblioteca
+      operationId: listLibraries
+      responses:
+        "200":
+          description: Lista de sedes
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/LibraryOut"
+    post:
+      tags: [libraries]
+      summary: Crear una sede de biblioteca
+      operationId: createLibrary
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LibraryCreate"
+      responses:
+        "201":
+          description: Sede creada
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LibraryOut"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+
+  /reservations:
+    post:
+      tags: [reservations]
+      summary: Crear una reserva
+      description: >
+        Reserva un ejemplar físico puntual (`physical_book_id`) para un
+        usuario. Falla con 404 si el ejemplar no existe, y con 409 si el
+        ejemplar no está `available` (ya reservado, prestado o perdido). Al
+        crearse, el ejemplar pasa a estado `reserved`.
+      operationId: createReservation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReservationCreate"
+      responses:
+        "201":
+          description: Reserva creada
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReservationOut"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+    get:
+      tags: [reservations]
+      summary: Listar reservas
+      operationId: listReservations
+      parameters:
+        - name: library_id
+          in: query
+          required: false
+          schema:
+            type: integer
+          description: Filtra las reservas por sede (a través del ejemplar físico).
+      responses:
+        "200":
+          description: Lista de reservas
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ReservationOut"
+
+  /reservations/{reservation_id}/pickup:
+    patch:
+      tags: [reservations]
+      summary: Marcar una reserva como retirada
+      description: >
+        Marca `picked_up = true` en la reserva y pasa el ejemplar físico
+        asociado a estado `loaned`. Pensado para integrarse con Cognito en el
+        portal de bibliotecarios; hoy no requiere autenticación.
+      operationId: markReservationPickedUp
+      parameters:
+        - name: reservation_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Reserva actualizada
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReservationOut"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /users:
+    post:
+      tags: [users]
+      summary: Crear un usuario
+      description: >
+        Crea un usuario con rol `customer` fijo (no es posible crear
+        `librarian`/`sysadmin` por este endpoint). Falla con 409 si el email
+        ya está registrado.
+      operationId: createUser
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UserCreate"
+      responses:
+        "201":
+          description: Usuario creado
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserOut"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+    get:
+      tags: [users]
+      summary: Listar usuarios
+      operationId: listUsers
+      responses:
+        "200":
+          description: Lista de usuarios
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/UserOut"
+
+  /users/{user_id}:
+    get:
+      tags: [users]
+      summary: Obtener un usuario por id
+      operationId: getUser
+      parameters:
+        - $ref: "#/components/parameters/UserIdPath"
+      responses:
+        "200":
+          description: Usuario encontrado
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserOut"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    patch:
+      tags: [users]
+      summary: Actualizar un usuario
+      description: Actualización parcial; solo se aplican los campos enviados.
+      operationId: updateUser
+      parameters:
+        - $ref: "#/components/parameters/UserIdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UserUpdate"
+      responses:
+        "200":
+          description: Usuario actualizado
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserOut"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+    delete:
+      tags: [users]
+      summary: Eliminar un usuario
+      operationId: deleteUser
+      parameters:
+        - $ref: "#/components/parameters/UserIdPath"
+      responses:
+        "204":
+          description: Usuario eliminado
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+components:
+  parameters:
+    IsbnPath:
+      name: isbn
+      in: path
+      required: true
+      schema:
+        type: string
+    UserIdPath:
+      name: user_id
+      in: path
+      required: true
+      schema:
+        type: integer
+
+  responses:
+    NotFound:
+      description: El recurso solicitado no existe
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorDetail"
+    Conflict:
+      description: La operación entra en conflicto con el estado actual del recurso
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorDetail"
+    ValidationError:
+      description: Error de validación del payload/parámetros (FastAPI/Pydantic)
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/HTTPValidationError"
+
+  schemas:
+    ErrorDetail:
+      type: object
+      properties:
+        detail:
+          type: string
+      example:
+        detail: "Book 9780000000000 not found"
+
+    HTTPValidationError:
+      type: object
+      properties:
+        detail:
+          type: array
+          items:
+            type: object
+            properties:
+              loc:
+                type: array
+                items:
+                  oneOf:
+                    - type: string
+                    - type: integer
+              msg:
+                type: string
+              type:
+                type: string
+
+    LibraryBase:
+      type: object
+      required: [name, address, state, city]
+      properties:
+        name:
+          type: string
+        address:
+          type: string
+        state:
+          type: string
+        city:
+          type: string
+        hours:
+          type: string
+          nullable: true
+        phone:
+          type: string
+          nullable: true
+        email:
+          type: string
+          nullable: true
+        website:
+          type: string
+          nullable: true
+
+    LibraryCreate:
+      allOf:
+        - $ref: "#/components/schemas/LibraryBase"
+
+    LibraryOut:
+      allOf:
+        - $ref: "#/components/schemas/LibraryBase"
+        - type: object
+          required: [id]
+          properties:
+            id:
+              type: integer
+
+    AuthorOut:
+      type: object
+      required: [id, name]
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+
+    GenreOut:
+      type: object
+      required: [id, name]
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+
+    BookBase:
+      type: object
+      required: [isbn, title, language]
+      properties:
+        isbn:
+          type: string
+        title:
+          type: string
+        language:
+          type: string
+        pages:
+          type: integer
+          nullable: true
+        synopsis:
+          type: string
+          nullable: true
+
+    BookOut:
+      allOf:
+        - $ref: "#/components/schemas/BookBase"
+        - type: object
+          properties:
+            authors:
+              type: array
+              items:
+                $ref: "#/components/schemas/AuthorOut"
+              default: []
+            genres:
+              type: array
+              items:
+                $ref: "#/components/schemas/GenreOut"
+              default: []
+
+    LibraryAvailability:
+      type: object
+      required: [library, available_copies, physical_book_id]
+      properties:
+        library:
+          $ref: "#/components/schemas/LibraryOut"
+        available_copies:
+          type: integer
+        physical_book_id:
+          type: integer
+          description: Id representativo de un ejemplar físico disponible en esta sede, listo para reservar.
+
+    BookAvailability:
+      type: object
+      required: [book, libraries]
+      properties:
+        book:
+          $ref: "#/components/schemas/BookOut"
+        libraries:
+          type: array
+          items:
+            $ref: "#/components/schemas/LibraryAvailability"
+
+    UserRole:
+      type: string
+      enum: [customer, librarian, sysadmin]
+
+    UserOut:
+      type: object
+      required: [id, email, name, language, role]
+      properties:
+        id:
+          type: integer
+        email:
+          type: string
+        name:
+          type: string
+        language:
+          type: string
+        role:
+          $ref: "#/components/schemas/UserRole"
+        library_id:
+          type: integer
+          nullable: true
+          description: Sede a cargo (solo aplica a `librarian`).
+
+    UserCreate:
+      type: object
+      required: [email, password, name]
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          minLength: 8
+        name:
+          type: string
+        language:
+          type: string
+          default: es
+
+    UserUpdate:
+      type: object
+      properties:
+        name:
+          type: string
+          nullable: true
+        language:
+          type: string
+          nullable: true
+        password:
+          type: string
+          minLength: 8
+          nullable: true
+
+    ReservationCreate:
+      type: object
+      required: [physical_book_id, user_id, expires_at]
+      properties:
+        physical_book_id:
+          type: integer
+        user_id:
+          type: integer
+        expires_at:
+          type: string
+          format: date-time
+
+    ReservationOut:
+      type: object
+      required: [id, user_id, physical_book_id, reserved_at, expires_at, picked_up]
+      properties:
+        id:
+          type: integer
+        user_id:
+          type: integer
+        physical_book_id:
+          type: integer
+        reserved_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+        picked_up:
+          type: boolean

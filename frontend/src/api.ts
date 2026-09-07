@@ -1,4 +1,4 @@
-import type { Book, BookAvailability, Reservation } from "./types";
+import type { Book, BookAvailability, Reservation, User } from "./types";
 
 const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
 
@@ -18,9 +18,15 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 export const api = {
   searchBooks: (query: string) => request<Book[]>(`/books/search?q=${encodeURIComponent(query)}`),
 
-  getAvailability: (bookId: number) => request<BookAvailability>(`/books/${bookId}/availability`),
+  getAvailability: (isbn: string) => request<BookAvailability>(`/books/${encodeURIComponent(isbn)}/availability`),
 
-  createReservation: (payload: { copy_id: number; patron_name: string; patron_email: string }) =>
+  createUser: (payload: { email: string; password: string; name: string; language?: string }) =>
+    request<User>("/users", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+
+  createReservation: (payload: { physical_book_id: number; user_id: number; expires_at: string }) =>
     request<Reservation>("/reservations", {
       method: "POST",
       body: JSON.stringify(payload),
@@ -29,8 +35,8 @@ export const api = {
   listReservations: (libraryId?: number) =>
     request<Reservation[]>(`/reservations${libraryId ? `?library_id=${libraryId}` : ""}`),
 
-  confirmReservation: (reservationId: number, librarian: string) =>
-    request<Reservation>(`/reservations/${reservationId}/confirm?librarian=${encodeURIComponent(librarian)}`, {
+  markPickedUp: (reservationId: number) =>
+    request<Reservation>(`/reservations/${reservationId}/pickup`, {
       method: "PATCH",
     }),
 };
