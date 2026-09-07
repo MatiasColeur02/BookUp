@@ -9,6 +9,8 @@ from .dependencies import get_current_user, require_roles
 
 router = APIRouter(prefix="/reservations", tags=["reservations"])
 
+require_staff = require_roles(UserRole.librarian, UserRole.sysadmin)
+
 
 @router.post("", response_model=schemas.ReservationOut, status_code=201)
 def create_reservation(
@@ -24,10 +26,22 @@ def create_reservation(
 @router.get("", response_model=list[schemas.ReservationOut])
 def list_reservations(
     library_id: int | None = None,
+    is_open: bool | None = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    return reservation_service.list_reservations(db, viewer=current_user, library_id=library_id)
+    return reservation_service.list_reservations(
+        db, viewer=current_user, library_id=library_id, is_open=is_open
+    )
+
+
+# Declared before `/{reservation_id}` so "expire" is not read as an id.
+@router.post("/expire", response_model=schemas.ExpiredReservations)
+def expire_reservations(
+    db: Session = Depends(get_db),
+    _: User = Depends(require_roles(UserRole.sysadmin)),
+):
+    return schemas.ExpiredReservations(expired=reservation_service.expire_reservations(db))
 
 
 @router.get("/{reservation_id}", response_model=schemas.ReservationOut)
@@ -39,10 +53,40 @@ def get_reservation(
     return reservation_service.get_reservation(db, reservation_id, viewer=current_user)
 
 
+@router.patch("/{reservation_id}", response_model=schemas.ReservationOut)
+def update_reservation(
+    reservation_id: int,
+    payload: schemas.ReservationUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_staff),
+):
+    return reservation_service.update_reservation(
+        db, reservation_id, viewer=current_user, **payload.model_dump(exclude_unset=True)
+    )
+
+
 @router.patch("/{reservation_id}/pickup", response_model=schemas.ReservationOut)
 def mark_picked_up(
     reservation_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles(UserRole.librarian, UserRole.sysadmin)),
+    current_user: User = Depends(require_staff),
 ):
     return reservation_service.mark_picked_up(db, reservation_id, viewer=current_user)
+
+
+@router.patch("/{reservation_id}/return", response_model=schemas.ReservationOut)
+def mark_returned(
+    reservation_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_staff),
+):
+    return reservation_service.mark_returned(db, reservation_id, viewer=current_user)
+
+
+@router.post("/{reservation_id}/cancel", response_model=schemas.ReservationOut)
+def cancel_reservation(
+    reservation_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return reservation_service.cancel_reservation(db, reservation_id, viewer=current_user)

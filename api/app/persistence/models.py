@@ -158,7 +158,14 @@ class PhysicalBook(Base):
 
 
 class Reservation(Base):
-    """A user's reservation of a specific physical copy."""
+    """A user's reservation of a specific physical copy.
+
+    Lifecycle, without an explicit status enum: a reservation is *open* while
+    both `cancelled_at` and `returned_at` are null, and `picked_up` tells apart
+    the two open states (reserved vs. loaned). Closing it is what releases the
+    copy: `cancelled_at` for a reservation dropped before pickup (by the user,
+    by staff, or by expiry), `returned_at` once a picked-up copy comes back.
+    """
 
     __tablename__ = "reservations"
 
@@ -168,6 +175,12 @@ class Reservation(Base):
     reserved_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     picked_up: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    cancelled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    returned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    @property
+    def is_open(self) -> bool:
+        return self.cancelled_at is None and self.returned_at is None
 
     user: Mapped["User"] = relationship(back_populates="reservations")
     physical_book: Mapped["PhysicalBook"] = relationship(back_populates="reservations")

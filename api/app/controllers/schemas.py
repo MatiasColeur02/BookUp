@@ -1,8 +1,17 @@
-from datetime import datetime
+from datetime import datetime, timezone
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
 from ..persistence.models import PhysicalBookStatus, UserRole
+
+
+def _validate_future(value: datetime) -> datetime:
+    """A reservation that expires in the past would be born already expired."""
+    # A naive datetime is read as UTC, the timezone every stored date uses.
+    reference = value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
+    if reference <= datetime.now(timezone.utc):
+        raise ValueError("expires_at must be in the future")
+    return value
 
 
 def _validate_isbn13(isbn: str) -> str:
@@ -197,6 +206,20 @@ class ReservationCreate(BaseModel):
     physical_book_id: int
     expires_at: datetime
 
+    @field_validator("expires_at")
+    @classmethod
+    def check_future(cls, value: datetime) -> datetime:
+        return _validate_future(value)
+
+
+class ReservationUpdate(BaseModel):
+    expires_at: datetime | None = None
+
+    @field_validator("expires_at")
+    @classmethod
+    def check_future(cls, value: datetime | None) -> datetime | None:
+        return None if value is None else _validate_future(value)
+
 
 class ReservationOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
@@ -206,3 +229,9 @@ class ReservationOut(BaseModel):
     reserved_at: datetime
     expires_at: datetime
     picked_up: bool
+    cancelled_at: datetime | None = None
+    returned_at: datetime | None = None
+
+
+class ExpiredReservations(BaseModel):
+    expired: int

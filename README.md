@@ -140,9 +140,13 @@ Salvo el catálogo, las sedes (lectura) y el auto-registro, todo pide un JWT en
 | PATCH  | `/libraries/{id}`                  | Actualización parcial de una sede               | sysadmin, o el librarian de esa sede |
 | DELETE | `/libraries/{id}`                  | Baja de una sede (409 si tiene ejemplares)      | sysadmin |
 | POST   | `/reservations`                    | Reservar un ejemplar disponible (a nombre del usuario del token) | autenticado |
-| GET    | `/reservations?library_id=`        | Listado de reservas                             | sysadmin (todas), librarian (su sede), customer (las propias) |
+| GET    | `/reservations?library_id=&is_open=` | Listado de reservas                           | sysadmin (todas), librarian (su sede), customer (las propias) |
 | GET    | `/reservations/{id}`               | Detalle de una reserva                          | dueño, librarian de la sede, o sysadmin |
+| PATCH  | `/reservations/{id}`               | Extender el vencimiento                         | librarian de la sede, o sysadmin |
 | PATCH  | `/reservations/{id}/pickup`        | Marcar la reserva como retirada en la sede      | librarian de la sede, o sysadmin |
+| PATCH  | `/reservations/{id}/return`        | Registrar la devolución del ejemplar            | librarian de la sede, o sysadmin |
+| POST   | `/reservations/{id}/cancel`        | Cancelar una reserva no retirada                | dueño, librarian de la sede, o sysadmin |
+| POST   | `/reservations/expire`             | Vencer las reservas no retiradas (idempotente)  | sysadmin |
 | POST   | `/users`                           | Auto-registro (rol `customer` fijo)             | público |
 | POST   | `/users/staff`                     | Alta de librarian/sysadmin                      | sysadmin |
 | GET    | `/users`                           | Listado de usuarios                             | sysadmin |

@@ -26,7 +26,15 @@ tags:
   - name: libraries
     description: Sedes de biblioteca
   - name: reservations
-    description: Reservas de ejemplares físicos
+    description: >
+      Reservas de ejemplares físicos. No hay un enum de estado: una reserva está
+      **abierta** mientras `cancelled_at` y `returned_at` sean null, y
+      `picked_up` distingue las dos etapas abiertas (reservado / prestado).
+      Cerrarla es lo que libera el ejemplar — `cancelled_at` si se dio de baja
+      antes del retiro (por el usuario, por la sede o por vencimiento),
+      `returned_at` cuando vuelve un ejemplar ya retirado. El ciclo completo es
+      `available → reserved → loaned → available`, con salida a `available` por
+      cancelación desde `reserved`, y a `lost` en cualquier punto.
   - name: users
     description: Usuarios (clientes, bibliotecarios, sysadmins)
   - name: health
@@ -579,7 +587,9 @@ paths:
       summary: Dar de baja un ejemplar
       description: >
         Requiere `sysadmin`, o el `librarian` de la sede que lo tiene. Falla con
-        409 si el ejemplar todavía tiene reservas asociadas.
+        409 si el ejemplar tiene **cualquier** reserva asociada, incluidas las ya
+        cerradas: el historial de préstamos las referencia. Para sacar de
+        circulación un ejemplar que ya circuló, marcalo `lost`.
       operationId: deletePhysicalBook
       security:
         - bearerAuth: []
@@ -603,11 +613,14 @@ paths:
       summary: Cambiar el estado de un ejemplar
       description: >
         Requiere `sysadmin`, o el `librarian` de la sede que lo tiene. Solo
-        admite las transiciones manuales `available` ↔ `lost`: pedir `reserved`
-        o `loaned` da 409 porque esos estados los maneja el flujo de reservas
-        (`POST /reservations`, `PATCH /reservations/{id}/pickup`), y un ejemplar
-        que hoy está `reserved`/`loaned` tampoco se puede tocar por acá — hay
-        que resolver su reserva primero.
+        admite `available` y `lost` como destino: pedir `reserved` o `loaned` da
+        409 porque esos estados los maneja el flujo de reservas.
+        `lost` se puede marcar en cualquier momento, incluso sobre un ejemplar
+        reservado o prestado — la reserva abierta se cierra sola
+        (`returned_at` si ya estaba retirado, `cancelled_at` si no).
+        Volver a `available`, en cambio, solo sale de `lost`: un ejemplar
+        `reserved`/`loaned` da 409, porque liberarlo es tarea de
+        `POST /reservations/{id}/cancel` o `PATCH /reservations/{id}/return`.
       operationId: updatePhysicalBookStatus
       security:
         - bearerAuth: []
@@ -759,7 +772,8 @@ paths:
         usuario autenticado**: el dueño de la reserva sale del token, ya no del
         body. Falla con 404 si el ejemplar no existe, y con 409 si el ejemplar
         no está `available` (ya reservado, prestado o perdido). Al crearse, el
-        ejemplar pasa a estado `reserved`.
+        ejemplar pasa a estado `reserved`. `expires_at` tiene que ser futuro
+        (422 si no lo es).
       operationId: createReservation
       security:
         - bearerAuth: []
@@ -800,6 +814,14 @@ paths:
           schema:
             type: integer
           description: Filtra las reservas por sede (a través del ejemplar físico).
+        - name: is_open
+          in: query
+          required: false
+          schema:
+            type: boolean
+          description: >
+            `true` devuelve solo las reservas abiertas, `false` solo las ya
+            cerradas (canceladas o devueltas). Omitirlo devuelve el historial completo.
       responses:
         "200":
           description: Lista de reservas
@@ -809,6 +831,30 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/ReservationOut"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /reservations/expire:
+    post:
+      tags: [reservations]
+      summary: Vencer las reservas no retiradas
+      description: >
+        Solo `sysadmin`. Cierra (con `cancelled_at`) las reservas abiertas cuyo
+        `expires_at` ya pasó y que nunca se retiraron, y devuelve sus ejemplares
+        a `available`. Un préstamo vencido (ya retirado) no se toca: eso es otro
+        problema. Es idempotente — pensado para un cron/EventBridge.
+      operationId: expireReservations
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Cantidad de reservas vencidas en esta corrida
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExpiredReservations"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -839,6 +885,103 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+    patch:
+      tags: [reservations]
+      summary: Extender el vencimiento de una reserva
+      description: >
+        Requiere ser el `librarian` de la sede que tiene el ejemplar, o un
+        `sysadmin`. `expires_at` tiene que ser futuro (422). Falla con 409 si la
+        reserva ya está cerrada o si el ejemplar ya fue retirado.
+      operationId: updateReservation
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/ReservationIdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReservationUpdate"
+      responses:
+        "200":
+          description: Reserva actualizada
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReservationOut"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+
+  /reservations/{reservation_id}/cancel:
+    post:
+      tags: [reservations]
+      summary: Cancelar una reserva
+      description: >
+        Cierra la reserva con `cancelled_at` (la fila se conserva, no se borra) y
+        devuelve el ejemplar a `available`. Accesible para el dueño de la
+        reserva, el `librarian` de la sede, o un `sysadmin`. Falla con 409 si la
+        reserva ya está cerrada, o si el ejemplar ya fue retirado — en ese caso
+        corresponde `PATCH /reservations/{id}/return`.
+      operationId: cancelReservation
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/ReservationIdPath"
+      responses:
+        "200":
+          description: Reserva cancelada
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReservationOut"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+
+  /reservations/{reservation_id}/return:
+    patch:
+      tags: [reservations]
+      summary: Registrar la devolución de un ejemplar
+      description: >
+        Cierra la reserva con `returned_at` y devuelve el ejemplar a
+        `available`. Requiere ser el `librarian` de la sede que tiene el
+        ejemplar, o un `sysadmin`. Falla con 409 si la reserva ya está cerrada o
+        si nunca se retiró — en ese caso corresponde
+        `POST /reservations/{id}/cancel`.
+      operationId: markReservationReturned
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/ReservationIdPath"
+      responses:
+        "200":
+          description: Devolución registrada
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReservationOut"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
 
   /reservations/{reservation_id}/pickup:
     patch:
@@ -847,7 +990,8 @@ paths:
       description: >
         Marca `picked_up = true` en la reserva y pasa el ejemplar físico
         asociado a estado `loaned`. Requiere ser el `librarian` de la sede que
-        tiene el ejemplar, o un `sysadmin`.
+        tiene el ejemplar, o un `sysadmin`. Falla con 409 si la reserva ya está
+        cerrada o ya había sido retirada.
       operationId: markReservationPickedUp
       security:
         - bearerAuth: []
@@ -866,6 +1010,8 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
 
   /users:
     post:
@@ -1522,6 +1668,16 @@ components:
         expires_at:
           type: string
           format: date-time
+          description: Tiene que ser una fecha futura.
+
+    ReservationUpdate:
+      type: object
+      properties:
+        expires_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: Nuevo vencimiento; tiene que ser una fecha futura.
 
     ReservationOut:
       type: object
@@ -1541,3 +1697,25 @@ components:
           format: date-time
         picked_up:
           type: boolean
+          description: Si el ejemplar fue retirado en la sede.
+        cancelled_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: >
+            Cuándo se dio de baja antes del retiro (por el usuario, por la sede
+            o por vencimiento). Null mientras la reserva siga abierta.
+        returned_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: >
+            Cuándo volvió el ejemplar retirado. Null mientras la reserva siga abierta.
+
+    ExpiredReservations:
+      type: object
+      required: [expired]
+      properties:
+        expired:
+          type: integer
+          description: Reservas vencidas en esta corrida.

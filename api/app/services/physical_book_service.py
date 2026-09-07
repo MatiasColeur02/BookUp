@@ -6,6 +6,7 @@ from ..persistence.repositories import (
     LibraryRepository,
     PhysicalBookRepository,
 )
+from . import reservation_service
 from .errors import ConflictError, ForbiddenError, NotFoundError
 
 # Statuses a human may set directly. `reserved` and `loaned` belong to the
@@ -65,12 +66,17 @@ def update_status(
 
     if status not in MANUAL_STATUSES:
         raise ConflictError(f"Status {status.value} is driven by the reservation flow")
-    # Flipping a copy that a reservation is pointing at would leave that
-    # reservation dangling; releasing it is the reservation flow's job.
-    if physical_book.status not in MANUAL_STATUSES:
+
+    if status is PhysicalBookStatus.lost:
+        # A copy can go missing at any point, including while a patron holds it,
+        # so closing the reservation it leaves behind is part of the operation.
+        reservation_service.close_open_reservation(db, physical_book)
+    elif physical_book.status not in MANUAL_STATUSES:
+        # Handing a held copy back to the shelf would strand its reservation;
+        # that release belongs to cancel/return.
         raise ConflictError(
             f"Physical book {physical_book_id} is {physical_book.status.value}: "
-            "resolve its reservation first"
+            "cancel or return its reservation first"
         )
 
     physical_book.status = status

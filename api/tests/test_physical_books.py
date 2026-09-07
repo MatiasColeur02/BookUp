@@ -173,17 +173,80 @@ def test_reservation_statuses_cannot_be_set_by_hand(
     assert response.status_code == 409
 
 
-def test_a_reserved_copy_cannot_be_flipped(client, catalog, db_session, sysadmin_headers):
+def test_a_held_copy_cannot_be_sent_back_to_the_shelf(
+    client, catalog, db_session, sysadmin_headers
+):
     central, _ = catalog
     copy = PhysicalBook(isbn=ISBN, library_id=central.id, status=PhysicalBookStatus.reserved)
     db_session.add(copy)
     db_session.commit()
     db_session.refresh(copy)
 
+    # Freeing a held copy is cancel/return's job, not a manual status flip.
+    response = client.patch(
+        f"/physical-books/{copy.id}/status", json={"status": "available"}, headers=sysadmin_headers
+    )
+    assert response.status_code == 409
+
+
+def test_marking_a_reserved_copy_lost_cancels_its_reservation(
+    client, catalog, db_session, sysadmin_headers, make_user, auth_headers
+):
+    central, _ = catalog
+    copy = PhysicalBook(isbn=ISBN, library_id=central.id)
+    db_session.add(copy)
+    db_session.commit()
+    db_session.refresh(copy)
+
+    customer = make_user()
+    created = client.post(
+        "/reservations",
+        json={
+            "physical_book_id": copy.id,
+            "expires_at": (datetime.now(timezone.utc) + timedelta(days=3)).isoformat(),
+        },
+        headers=auth_headers(customer),
+    ).json()
+
     response = client.patch(
         f"/physical-books/{copy.id}/status", json={"status": "lost"}, headers=sysadmin_headers
     )
-    assert response.status_code == 409
+    assert response.status_code == 200
+    assert response.json()["status"] == "lost"
+
+    detail = client.get(f"/reservations/{created['id']}", headers=sysadmin_headers).json()
+    assert detail["cancelled_at"] is not None
+    assert detail["returned_at"] is None
+
+
+def test_marking_a_loaned_copy_lost_closes_it_as_returned(
+    client, catalog, db_session, sysadmin_headers, make_user, auth_headers
+):
+    central, _ = catalog
+    copy = PhysicalBook(isbn=ISBN, library_id=central.id)
+    db_session.add(copy)
+    db_session.commit()
+    db_session.refresh(copy)
+
+    customer = make_user()
+    created = client.post(
+        "/reservations",
+        json={
+            "physical_book_id": copy.id,
+            "expires_at": (datetime.now(timezone.utc) + timedelta(days=3)).isoformat(),
+        },
+        headers=auth_headers(customer),
+    ).json()
+    client.patch(f"/reservations/{created['id']}/pickup", headers=sysadmin_headers)
+
+    response = client.patch(
+        f"/physical-books/{copy.id}/status", json={"status": "lost"}, headers=sysadmin_headers
+    )
+    assert response.status_code == 200
+
+    # The patron had it, so the loan closes as returned even though the copy is gone.
+    detail = client.get(f"/reservations/{created['id']}", headers=sysadmin_headers).json()
+    assert detail["returned_at"] is not None
 
 
 def test_update_status_not_found(client, sysadmin_headers):
