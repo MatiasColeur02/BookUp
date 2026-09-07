@@ -20,6 +20,17 @@ class LibraryCreate(LibraryBase):
     pass
 
 
+class LibraryUpdate(BaseModel):
+    name: str | None = None
+    address: str | None = None
+    state: str | None = None
+    city: str | None = None
+    hours: str | None = None
+    phone: str | None = None
+    email: str | None = None
+    website: str | None = None
+
+
 class LibraryOut(LibraryBase):
     model_config = ConfigDict(from_attributes=True)
     id: int

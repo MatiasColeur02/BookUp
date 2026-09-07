@@ -1,3 +1,6 @@
+from app.persistence.models import Book, PhysicalBook
+
+
 def test_create_library(client):
     payload = {
         "name": "Biblioteca Central",
@@ -46,3 +49,66 @@ def test_list_libraries(client):
     response = client.get("/libraries")
     assert response.status_code == 200
     assert len(response.json()) == 2
+
+
+def _create_library(client, **overrides) -> dict:
+    payload = {"name": "Central", "address": "Calle 1", "state": "BA", "city": "CABA"}
+    payload.update(overrides)
+    return client.post("/libraries", json=payload).json()
+
+
+def test_get_library(client):
+    created = _create_library(client)
+
+    response = client.get(f"/libraries/{created['id']}")
+    assert response.status_code == 200
+    assert response.json() == created
+
+
+def test_get_library_not_found(client):
+    response = client.get("/libraries/9999")
+    assert response.status_code == 404
+
+
+def test_update_library_partial(client):
+    created = _create_library(client, phone="1234-5678")
+
+    response = client.patch(f"/libraries/{created['id']}", json={"name": "Central renombrada"})
+    assert response.status_code == 200
+    body = response.json()
+    assert body["name"] == "Central renombrada"
+    # Untouched fields keep their previous value.
+    assert body["address"] == created["address"]
+    assert body["phone"] == "1234-5678"
+
+
+def test_update_library_not_found(client):
+    response = client.patch("/libraries/9999", json={"name": "Fantasma"})
+    assert response.status_code == 404
+
+
+def test_delete_library(client):
+    created = _create_library(client)
+
+    response = client.delete(f"/libraries/{created['id']}")
+    assert response.status_code == 204
+    assert client.get(f"/libraries/{created['id']}").status_code == 404
+
+
+def test_delete_library_not_found(client):
+    response = client.delete("/libraries/9999")
+    assert response.status_code == 404
+
+
+def test_delete_library_conflicts_with_physical_books(client, db_session):
+    created = _create_library(client)
+
+    book = Book(isbn="9780307474728", title="Cien años de soledad", language="es")
+    db_session.add(book)
+    db_session.flush()
+    db_session.add(PhysicalBook(isbn=book.isbn, library_id=created["id"]))
+    db_session.commit()
+
+    response = client.delete(f"/libraries/{created['id']}")
+    assert response.status_code == 409
+    assert client.get(f"/libraries/{created['id']}").status_code == 200

@@ -154,6 +154,65 @@ paths:
         "422":
           $ref: "#/components/responses/ValidationError"
 
+  /libraries/{library_id}:
+    get:
+      tags: [libraries]
+      summary: Obtener una sede por id
+      operationId: getLibrary
+      parameters:
+        - $ref: "#/components/parameters/LibraryIdPath"
+      responses:
+        "200":
+          description: Sede encontrada
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LibraryOut"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    patch:
+      tags: [libraries]
+      summary: Actualizar una sede
+      description: >
+        Actualización parcial; solo se aplican los campos enviados. Un campo
+        enviado en `null` se ignora (no borra el valor existente).
+      operationId: updateLibrary
+      parameters:
+        - $ref: "#/components/parameters/LibraryIdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LibraryUpdate"
+      responses:
+        "200":
+          description: Sede actualizada
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LibraryOut"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+    delete:
+      tags: [libraries]
+      summary: Eliminar una sede
+      description: >
+        Falla con 409 si la sede todavía tiene ejemplares físicos asociados,
+        para no dejarlos huérfanos.
+      operationId: deleteLibrary
+      parameters:
+        - $ref: "#/components/parameters/LibraryIdPath"
+      responses:
+        "204":
+          description: Sede eliminada
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+
   /reservations:
     post:
       tags: [reservations]
@@ -204,6 +263,23 @@ paths:
                 items:
                   $ref: "#/components/schemas/ReservationOut"
 
+  /reservations/{reservation_id}:
+    get:
+      tags: [reservations]
+      summary: Obtener una reserva por id
+      operationId: getReservation
+      parameters:
+        - $ref: "#/components/parameters/ReservationIdPath"
+      responses:
+        "200":
+          description: Reserva encontrada
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReservationOut"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
   /reservations/{reservation_id}/pickup:
     patch:
       tags: [reservations]
@@ -214,11 +290,7 @@ paths:
         portal de bibliotecarios; hoy no requiere autenticación.
       operationId: markReservationPickedUp
       parameters:
-        - name: reservation_id
-          in: path
-          required: true
-          schema:
-            type: integer
+        - $ref: "#/components/parameters/ReservationIdPath"
       responses:
         "200":
           description: Reserva actualizada
@@ -335,6 +407,18 @@ components:
       required: true
       schema:
         type: integer
+    LibraryIdPath:
+      name: library_id
+      in: path
+      required: true
+      schema:
+        type: integer
+    ReservationIdPath:
+      name: reservation_id
+      in: path
+      required: true
+      schema:
+        type: integer
 
   responses:
     NotFound:
@@ -412,6 +496,35 @@ components:
     LibraryCreate:
       allOf:
         - $ref: "#/components/schemas/LibraryBase"
+
+    LibraryUpdate:
+      type: object
+      description: Todos los campos son opcionales; solo se aplican los enviados.
+      properties:
+        name:
+          type: string
+          nullable: true
+        address:
+          type: string
+          nullable: true
+        state:
+          type: string
+          nullable: true
+        city:
+          type: string
+          nullable: true
+        hours:
+          type: string
+          nullable: true
+        phone:
+          type: string
+          nullable: true
+        email:
+          type: string
+          nullable: true
+        website:
+          type: string
+          nullable: true
 
     LibraryOut:
       allOf:

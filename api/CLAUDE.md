@@ -55,6 +55,5 @@ Monolito en capas, con dependencias apuntando siempre hacia adentro:
 
 ### Estado conocido / desalineado
 
-- `alembic/versions/0001_initial.py` y `tests/` todavía reflejan el esquema **anterior** al rediseño de `models.py` (entidades `Copy`/`CopyStatus`, `patron_name`/`patron_email`, `Reservation.status`/`confirmed_by`, `Book.author` como string suelto). No se regeneró la migración inicial ni se actualizaron los tests todavía — antes de correr `alembic upgrade head` contra una base nueva hace falta generar una migración que matchee el `models.py` actual.
 - El endpoint de confirmación de reservas es `PATCH /reservations/{id}/pickup` (antes `/confirm`) y no tiene autenticación; está pensado para integrarse con Cognito en el portal de bibliotecarios (ver README raíz, sección "De este MVP a la arquitectura en AWS").
 - La búsqueda de catálogo (`BookRepository.search`) usa `ILIKE` como placeholder; en la arquitectura target la reemplaza OpenSearch.

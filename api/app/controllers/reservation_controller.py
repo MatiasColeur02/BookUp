@@ -18,6 +18,11 @@ def list_reservations(library_id: int | None = None, db: Session = Depends(get_d
     return reservation_service.list_reservations(db, library_id)
 
 
+@router.get("/{reservation_id}", response_model=schemas.ReservationOut)
+def get_reservation(reservation_id: int, db: Session = Depends(get_db)):
+    return reservation_service.get_reservation(db, reservation_id)
+
+
 @router.patch("/{reservation_id}/pickup", response_model=schemas.ReservationOut)
 def mark_picked_up(reservation_id: int, db: Session = Depends(get_db)):
     return reservation_service.mark_picked_up(db, reservation_id)

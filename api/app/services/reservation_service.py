@@ -26,15 +26,19 @@ def create_reservation(
     return reservation
 
 
+def get_reservation(db: Session, reservation_id: int) -> Reservation:
+    reservation = ReservationRepository(db).get(reservation_id)
+    if reservation is None:
+        raise NotFoundError(f"Reservation {reservation_id} not found")
+    return reservation
+
+
 def list_reservations(db: Session, library_id: int | None = None) -> list[Reservation]:
     return ReservationRepository(db).list(library_id)
 
 
 def mark_picked_up(db: Session, reservation_id: int) -> Reservation:
-    repo = ReservationRepository(db)
-    reservation = repo.get(reservation_id)
-    if reservation is None:
-        raise NotFoundError(f"Reservation {reservation_id} not found")
+    reservation = get_reservation(db, reservation_id)
 
     reservation.picked_up = True
     reservation.physical_book.status = PhysicalBookStatus.loaned

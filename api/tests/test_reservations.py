@@ -111,6 +111,27 @@ def test_list_reservations_filtered_by_library(client, reservation_setup, db_ses
     assert len(response.json()) == 1
 
 
+def test_get_reservation(client, reservation_setup):
+    physical_book, user = reservation_setup
+    created = client.post(
+        "/reservations",
+        json={
+            "physical_book_id": physical_book.id,
+            "user_id": user.id,
+            "expires_at": _expires_at(),
+        },
+    ).json()
+
+    response = client.get(f"/reservations/{created['id']}")
+    assert response.status_code == 200
+    assert response.json() == created
+
+
+def test_get_reservation_not_found(client):
+    response = client.get("/reservations/9999")
+    assert response.status_code == 404
+
+
 def test_mark_picked_up(client, reservation_setup):
     physical_book, user = reservation_setup
     created = client.post(

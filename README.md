@@ -25,17 +25,20 @@ api/
     config.py               # settings (DATABASE_URL, CORS, etc.)
     persistence/              # capa de datos: no sabe nada de HTTP
       database.py               # engine, sesión, Base
-      models.py                  # entidades ORM: Library, Book, Copy, Reservation
+      models.py                  # entidades ORM: User, Library, Book, Author,
+                                 #   Genre, PhysicalBook, Reservation
       repositories/                # acceso a datos por entidad
     services/                  # lógica de negocio, no depende de FastAPI
       catalog_service.py           # búsqueda y disponibilidad cruzada
       library_service.py
       reservation_service.py
+      user_service.py
       errors.py                     # NotFoundError / ConflictError (dominio)
     controllers/               # capa HTTP: routers + esquemas Pydantic
       catalog_controller.py
       library_controller.py
       reservation_controller.py
+      user_controller.py
       schemas.py
     seed.py                    # carga de datos de ejemplo
   alembic/                   # migraciones de base de datos
@@ -99,17 +102,29 @@ npm run dev
 
 ## Endpoints del MVP
 
+La superficie completa está documentada en [`api/openapi.yml`](api/openapi.yml).
+
 | Método | Ruta                              | Descripción                                    |
 |--------|------------------------------------|-------------------------------------------------|
 | GET    | `/health`                          | Health check                                    |
+| GET    | `/books`                           | Listado del catálogo                            |
 | GET    | `/books/search?q=`                 | Búsqueda unificada por título/autor/ISBN/sinopsis |
-| GET    | `/books/{id}`                      | Detalle de un libro                             |
-| GET    | `/books/{id}/availability`         | Disponibilidad por biblioteca (stock cruzado)   |
+| GET    | `/books/{isbn}`                    | Detalle de un libro                             |
+| GET    | `/books/{isbn}/availability`       | Disponibilidad por biblioteca (stock cruzado)   |
 | GET    | `/libraries`                       | Listado de bibliotecas/sedes                    |
 | POST   | `/libraries`                       | Alta de biblioteca                              |
+| GET    | `/libraries/{id}`                  | Detalle de una sede                             |
+| PATCH  | `/libraries/{id}`                  | Actualización parcial de una sede               |
+| DELETE | `/libraries/{id}`                  | Baja de una sede (409 si tiene ejemplares)      |
 | POST   | `/reservations`                    | Crear una reserva sobre un ejemplar disponible  |
 | GET    | `/reservations?library_id=`        | Listado de reservas, filtrable por sede         |
-| PATCH  | `/reservations/{id}/confirm`       | Confirmación de reserva por un bibliotecario    |
+| GET    | `/reservations/{id}`               | Detalle de una reserva                          |
+| PATCH  | `/reservations/{id}/pickup`        | Marcar la reserva como retirada en la sede      |
+| POST   | `/users`                           | Alta de usuario (rol `customer`)                |
+| GET    | `/users`                           | Listado de usuarios                             |
+| GET    | `/users/{id}`                      | Detalle de un usuario                           |
+| PATCH  | `/users/{id}`                      | Actualización parcial de un usuario             |
+| DELETE | `/users/{id}`                      | Baja de un usuario                              |
 
 ## Frontend
 
