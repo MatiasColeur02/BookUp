@@ -2,6 +2,10 @@
 
 from .persistence import models
 from .persistence.database import Base, SessionLocal, engine
+from .services.auth_service import hash_password
+
+# Development-only credentials: every seeded user shares this password.
+SEED_PASSWORD = "bookup123"
 
 
 def seed() -> None:
@@ -71,8 +75,41 @@ def seed() -> None:
                 models.PhysicalBook(isbn=books[2].isbn, library_id=norte.id),
             ]
         )
+        # Without at least one sysadmin nobody can create libraries or staff
+        # through the API, so the seed bootstraps one of each role.
+        password_hash = hash_password(SEED_PASSWORD)
+        db.add_all(
+            [
+                models.User(
+                    email="admin@bookup.example",
+                    password_hash=password_hash,
+                    name="Sysadmin",
+                    role=models.UserRole.sysadmin,
+                ),
+                models.User(
+                    email="central@bookup.example",
+                    password_hash=password_hash,
+                    name="Bibliotecario Central",
+                    role=models.UserRole.librarian,
+                    library_id=central.id,
+                ),
+                models.User(
+                    email="norte@bookup.example",
+                    password_hash=password_hash,
+                    name="Bibliotecario Norte",
+                    role=models.UserRole.librarian,
+                    library_id=norte.id,
+                ),
+                models.User(
+                    email="ana@bookup.example",
+                    password_hash=password_hash,
+                    name="Ana Lectora",
+                    role=models.UserRole.customer,
+                ),
+            ]
+        )
         db.commit()
-        print("Sample data loaded.")
+        print(f"Sample data loaded. Seeded users share the password {SEED_PASSWORD!r}.")
     finally:
         db.close()
 

@@ -1,8 +1,8 @@
 from sqlalchemy.orm import Session
 
-from ..persistence.models import Library
+from ..persistence.models import Library, User, UserRole
 from ..persistence.repositories import LibraryRepository
-from .errors import ConflictError, NotFoundError
+from .errors import ConflictError, ForbiddenError, NotFoundError
 
 
 def list_libraries(db: Session) -> list[Library]:
@@ -45,10 +45,20 @@ def create_library(
     return library
 
 
+def _assert_can_manage(editor: User, library_id: int) -> None:
+    """A sysadmin manages every branch; a librarian only their own."""
+    if editor.role is UserRole.sysadmin:
+        return
+    if editor.role is UserRole.librarian and editor.library_id == library_id:
+        return
+    raise ForbiddenError(f"You are not allowed to manage library {library_id}")
+
+
 def update_library(
     db: Session,
     library_id: int,
     *,
+    editor: User,
     name: str | None = None,
     address: str | None = None,
     state: str | None = None,
@@ -59,6 +69,7 @@ def update_library(
     website: str | None = None,
 ) -> Library:
     library = get_library(db, library_id)
+    _assert_can_manage(editor, library_id)
 
     # Partial update: like `update_user`, a None means "not sent" rather than
     # "set to null", so the optional fields can't be cleared through here.

@@ -1,9 +1,9 @@
 import bcrypt
 
-from app.persistence.models import User
+from app.persistence.models import Library, User, UserRole
 
 
-def test_create_user(client):
+def test_create_user_is_public(client):
     response = client.post(
         "/users", json={"email": "ana@example.com", "password": "secret123", "name": "Ana"}
     )
@@ -16,6 +16,21 @@ def test_create_user(client):
     assert body["library_id"] is None
     assert "password" not in body
     assert "password_hash" not in body
+
+
+def test_create_user_cannot_choose_its_role(client):
+    response = client.post(
+        "/users",
+        json={
+            "email": "wannabe@example.com",
+            "password": "secret123",
+            "name": "Wannabe",
+            "role": "sysadmin",
+        },
+    )
+    # `role` is not part of UserCreate, so it is ignored: the user is a customer.
+    assert response.status_code == 201
+    assert response.json()["role"] == "customer"
 
 
 def test_create_user_hashes_password(client, db_session):
@@ -41,71 +56,210 @@ def test_create_user_rejects_short_password(client):
     assert response.status_code == 422
 
 
-def test_get_user(client):
-    created = client.post(
-        "/users", json={"email": "get@example.com", "password": "secret123", "name": "Get"}
-    ).json()
+def test_create_staff_user(client, sysadmin_headers, db_session):
+    library = Library(name="Central", address="Calle 1", state="BA", city="CABA")
+    db_session.add(library)
+    db_session.commit()
 
-    response = client.get(f"/users/{created['id']}")
-    assert response.status_code == 200
-    assert response.json() == created
+    response = client.post(
+        "/users/staff",
+        json={
+            "email": "bibliotecario@example.com",
+            "password": "secret123",
+            "name": "Biblio",
+            "role": "librarian",
+            "library_id": library.id,
+        },
+        headers=sysadmin_headers,
+    )
+    assert response.status_code == 201
+    body = response.json()
+    assert body["role"] == "librarian"
+    assert body["library_id"] == library.id
 
 
-def test_get_user_not_found(client):
-    response = client.get("/users/999")
+def test_create_staff_user_forbidden_for_customers(client, make_user, auth_headers):
+    response = client.post(
+        "/users/staff",
+        json={
+            "email": "sneaky@example.com",
+            "password": "secret123",
+            "name": "Sneaky",
+            "role": "sysadmin",
+        },
+        headers=auth_headers(make_user()),
+    )
+    assert response.status_code == 403
+
+
+def test_create_staff_user_requires_a_token(client):
+    response = client.post(
+        "/users/staff",
+        json={
+            "email": "sneaky@example.com",
+            "password": "secret123",
+            "name": "Sneaky",
+            "role": "sysadmin",
+        },
+    )
+    assert response.status_code == 401
+
+
+def test_create_staff_user_rejects_library_id_on_a_non_librarian(client, sysadmin_headers, db_session):
+    library = Library(name="Central", address="Calle 1", state="BA", city="CABA")
+    db_session.add(library)
+    db_session.commit()
+
+    response = client.post(
+        "/users/staff",
+        json={
+            "email": "confused@example.com",
+            "password": "secret123",
+            "name": "Confused",
+            "role": "sysadmin",
+            "library_id": library.id,
+        },
+        headers=sysadmin_headers,
+    )
+    assert response.status_code == 409
+
+
+def test_create_staff_user_with_unknown_library(client, sysadmin_headers):
+    response = client.post(
+        "/users/staff",
+        json={
+            "email": "ghost@example.com",
+            "password": "secret123",
+            "name": "Ghost",
+            "role": "librarian",
+            "library_id": 9999,
+        },
+        headers=sysadmin_headers,
+    )
     assert response.status_code == 404
 
 
-def test_list_users(client):
-    client.post("/users", json={"email": "one@example.com", "password": "secret123", "name": "One"})
-    client.post("/users", json={"email": "two@example.com", "password": "secret123", "name": "Two"})
+def test_list_users_requires_sysadmin(client, make_user, auth_headers, sysadmin_headers):
+    make_user()
 
-    response = client.get("/users")
+    assert client.get("/users").status_code == 401
+    assert client.get("/users", headers=auth_headers(make_user())).status_code == 403
+
+    response = client.get("/users", headers=sysadmin_headers)
     assert response.status_code == 200
-    assert len(response.json()) == 2
+    assert len(response.json()) >= 1
 
 
-def test_patch_user_updates_name_and_language(client):
-    created = client.post(
-        "/users", json={"email": "patch@example.com", "password": "secret123", "name": "Patchy"}
-    ).json()
+def test_get_own_user(client, make_user, auth_headers):
+    user = make_user()
+    response = client.get(f"/users/{user.id}", headers=auth_headers(user))
+    assert response.status_code == 200
+    assert response.json()["id"] == user.id
 
-    response = client.patch(f"/users/{created['id']}", json={"name": "Patched", "language": "en"})
+
+def test_get_another_user_is_forbidden(client, make_user, auth_headers):
+    user = make_user()
+    other = make_user()
+    response = client.get(f"/users/{other.id}", headers=auth_headers(user))
+    assert response.status_code == 403
+
+
+def test_sysadmin_can_get_any_user(client, make_user, sysadmin_headers):
+    user = make_user()
+    response = client.get(f"/users/{user.id}", headers=sysadmin_headers)
+    assert response.status_code == 200
+
+
+def test_get_user_not_found(client, sysadmin_headers):
+    response = client.get("/users/9999", headers=sysadmin_headers)
+    assert response.status_code == 404
+
+
+def test_patch_user_updates_name_and_language(client, make_user, auth_headers):
+    user = make_user()
+    response = client.patch(
+        f"/users/{user.id}", json={"name": "Patched", "language": "en"}, headers=auth_headers(user)
+    )
     assert response.status_code == 200
     body = response.json()
     assert body["name"] == "Patched"
     assert body["language"] == "en"
-    assert body["email"] == "patch@example.com"
+    assert body["email"] == user.email
 
 
-def test_patch_user_updates_password(client, db_session):
-    created = client.post(
-        "/users", json={"email": "pw@example.com", "password": "secret123", "name": "Pw"}
-    ).json()
-
-    response = client.patch(f"/users/{created['id']}", json={"password": "newsecret123"})
+def test_patch_user_updates_password(client, make_user, auth_headers, db_session):
+    user = make_user()
+    response = client.patch(
+        f"/users/{user.id}", json={"password": "newsecret123"}, headers=auth_headers(user)
+    )
     assert response.status_code == 200
 
-    user = db_session.query(User).filter_by(id=created["id"]).first()
-    assert bcrypt.checkpw(b"newsecret123", user.password_hash.encode("utf-8"))
+    db_session.expire_all()
+    refreshed = db_session.get(User, user.id)
+    assert bcrypt.checkpw(b"newsecret123", refreshed.password_hash.encode("utf-8"))
 
 
-def test_patch_user_not_found(client):
-    response = client.patch("/users/999", json={"name": "Nobody"})
+def test_customer_cannot_promote_themselves(client, make_user, auth_headers):
+    user = make_user()
+    response = client.patch(
+        f"/users/{user.id}", json={"role": "sysadmin"}, headers=auth_headers(user)
+    )
+    assert response.status_code == 403
+
+
+def test_sysadmin_can_assign_a_librarian_to_a_library(
+    client, make_user, sysadmin_headers, db_session
+):
+    library = Library(name="Central", address="Calle 1", state="BA", city="CABA")
+    db_session.add(library)
+    db_session.commit()
+    user = make_user()
+
+    response = client.patch(
+        f"/users/{user.id}",
+        json={"role": "librarian", "library_id": library.id},
+        headers=sysadmin_headers,
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["role"] == "librarian"
+    assert body["library_id"] == library.id
+
+
+def test_demoting_a_librarian_clears_their_library(
+    client, make_user, sysadmin_headers, db_session
+):
+    library = Library(name="Central", address="Calle 1", state="BA", city="CABA")
+    db_session.add(library)
+    db_session.commit()
+    librarian = make_user(UserRole.librarian, library_id=library.id)
+
+    response = client.patch(
+        f"/users/{librarian.id}", json={"role": "customer"}, headers=sysadmin_headers
+    )
+    assert response.status_code == 200
+    assert response.json()["library_id"] is None
+
+
+def test_patch_user_not_found(client, sysadmin_headers):
+    response = client.patch("/users/9999", json={"name": "Nobody"}, headers=sysadmin_headers)
     assert response.status_code == 404
 
 
-def test_delete_user(client):
-    created = client.post(
-        "/users", json={"email": "del@example.com", "password": "secret123", "name": "Del"}
-    ).json()
-
-    response = client.delete(f"/users/{created['id']}")
+def test_delete_own_user(client, make_user, auth_headers, sysadmin_headers):
+    user = make_user()
+    response = client.delete(f"/users/{user.id}", headers=auth_headers(user))
     assert response.status_code == 204
+    assert client.get(f"/users/{user.id}", headers=sysadmin_headers).status_code == 404
 
-    assert client.get(f"/users/{created['id']}").status_code == 404
+
+def test_delete_another_user_is_forbidden(client, make_user, auth_headers):
+    user = make_user()
+    other = make_user()
+    response = client.delete(f"/users/{other.id}", headers=auth_headers(user))
+    assert response.status_code == 403
 
 
-def test_delete_user_not_found(client):
-    response = client.delete("/users/999")
+def test_delete_user_not_found(client, sysadmin_headers):
+    response = client.delete("/users/9999", headers=sysadmin_headers)
     assert response.status_code == 404

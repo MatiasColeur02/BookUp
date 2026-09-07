@@ -11,6 +11,8 @@ servers:
     description: Desarrollo local
 
 tags:
+  - name: auth
+    description: Login y datos del usuario autenticado
   - name: catalog
     description: Catálogo de libros (solo lectura)
   - name: libraries
@@ -23,6 +25,51 @@ tags:
     description: Chequeo de salud del servicio
 
 paths:
+  /auth/login:
+    post:
+      tags: [auth]
+      summary: Obtener un token de acceso
+      description: >
+        Valida email + password y devuelve un JWT firmado (HS256) con el id, el
+        rol y la sede del usuario. Responde 401 tanto si el email no existe como
+        si la password es incorrecta, para no filtrar qué emails están
+        registrados.
+      operationId: login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+      responses:
+        "200":
+          description: Token emitido
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TokenOut"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+
+  /auth/me:
+    get:
+      tags: [auth]
+      summary: Datos del usuario autenticado
+      operationId: getCurrentUser
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Usuario autenticado
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserOut"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
   /health:
     get:
       tags: [health]
@@ -137,7 +184,10 @@ paths:
     post:
       tags: [libraries]
       summary: Crear una sede de biblioteca
+      description: Solo `sysadmin`.
       operationId: createLibrary
+      security:
+        - bearerAuth: []
       requestBody:
         required: true
         content:
@@ -151,6 +201,10 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/LibraryOut"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "422":
           $ref: "#/components/responses/ValidationError"
 
@@ -176,7 +230,10 @@ paths:
       description: >
         Actualización parcial; solo se aplican los campos enviados. Un campo
         enviado en `null` se ignora (no borra el valor existente).
+        Requiere `sysadmin`, o el `librarian` a cargo de **esta** sede.
       operationId: updateLibrary
+      security:
+        - bearerAuth: []
       parameters:
         - $ref: "#/components/parameters/LibraryIdPath"
       requestBody:
@@ -192,6 +249,10 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/LibraryOut"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
         "422":
@@ -200,14 +261,20 @@ paths:
       tags: [libraries]
       summary: Eliminar una sede
       description: >
-        Falla con 409 si la sede todavía tiene ejemplares físicos asociados,
-        para no dejarlos huérfanos.
+        Solo `sysadmin`. Falla con 409 si la sede todavía tiene ejemplares
+        físicos asociados, para no dejarlos huérfanos.
       operationId: deleteLibrary
+      security:
+        - bearerAuth: []
       parameters:
         - $ref: "#/components/parameters/LibraryIdPath"
       responses:
         "204":
           description: Sede eliminada
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
         "409":
@@ -218,11 +285,14 @@ paths:
       tags: [reservations]
       summary: Crear una reserva
       description: >
-        Reserva un ejemplar físico puntual (`physical_book_id`) para un
-        usuario. Falla con 404 si el ejemplar no existe, y con 409 si el
-        ejemplar no está `available` (ya reservado, prestado o perdido). Al
-        crearse, el ejemplar pasa a estado `reserved`.
+        Reserva un ejemplar físico puntual (`physical_book_id`) **a nombre del
+        usuario autenticado**: el dueño de la reserva sale del token, ya no del
+        body. Falla con 404 si el ejemplar no existe, y con 409 si el ejemplar
+        no está `available` (ya reservado, prestado o perdido). Al crearse, el
+        ejemplar pasa a estado `reserved`.
       operationId: createReservation
+      security:
+        - bearerAuth: []
       requestBody:
         required: true
         content:
@@ -236,6 +306,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ReservationOut"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
         "404":
           $ref: "#/components/responses/NotFound"
         "409":
@@ -245,7 +317,12 @@ paths:
     get:
       tags: [reservations]
       summary: Listar reservas
+      description: >
+        El alcance depende del rol: un `sysadmin` ve todas, un `librarian` solo
+        las de su sede (pedir otra da 403), y un `customer` solo las propias.
       operationId: listReservations
+      security:
+        - bearerAuth: []
       parameters:
         - name: library_id
           in: query
@@ -262,12 +339,21 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/ReservationOut"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
 
   /reservations/{reservation_id}:
     get:
       tags: [reservations]
       summary: Obtener una reserva por id
+      description: >
+        Accesible para el dueño de la reserva, el `librarian` de la sede que
+        tiene el ejemplar, o un `sysadmin`.
       operationId: getReservation
+      security:
+        - bearerAuth: []
       parameters:
         - $ref: "#/components/parameters/ReservationIdPath"
       responses:
@@ -277,6 +363,10 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ReservationOut"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
 
@@ -286,9 +376,11 @@ paths:
       summary: Marcar una reserva como retirada
       description: >
         Marca `picked_up = true` en la reserva y pasa el ejemplar físico
-        asociado a estado `loaned`. Pensado para integrarse con Cognito en el
-        portal de bibliotecarios; hoy no requiere autenticación.
+        asociado a estado `loaned`. Requiere ser el `librarian` de la sede que
+        tiene el ejemplar, o un `sysadmin`.
       operationId: markReservationPickedUp
+      security:
+        - bearerAuth: []
       parameters:
         - $ref: "#/components/parameters/ReservationIdPath"
       responses:
@@ -298,6 +390,10 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ReservationOut"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
 
@@ -306,9 +402,9 @@ paths:
       tags: [users]
       summary: Crear un usuario
       description: >
-        Crea un usuario con rol `customer` fijo (no es posible crear
-        `librarian`/`sysadmin` por este endpoint). Falla con 409 si el email
-        ya está registrado.
+        Auto-registro público: crea un usuario con rol `customer` fijo. Para
+        dar de alta `librarian`/`sysadmin` está `POST /users/staff`. Falla con
+        409 si el email ya está registrado.
       operationId: createUser
       requestBody:
         required: true
@@ -330,7 +426,10 @@ paths:
     get:
       tags: [users]
       summary: Listar usuarios
+      description: Solo `sysadmin`.
       operationId: listUsers
+      security:
+        - bearerAuth: []
       responses:
         "200":
           description: Lista de usuarios
@@ -340,12 +439,55 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/UserOut"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /users/staff:
+    post:
+      tags: [users]
+      summary: Crear un usuario de personal (librarian/sysadmin)
+      description: >
+        Solo `sysadmin`. A diferencia de `POST /users`, permite elegir `role` y
+        asignar `library_id`. `library_id` solo es válido junto con
+        `role=librarian` (409 en cualquier otra combinación) y la sede tiene que
+        existir (404).
+      operationId: createStaffUser
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UserStaffCreate"
+      responses:
+        "201":
+          description: Usuario creado
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserOut"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/ValidationError"
 
   /users/{user_id}:
     get:
       tags: [users]
       summary: Obtener un usuario por id
+      description: Accesible para el propio usuario o para un `sysadmin`.
       operationId: getUser
+      security:
+        - bearerAuth: []
       parameters:
         - $ref: "#/components/parameters/UserIdPath"
       responses:
@@ -355,13 +497,23 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/UserOut"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
     patch:
       tags: [users]
       summary: Actualizar un usuario
-      description: Actualización parcial; solo se aplican los campos enviados.
+      description: >
+        Actualización parcial; solo se aplican los campos enviados. Accesible
+        para el propio usuario o para un `sysadmin`, pero `role` y `library_id`
+        solo los puede tocar un `sysadmin` (403 en caso contrario). Bajar a un
+        `librarian` a otro rol limpia su `library_id` automáticamente.
       operationId: updateUser
+      security:
+        - bearerAuth: []
       parameters:
         - $ref: "#/components/parameters/UserIdPath"
       requestBody:
@@ -377,23 +529,45 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/UserOut"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
         "422":
           $ref: "#/components/responses/ValidationError"
     delete:
       tags: [users]
       summary: Eliminar un usuario
+      description: Accesible para el propio usuario o para un `sysadmin`.
       operationId: deleteUser
+      security:
+        - bearerAuth: []
       parameters:
         - $ref: "#/components/parameters/UserIdPath"
       responses:
         "204":
           description: Usuario eliminado
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
 
 components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: >
+        JWT emitido por `POST /auth/login`, enviado en el header
+        `Authorization` con el prefijo `Bearer`.
+
   parameters:
     IsbnPath:
       name: isbn
@@ -423,6 +597,23 @@ components:
   responses:
     NotFound:
       description: El recurso solicitado no existe
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorDetail"
+    Unauthorized:
+      description: Falta el token, está vencido o es inválido
+      headers:
+        WWW-Authenticate:
+          schema:
+            type: string
+          example: Bearer
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorDetail"
+    Forbidden:
+      description: El usuario está autenticado pero no tiene permiso para esta operación
       content:
         application/json:
           schema:
@@ -648,6 +839,28 @@ components:
           type: string
           default: es
 
+    UserStaffCreate:
+      type: object
+      required: [email, password, name, role]
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          minLength: 8
+        name:
+          type: string
+        language:
+          type: string
+          default: es
+        role:
+          $ref: "#/components/schemas/UserRole"
+        library_id:
+          type: integer
+          nullable: true
+          description: Sede a cargo; solo válido con `role=librarian`.
+
     UserUpdate:
       type: object
       properties:
@@ -661,14 +874,46 @@ components:
           type: string
           minLength: 8
           nullable: true
+        role:
+          allOf:
+            - $ref: "#/components/schemas/UserRole"
+          nullable: true
+          description: Solo lo puede enviar un `sysadmin`.
+        library_id:
+          type: integer
+          nullable: true
+          description: Solo lo puede enviar un `sysadmin`, y solo con `role=librarian`.
+
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+
+    TokenOut:
+      type: object
+      required: [access_token, token_type, expires_in]
+      properties:
+        access_token:
+          type: string
+        token_type:
+          type: string
+          default: bearer
+        expires_in:
+          type: integer
+          description: Vigencia del token en segundos.
 
     ReservationCreate:
       type: object
-      required: [physical_book_id, user_id, expires_at]
+      required: [physical_book_id, expires_at]
+      description: >
+        El dueño de la reserva sale del token; `user_id` ya no se envía en el body.
       properties:
         physical_book_id:
-          type: integer
-        user_id:
           type: integer
         expires_at:
           type: string

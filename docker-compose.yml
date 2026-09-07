@@ -19,6 +19,9 @@ services:
     build: ./api
     environment:
       DATABASE_URL: postgresql+psycopg2://bookup:bookup@db:5432/bookup
+      JWT_SECRET: dev-secret-change-me
+      JWT_ALGORITHM: HS256
+      JWT_EXPIRE_MINUTES: 60
     ports:
       - "8000:8000"
     depends_on:

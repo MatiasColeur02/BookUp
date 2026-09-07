@@ -6,6 +6,10 @@ from sqlalchemy.pool import StaticPool
 
 from app.main import app
 from app.persistence.database import Base, get_db
+from app.persistence.models import User, UserRole
+from app.services.auth_service import hash_password
+
+PASSWORD = "secret123"
 
 
 @pytest.fixture()
@@ -47,3 +51,43 @@ def client(engine):
         yield TestClient(app)
     finally:
         app.dependency_overrides.clear()
+
+
+@pytest.fixture()
+def make_user(db_session):
+    """Create a user with a known password, straight through the ORM."""
+    created = 0
+
+    def _make(role: UserRole = UserRole.customer, *, email=None, library_id=None) -> User:
+        nonlocal created
+        created += 1
+        user = User(
+            email=email or f"{role.value}{created}@example.com",
+            password_hash=hash_password(PASSWORD),
+            name=f"{role.value.title()} {created}",
+            role=role,
+            library_id=library_id,
+        )
+        db_session.add(user)
+        db_session.commit()
+        db_session.refresh(user)
+        return user
+
+    return _make
+
+
+@pytest.fixture()
+def auth_headers(client):
+    """Log a user in and return the Authorization header for them."""
+
+    def _headers(user: User, password: str = PASSWORD) -> dict[str, str]:
+        response = client.post("/auth/login", json={"email": user.email, "password": password})
+        assert response.status_code == 200, response.text
+        return {"Authorization": f"Bearer {response.json()['access_token']}"}
+
+    return _headers
+
+
+@pytest.fixture()
+def sysadmin_headers(make_user, auth_headers):
+    return auth_headers(make_user(UserRole.sysadmin))

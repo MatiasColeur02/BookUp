@@ -39,8 +39,17 @@ Monolito en capas, con dependencias apuntando siempre hacia adentro:
 `controllers` (routers FastAPI + esquemas Pydantic en `schemas.py`) → `services` (lógica de negocio) → `persistence/repositories` (acceso a datos, una clase por entidad) → `persistence/models.py` (ORM SQLAlchemy).
 
 - `persistence` no conoce `services` ni FastAPI; `services` no conoce HTTP.
-- Las excepciones de dominio (`NotFoundError`, `ConflictError`, definidas en `services/errors.py`) se mapean a códigos HTTP recién en `app/main.py` vía `@app.exception_handler`.
+- Las excepciones de dominio (`NotFoundError`, `ConflictError`, `UnauthorizedError`, `ForbiddenError`, definidas en `services/errors.py`) se mapean a códigos HTTP recién en `app/main.py` vía `@app.exception_handler`.
 - Cada repository recibe la `Session` de SQLAlchemy por constructor (`BookRepository(db)`, etc.); los services son funciones sueltas, no clases.
+
+### Autorización
+
+La regla de dónde vive cada chequeo:
+
+- **Reglas de rol puras** → `controllers/dependencies.py` (`require_roles(...)`, `require_self_or_sysadmin`), como `Depends` del endpoint. No necesitan cargar el recurso.
+- **Reglas que dependen de los datos del recurso** (p. ej. "un `librarian` solo opera sobre su propia sede") → en el service, junto a la entidad que igual hay que cargar: `_assert_can_manage` en `library_service` y `reservation_service`. Por eso esos services reciben un `editor`/`viewer` (un `User` del dominio, no nada de HTTP) y lanzan `ForbiddenError`.
+
+`get_current_user` decodifica el JWT y recarga el `User` de la base en cada request, así que un token de un usuario borrado da 401 aunque la firma siga siendo válida.
 
 ### Modelo de datos
 
@@ -55,5 +64,5 @@ Monolito en capas, con dependencias apuntando siempre hacia adentro:
 
 ### Estado conocido / desalineado
 
-- El endpoint de confirmación de reservas es `PATCH /reservations/{id}/pickup` (antes `/confirm`) y no tiene autenticación; está pensado para integrarse con Cognito en el portal de bibliotecarios (ver README raíz, sección "De este MVP a la arquitectura en AWS").
+- La autenticación es un JWT propio (HS256, `pyjwt`) emitido por `POST /auth/login`, no Cognito todavía: en la arquitectura target lo reemplaza Cognito (ver README raíz, sección "De este MVP a la arquitectura en AWS"). El secreto sale de `JWT_SECRET` y tiene un default solo apto para desarrollo.
 - La búsqueda de catálogo (`BookRepository.search`) usa `ILIKE` como placeholder; en la arquitectura target la reemplaza OpenSearch.

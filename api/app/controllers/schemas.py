@@ -93,15 +93,39 @@ class UserCreate(BaseModel):
     language: str = "es"
 
 
+class UserStaffCreate(BaseModel):
+    """Alta de personal (`librarian`/`sysadmin`); solo para sysadmins."""
+
+    email: EmailStr
+    password: str = Field(min_length=8)
+    name: str
+    language: str = "es"
+    role: UserRole
+    library_id: int | None = None
+
+
 class UserUpdate(BaseModel):
     name: str | None = None
     language: str | None = None
     password: str | None = Field(default=None, min_length=8)
+    # Only a sysadmin may send these two; anyone else gets a 403.
+    role: UserRole | None = None
+    library_id: int | None = None
+
+
+class LoginRequest(BaseModel):
+    email: EmailStr
+    password: str
+
+
+class TokenOut(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    expires_in: int
 
 
 class ReservationCreate(BaseModel):
     physical_book_id: int
-    user_id: int
     expires_at: datetime
 
 
