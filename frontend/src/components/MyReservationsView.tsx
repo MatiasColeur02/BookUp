@@ -2,26 +2,12 @@ import { useCallback, useEffect, useState } from "react";
 import { api } from "../api";
 import { useCopyDetails } from "../hooks/useCopyDetails";
 import { describeError } from "../lib/errors";
+import { isOpenParam, OPEN_FILTERS, type OpenFilter } from "../lib/reservations";
 import type { Reservation } from "../types";
 import { canBeCancelled, ReservationStatusBadge } from "./ReservationStatusBadge";
 
-type Filter = "open" | "closed" | "all";
-
-const FILTERS: { value: Filter; label: string }[] = [
-  { value: "open", label: "Abiertas" },
-  { value: "closed", label: "Cerradas" },
-  { value: "all", label: "Todas" },
-];
-
-/** `is_open` omitido devuelve el historial completo. */
-function isOpenParam(filter: Filter): boolean | undefined {
-  if (filter === "open") return true;
-  if (filter === "closed") return false;
-  return undefined;
-}
-
 export function MyReservationsView() {
-  const [filter, setFilter] = useState<Filter>("open");
+  const [filter, setFilter] = useState<OpenFilter>("open");
   const [reservations, setReservations] = useState<Reservation[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -68,7 +54,7 @@ export function MyReservationsView() {
       <h2>Mis reservas</h2>
 
       <div className="filters">
-        {FILTERS.map(({ value, label }) => (
+        {OPEN_FILTERS.map(({ value, label }) => (
           <button
             key={value}
             type="button"
