@@ -1,4 +1,9 @@
 import { Link, NavLink, Navigate, Route, Routes } from "react-router-dom";
+import { AdminLayout } from "./components/admin/AdminLayout";
+import { AuthorsAdmin } from "./components/admin/AuthorsAdmin";
+import { BooksAdmin } from "./components/admin/BooksAdmin";
+import { GenresAdmin } from "./components/admin/GenresAdmin";
+import { PhysicalBooksAdmin } from "./components/admin/PhysicalBooksAdmin";
 import { CatalogView } from "./components/CatalogView";
 import { BookIcon } from "./components/icons";
 import { LibrarianPanel } from "./components/LibrarianPanel";
@@ -75,6 +80,11 @@ export default function App() {
               Panel bibliotecario
             </NavLink>
           )}
+          {canSeePanel && (
+            <NavLink to="/gestion" className={navClass}>
+              Gestión
+            </NavLink>
+          )}
           {user && (
             <NavLink to="/perfil" className={navClass}>
               Mi perfil
@@ -112,6 +122,20 @@ export default function App() {
               </RequireRole>
             }
           />
+          <Route
+            path="/gestion"
+            element={
+              <RequireRole roles={["librarian", "sysadmin"]}>
+                <AdminLayout />
+              </RequireRole>
+            }
+          >
+            <Route index element={<Navigate to="/gestion/libros" replace />} />
+            <Route path="libros" element={<BooksAdmin />} />
+            <Route path="autores" element={<AuthorsAdmin />} />
+            <Route path="generos" element={<GenresAdmin />} />
+            <Route path="ejemplares" element={<PhysicalBooksAdmin />} />
+          </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </main>

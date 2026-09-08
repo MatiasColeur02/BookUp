@@ -784,6 +784,61 @@ tbody tr:hover {
   margin: 0;
 }
 
+/* ---------- Gestión ---------- */
+
+.admin {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.subtabs {
+  align-self: flex-start;
+}
+
+.inline-input {
+  padding: 0.35rem 0.55rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-family: var(--font-body);
+  font-size: 0.9rem;
+  color: var(--text);
+  background: var(--surface);
+  width: 100%;
+}
+
+.inline-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.form-card textarea,
+.form-card select[multiple] {
+  padding: 0.55rem 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-family: var(--font-body);
+  font-size: 0.95rem;
+  color: var(--text);
+  background: var(--surface);
+  resize: vertical;
+}
+
+.form-card textarea:focus,
+.form-card select[multiple]:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.form-card input:disabled {
+  background: var(--surface-muted);
+  color: var(--muted);
+}
+
+.librarian-panel .panel-filters h2 {
+  margin: 0;
+}
+
 .status-badge {
   display: inline-flex;
   align-items: center;
