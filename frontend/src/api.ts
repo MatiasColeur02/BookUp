@@ -6,6 +6,7 @@ import type {
   Book,
   BookAvailability,
   BookCreate,
+  BookPage,
   BookUpdate,
   ExpiredReservations,
   Genre,
@@ -170,7 +171,12 @@ export const api = {
   },
 
   books: {
-    list: () => request<Book[]>("/books", { auth: false }),
+    /** Página del catálogo ordenada por título. Ver `listAll` para el catálogo entero. */
+    list: (params: { limit?: number; offset?: number } = {}) =>
+      request<BookPage>(`/books${buildQuery(params)}`, { auth: false }),
+
+    /** El catálogo completo para los selectores de gestión (tope del backend: 100). */
+    listAll: async () => (await api.books.list({ limit: 100 })).items,
 
     search: (query: string) =>
       request<Book[]>(`/books/search${buildQuery({ q: query })}`, { auth: false }),

@@ -18,14 +18,24 @@ require_staff = require_roles(UserRole.librarian, UserRole.sysadmin)
 _WRITE_NAMESPACES = (cache.NS_CATALOG, cache.NS_AVAILABILITY)
 
 
-@router.get("", response_model=list[schemas.BookOut])
-def list_books(db: Session = Depends(get_db)):
+@router.get("", response_model=schemas.BookPage)
+def list_books(
+    db: Session = Depends(get_db),
+    limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+):
+    def load() -> schemas.BookPage:
+        books, total = catalog_service.list_books(db, limit=limit, offset=offset)
+        return schemas.BookPage(items=books, total=total, limit=limit, offset=offset)
+
+    # La página va en la clave: cada (limit, offset) es una entrada distinta, y todas
+    # caen juntas con el `INCR` del namespace cuando se toca el catálogo.
     return cache.cached(
         cache.NS_CATALOG,
-        "books:list",
+        f"books:list:{limit}:{offset}",
         ttl=cache.TTL_CATALOG,
-        model=list[schemas.BookOut],
-        loader=lambda: catalog_service.list_books(db),
+        model=schemas.BookPage,
+        loader=load,
     )
 
 

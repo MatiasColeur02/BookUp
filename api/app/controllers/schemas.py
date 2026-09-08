@@ -82,6 +82,15 @@ class BookOut(BookBase):
     genres: list[GenreOut] = []
 
 
+class BookPage(BaseModel):
+    """Página del catálogo. `total` es el catálogo entero, no la página."""
+
+    items: list[BookOut]
+    total: int
+    limit: int
+    offset: int
+
+
 class BookCreate(BookBase):
     author_ids: list[int] = []
     genre_ids: list[int] = []

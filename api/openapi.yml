@@ -106,17 +106,29 @@ paths:
   /books:
     get:
       tags: [catalog]
-      summary: Listar todos los libros del catálogo
+      summary: Listar el catálogo paginado
+      description: >
+        Devuelve una página del catálogo ordenada por título, junto con el
+        `total` de libros para saber si quedan más.
       operationId: listBooks
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+        - name: offset
+          in: query
+          required: false
+          schema: { type: integer, minimum: 0, default: 0 }
       responses:
         "200":
-          description: Lista de libros
+          description: Página del catálogo
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/BookOut"
+                $ref: "#/components/schemas/BookPage"
+        "422":
+          $ref: "#/components/responses/ValidationError"
     post:
       tags: [catalog]
       summary: Crear un libro en el catálogo
@@ -1457,6 +1469,22 @@ components:
               items:
                 $ref: "#/components/schemas/GenreOut"
               default: []
+
+    BookPage:
+      type: object
+      required: [items, total, limit, offset]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/BookOut"
+        total:
+          type: integer
+          description: Total de libros del catálogo, no de la página.
+        limit:
+          type: integer
+        offset:
+          type: integer
 
     BookCreate:
       allOf:

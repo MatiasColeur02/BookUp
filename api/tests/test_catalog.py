@@ -36,6 +36,31 @@ def sample_catalog(db_session):
     return book, library_a, library_b
 
 
+def test_list_books_returns_page_with_total(client, sample_catalog):
+    response = client.get("/books")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["total"] == 1
+    assert body["limit"] == 20
+    assert body["offset"] == 0
+    assert [b["isbn"] for b in body["items"]] == ["9788420633107"]
+
+
+def test_list_books_offset_past_the_end_is_empty(client, sample_catalog):
+    response = client.get("/books", params={"limit": 5, "offset": 5})
+    assert response.status_code == 200
+    body = response.json()
+    # El total sigue siendo el del catálogo entero, aunque la página venga vacía.
+    assert body["items"] == []
+    assert body["total"] == 1
+
+
+def test_list_books_rejects_invalid_limit(client, sample_catalog):
+    assert client.get("/books", params={"limit": 0}).status_code == 422
+    assert client.get("/books", params={"limit": 500}).status_code == 422
+    assert client.get("/books", params={"offset": -1}).status_code == 422
+
+
 def test_search_books_by_title(client, sample_catalog):
     book, _, _ = sample_catalog
     response = client.get("/books/search", params={"q": "Ficciones"})

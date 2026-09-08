@@ -26,8 +26,10 @@ def _resolve_genres(db: Session, genre_ids: list[int]) -> list[Genre]:
     return genres
 
 
-def list_books(db: Session) -> list[Book]:
-    return BookRepository(db).list_all()
+def list_books(db: Session, *, limit: int = 100, offset: int = 0) -> tuple[list[Book], int]:
+    """Una página del catálogo más el total, para que el cliente sepa si quedan más."""
+    repo = BookRepository(db)
+    return repo.list_all(limit=limit, offset=offset), repo.count_all()
 
 
 def search_books(db: Session, query: str) -> list[Book]:

@@ -255,6 +255,63 @@ button {
   font-size: 0.88rem;
 }
 
+.catalog-results {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.catalog-results-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.catalog-results-header h2 {
+  font-family: var(--font-display);
+  font-size: 1.05rem;
+  margin: 0;
+}
+
+.catalog-results-header .muted {
+  font-size: 0.85rem;
+}
+
+.load-more {
+  align-self: center;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0.5rem 1.4rem;
+  color: var(--text);
+  cursor: pointer;
+  transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+
+.load-more:hover:not(:disabled) {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.load-more:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.search-bar .search-bar-clear {
+  background: none;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 0.6rem 0.4rem;
+  font-size: 0.9rem;
+}
+
+.search-bar .search-bar-clear:hover {
+  color: var(--text);
+}
+
 .empty-state {
   display: flex;
   flex-direction: column;

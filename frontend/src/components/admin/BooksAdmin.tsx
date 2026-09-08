@@ -19,9 +19,9 @@ export function BooksAdmin() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      // `GET /books` es el listado completo del catálogo, distinto de `/books/search`.
+      // `GET /books` es el catálogo entero (paginado), distinto de `/books/search`.
       const [nextBooks, nextAuthors, nextGenres] = await Promise.all([
-        api.books.list(),
+        api.books.listAll(),
         api.authors.list(),
         api.genres.list(),
       ]);

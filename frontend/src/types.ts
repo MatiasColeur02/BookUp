@@ -61,6 +61,14 @@ export interface Book {
   genres: Genre[];
 }
 
+/** Una página de `GET /books`. `total` es el catálogo entero, no la página. */
+export interface BookPage {
+  items: Book[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
 export interface BookCreate {
   isbn: string;
   title: string;

@@ -10,6 +10,8 @@ import { ReservationForm } from "./ReservationForm";
 import { SearchBar } from "./SearchBar";
 import { ErrorBanner } from "./ErrorBanner";
 
+const PAGE_SIZE = 12;
+
 export function CatalogView() {
   const { user } = useSession();
   const navigate = useNavigate();
@@ -21,7 +23,15 @@ export function CatalogView() {
   const selectedIsbn = searchParams.get("isbn");
   const reservingId = Number(searchParams.get("reservar")) || null;
 
-  const [results, setResults] = useState<Book[]>([]);
+  // El catálogo que se muestra al entrar, sin buscar nada: una página de `GET /books`
+  // que se va extendiendo con "Cargar más".
+  const [catalog, setCatalog] = useState<Book[]>([]);
+  const [catalogTotal, setCatalogTotal] = useState(0);
+  const [loadingCatalog, setLoadingCatalog] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  // `null` = no hay búsqueda activa, se muestra el catálogo.
+  const [searchResults, setSearchResults] = useState<Book[] | null>(null);
+  const [activeQuery, setActiveQuery] = useState("");
   const [availability, setAvailability] = useState<BookAvailability | null>(null);
   const [loading, setLoading] = useState(false);
   const [loadingAvailability, setLoadingAvailability] = useState(false);
@@ -56,17 +66,60 @@ export function CatalogView() {
     };
   }, [selectedIsbn]);
 
+  // Primera página del catálogo al entrar: la pantalla arranca con libros, no vacía.
+  useEffect(() => {
+    let cancelled = false;
+    api.books
+      .list({ limit: PAGE_SIZE, offset: 0 })
+      .then((page) => {
+        if (cancelled) return;
+        setCatalog(page.items);
+        setCatalogTotal(page.total);
+      })
+      .catch((err) => {
+        if (!cancelled) setError(describeError(err));
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingCatalog(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const handleLoadMore = async () => {
+    setLoadingMore(true);
+    setError(null);
+    try {
+      const page = await api.books.list({ limit: PAGE_SIZE, offset: catalog.length });
+      setCatalog((current) => [...current, ...page.items]);
+      setCatalogTotal(page.total);
+    } catch (err) {
+      setError(describeError(err));
+    } finally {
+      setLoadingMore(false);
+    }
+  };
+
   const handleSearch = async (query: string) => {
     setLoading(true);
     setError(null);
     setConfirmationMessage(null);
     try {
-      setResults(await api.books.search(query));
+      setSearchResults(await api.books.search(query));
+      setActiveQuery(query);
     } catch (err) {
       setError(describeError(err));
     } finally {
       setLoading(false);
     }
+  };
+
+  // Limpiar la búsqueda devuelve el catálogo ya cargado, sin volver a pedirlo.
+  const handleClearSearch = () => {
+    setSearchResults(null);
+    setActiveQuery("");
+    setError(null);
   };
 
   const handleSelect = (book: Book) => {
@@ -117,6 +170,13 @@ export function CatalogView() {
     }
   };
 
+  const searching = searchResults !== null;
+  const shownBooks = searchResults ?? catalog;
+  const canLoadMore = !searching && catalog.length < catalogTotal;
+  const listCaption = searching
+    ? `${shownBooks.length} ${shownBooks.length === 1 ? "resultado" : "resultados"} para «${activeQuery}»`
+    : `${catalog.length} de ${catalogTotal}`;
+
   const reservingOption =
     reservingId === null
       ? null
@@ -124,10 +184,36 @@ export function CatalogView() {
 
   return (
     <div className="catalog">
-      <SearchBar onSearch={handleSearch} loading={loading} />
+      <SearchBar onSearch={handleSearch} onClear={handleClearSearch} loading={loading} />
       <ErrorBanner error={error} />
       <div className="catalog-layout">
-        <BookResults books={results} selectedIsbn={selectedIsbn ?? undefined} onSelect={handleSelect} />
+        <div className="catalog-results">
+          <div className="catalog-results-header">
+            <h2>{searching ? "Resultados" : "Catálogo"}</h2>
+            <span className="muted">{listCaption}</span>
+          </div>
+          {loadingCatalog && !searching ? (
+            <p className="muted">Cargando catálogo...</p>
+          ) : (
+            <>
+              <BookResults
+                books={shownBooks}
+                selectedIsbn={selectedIsbn ?? undefined}
+                onSelect={handleSelect}
+                emptyMessage={
+                  searching
+                    ? `No encontramos libros para «${activeQuery}». Probá con otro título, autor o ISBN.`
+                    : "Todavía no hay libros en el catálogo."
+                }
+              />
+              {canLoadMore && (
+                <button className="load-more" onClick={handleLoadMore} disabled={loadingMore}>
+                  {loadingMore ? "Cargando..." : "Cargar más"}
+                </button>
+              )}
+            </>
+          )}
+        </div>
         <div className="catalog-detail">
           {confirmationMessage && <p className="success">{confirmationMessage}</p>}
           {loadingAvailability && <p className="muted">Consultando disponibilidad...</p>}

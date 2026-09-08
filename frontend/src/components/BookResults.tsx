@@ -5,14 +5,16 @@ interface Props {
   books: Book[];
   selectedIsbn?: string;
   onSelect: (book: Book) => void;
+  /** Qué decir cuando no hay nada que listar; depende de si veníamos de una búsqueda. */
+  emptyMessage?: string;
 }
 
-export function BookResults({ books, selectedIsbn, onSelect }: Props) {
+export function BookResults({ books, selectedIsbn, onSelect, emptyMessage }: Props) {
   if (books.length === 0) {
     return (
       <div className="empty-state">
         <BookIcon className="empty-state-icon" />
-        <p>Buscá un título, autor o ISBN para ver resultados.</p>
+        <p>{emptyMessage ?? "Buscá un título, autor o ISBN para ver resultados."}</p>
       </div>
     );
   }

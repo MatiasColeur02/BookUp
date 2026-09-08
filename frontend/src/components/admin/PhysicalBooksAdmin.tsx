@@ -48,7 +48,7 @@ export function PhysicalBooksAdmin() {
   const [creating, setCreating] = useState(false);
 
   useEffect(() => {
-    Promise.all([api.books.list(), api.libraries.list()])
+    Promise.all([api.books.listAll(), api.libraries.list()])
       .then(([nextBooks, nextLibraries]) => {
         setBooks(nextBooks);
         setLibraries(nextLibraries);
