@@ -1,21 +1,15 @@
-import { Fragment, useCallback, useEffect, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { api } from "../api";
 import { useSession } from "../context/SessionContext";
 import { useCopyDetails } from "../hooks/useCopyDetails";
 import { describeError } from "../lib/errors";
 import { isOpen, isOpenParam, OPEN_FILTERS, type OpenFilter } from "../lib/reservations";
 import type { Library, Reservation } from "../types";
-import { CheckIcon } from "./icons";
+import { ReservationManageModal } from "./ReservationManageModal";
 import { ReservationStatusBadge } from "./ReservationStatusBadge";
 import { ErrorBanner } from "./ErrorBanner";
 
 const ALL_LIBRARIES = "all";
-
-/** `YYYY-MM-DD` en hora local para el `<input type="date">`. */
-function toDateInput(date: Date): string {
-  const offset = date.getTimezoneOffset() * 60 * 1000;
-  return new Date(date.getTime() - offset).toISOString().slice(0, 10);
-}
 
 export function LibrarianPanel() {
   const { isSysadmin, myLibraryId } = useSession();
@@ -31,7 +25,7 @@ export function LibrarianPanel() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<number | null>(null);
-  const [extendingId, setExtendingId] = useState<number | null>(null);
+  const [managingId, setManagingId] = useState<number | null>(null);
 
   const lookupCopy = useCopyDetails(reservations.map((reservation) => reservation.physical_book_id));
 
@@ -41,8 +35,9 @@ export function LibrarianPanel() {
   useEffect(() => {
     if (!isSysadmin) return;
     api.libraries.list().then(setLibraries).catch(() => undefined);
-    // Los nombres de usuario solo los puede listar un `sysadmin`. Para un `librarian`
-    // la fila muestra el id: la API no le expone los datos de otros usuarios.
+    // Los nombres de usuario solo los puede listar un `sysadmin`: la API no le expone
+    // los datos de otros usuarios al personal de sede. Sin nombres, la columna
+    // «Usuario» directamente no se muestra.
     api.users
       .list()
       .then((users) => setUserNames(Object.fromEntries(users.map((u) => [u.id, u.name]))))
@@ -71,7 +66,10 @@ export function LibrarianPanel() {
     load();
   }, [load]);
 
-  /** Toda acción sobre una reserva: bloquea la fila, recarga y explica el 409. */
+  /**
+   * Toda acción sobre una reserva: bloquea el diálogo, recarga y explica el 409.
+   * Si sale bien cierra el modal; si falla lo deja abierto con el error a la vista.
+   */
   const runAction = async (
     reservationId: number,
     action: () => Promise<unknown>,
@@ -81,7 +79,7 @@ export function LibrarianPanel() {
     setBusyId(reservationId);
     try {
       await action();
-      setExtendingId(null);
+      setManagingId(null);
       await load();
     } catch (err) {
       setError(describeError(err, { 409: conflictMessage }));
@@ -119,16 +117,13 @@ export function LibrarianPanel() {
     );
 
   const showLibraryColumn = isSysadmin && selectedLibraryId === undefined;
+  // Sin los nombres (todo rol que no sea `sysadmin`) la columna no aporta nada.
+  const showUserColumn = isSysadmin;
+  const managed = reservations.find((reservation) => reservation.id === managingId) ?? null;
 
   return (
     <div className="librarian-panel">
       <h2>Panel bibliotecario</h2>
-      {!isSysadmin && (
-        <p className="hint">
-          Limitación conocida: la API no expone los datos de otros usuarios al personal de sede, así
-          que la columna «Usuario» muestra el id de la persona que reservó.
-        </p>
-      )}
 
       <div className="panel-filters">
         <div className="filters">
@@ -159,7 +154,8 @@ export function LibrarianPanel() {
         )}
       </div>
 
-      <ErrorBanner error={error} />
+      {/* Con el modal abierto el error se muestra ahí, al lado del botón que falló. */}
+      <ErrorBanner error={managed === null ? error : null} />
 
       {loading ? (
         <p className="muted">Cargando reservas...</p>
@@ -172,7 +168,7 @@ export function LibrarianPanel() {
               <tr>
                 <th>Libro</th>
                 {showLibraryColumn && <th>Sede</th>}
-                <th>Usuario</th>
+                {showUserColumn && <th>Usuario</th>}
                 <th>Reservada</th>
                 <th>Vence</th>
                 <th>Estado</th>
@@ -182,132 +178,61 @@ export function LibrarianPanel() {
             <tbody>
               {reservations.map((reservation) => {
                 const { book, library } = lookupCopy(reservation.physical_book_id);
-                const open = isOpen(reservation);
-                const busy = busyId === reservation.id;
-                const columns = showLibraryColumn ? 7 : 6;
 
                 return (
-                  <Fragment key={reservation.id}>
-                    <tr>
-                      <td>
-                        {book?.title ?? <span className="badge">#{reservation.physical_book_id}</span>}
-                      </td>
-                      {showLibraryColumn && <td>{library?.name ?? "—"}</td>}
-                      <td>{userNames[reservation.user_id] ?? `#${reservation.user_id}`}</td>
-                      <td>{new Date(reservation.reserved_at).toLocaleDateString()}</td>
-                      <td>{new Date(reservation.expires_at).toLocaleDateString()}</td>
-                      <td>
-                        <ReservationStatusBadge reservation={reservation} />
-                      </td>
-                      <td>
-                        {/* Solo las acciones que la API va a aceptar en este estado: el
-                            resto daría 409. */}
+                  <tr key={reservation.id}>
+                    <td>
+                      {book?.title ?? <span className="badge">#{reservation.physical_book_id}</span>}
+                    </td>
+                    {showLibraryColumn && <td>{library?.name ?? "—"}</td>}
+                    {showUserColumn && <td>{userNames[reservation.user_id] ?? "—"}</td>}
+                    <td>{new Date(reservation.reserved_at).toLocaleDateString()}</td>
+                    <td>{new Date(reservation.expires_at).toLocaleDateString()}</td>
+                    <td>
+                      <ReservationStatusBadge reservation={reservation} />
+                    </td>
+                    <td>
+                      {/* Una reserva cerrada no admite ninguna acción: sin botón. */}
+                      {isOpen(reservation) && (
                         <div className="row-actions">
-                          {open && !reservation.picked_up && (
-                            <>
-                              <button
-                                className="confirm-button"
-                                onClick={() => markPickedUp(reservation)}
-                                disabled={busy}
-                              >
-                                <CheckIcon />
-                                Marcar retirada
-                              </button>
-                              <button
-                                className="row-button"
-                                onClick={() =>
-                                  setExtendingId(extendingId === reservation.id ? null : reservation.id)
-                                }
-                                disabled={busy}
-                              >
-                                Extender
-                              </button>
-                              <button
-                                className="row-button danger"
-                                onClick={() => cancel(reservation)}
-                                disabled={busy}
-                              >
-                                Cancelar
-                              </button>
-                            </>
-                          )}
-                          {open && reservation.picked_up && (
-                            <button
-                              className="confirm-button"
-                              onClick={() => markReturned(reservation)}
-                              disabled={busy}
-                            >
-                              <CheckIcon />
-                              Registrar devolución
-                            </button>
-                          )}
+                          <button
+                            className="row-button"
+                            onClick={() => setManagingId(reservation.id)}
+                          >
+                            Gestionar
+                          </button>
                         </div>
-                      </td>
-                    </tr>
-                    {extendingId === reservation.id && (
-                      <tr>
-                        <td colSpan={columns}>
-                          <ExtendForm
-                            currentExpiresAt={reservation.expires_at}
-                            submitting={busy}
-                            onCancel={() => setExtendingId(null)}
-                            onSubmit={(date) => extend(reservation, date)}
-                          />
-                        </td>
-                      </tr>
-                    )}
-                  </Fragment>
+                      )}
+                    </td>
+                  </tr>
                 );
               })}
             </tbody>
           </table>
         </div>
       )}
-    </div>
-  );
-}
 
-interface ExtendFormProps {
-  currentExpiresAt: string;
-  submitting: boolean;
-  onSubmit: (date: string) => void;
-  onCancel: () => void;
-}
-
-function ExtendForm({ currentExpiresAt, submitting, onSubmit, onCancel }: ExtendFormProps) {
-  const [date, setDate] = useState(() => toDateInput(new Date(currentExpiresAt)));
-  const [error, setError] = useState<string | null>(null);
-
-  const handleSubmit = (event: FormEvent) => {
-    event.preventDefault();
-    // La API exige un vencimiento futuro (422): chequearlo acá ahorra el ida y vuelta.
-    if (new Date(`${date}T23:59:59`) <= new Date()) {
-      setError("El nuevo vencimiento tiene que ser futuro.");
-      return;
-    }
-    setError(null);
-    onSubmit(date);
-  };
-
-  return (
-    <form className="extend-form" onSubmit={handleSubmit}>
-      <label className="inline-select">
-        Nuevo vencimiento
-        <input
-          type="date"
-          value={date}
-          min={toDateInput(new Date(Date.now() + 24 * 60 * 60 * 1000))}
-          onChange={(event) => setDate(event.target.value)}
-          required
+      {managed && (
+        <ReservationManageModal
+          reservation={managed}
+          bookTitle={
+            lookupCopy(managed.physical_book_id).book?.title ??
+            `Ejemplar #${managed.physical_book_id}`
+          }
+          libraryName={lookupCopy(managed.physical_book_id).library?.name ?? null}
+          userName={userNames[managed.user_id] ?? null}
+          submitting={busyId === managed.id}
+          error={error}
+          onPickup={() => markPickedUp(managed)}
+          onReturn={() => markReturned(managed)}
+          onCancelReservation={() => cancel(managed)}
+          onExtend={(date) => extend(managed, date)}
+          onClose={() => {
+            setManagingId(null);
+            setError(null);
+          }}
         />
-      </label>
-      <button type="submit" className="confirm-button" disabled={submitting}>
-        {submitting ? "Guardando..." : "Guardar"}
-      </button>
-      <button type="button" className="row-button" onClick={onCancel} disabled={submitting}>
-        Cancelar
-      </button>
-      {error && <span className="error">{error}</span>}
-    </form>
+      )}
+    </div>
   );
 }

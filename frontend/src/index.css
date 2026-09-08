@@ -895,6 +895,39 @@ tbody tr:hover {
   padding: 0.2rem 0;
 }
 
+/* ---------- Gestión de una reserva (modal) ---------- */
+
+.manage-reservation .detail-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 0.75rem 1rem;
+  margin: 0;
+}
+
+.manage-reservation .detail-grid dt {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  margin-bottom: 0.2rem;
+}
+
+.manage-reservation .detail-grid dd {
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+.manage-reservation .manage-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+/* En el modal el formulario de extender no va sobre el fondo gris de la fila. */
+.manage-reservation .extend-form {
+  background: none;
+}
+
 .extend-form .inline-select {
   margin-bottom: 0;
 }
