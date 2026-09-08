@@ -4,10 +4,14 @@ import { ApiStatus } from "./components/ApiStatus";
 import { AuthorsAdmin } from "./components/admin/AuthorsAdmin";
 import { BooksAdmin } from "./components/admin/BooksAdmin";
 import { GenresAdmin } from "./components/admin/GenresAdmin";
+import { LibrariesAdmin } from "./components/admin/LibrariesAdmin";
+import { MaintenanceView } from "./components/admin/MaintenanceView";
 import { PhysicalBooksAdmin } from "./components/admin/PhysicalBooksAdmin";
+import { UsersAdmin } from "./components/admin/UsersAdmin";
 import { CatalogView } from "./components/CatalogView";
 import { BookIcon } from "./components/icons";
 import { LibrarianPanel } from "./components/LibrarianPanel";
+import { LibrariesView } from "./components/LibrariesView";
 import { LoginForm } from "./components/LoginForm";
 import { MyReservationsView } from "./components/MyReservationsView";
 import { ProfileView } from "./components/ProfileView";
@@ -71,6 +75,9 @@ export default function App() {
           <NavLink to="/" className={navClass} end>
             Catálogo
           </NavLink>
+          <NavLink to="/sedes" className={navClass}>
+            Sedes
+          </NavLink>
           {user && (
             <NavLink to="/mis-reservas" className={navClass}>
               Mis reservas
@@ -98,6 +105,7 @@ export default function App() {
       <main>
         <Routes>
           <Route path="/" element={<CatalogView />} />
+          <Route path="/sedes" element={<LibrariesView />} />
           <Route path="/login" element={<LoginForm />} />
           <Route path="/registro" element={<RegisterForm />} />
           <Route
@@ -137,6 +145,23 @@ export default function App() {
             <Route path="autores" element={<AuthorsAdmin />} />
             <Route path="generos" element={<GenresAdmin />} />
             <Route path="ejemplares" element={<PhysicalBooksAdmin />} />
+            <Route path="sedes" element={<LibrariesAdmin />} />
+            <Route
+              path="usuarios"
+              element={
+                <RequireRole roles={["sysadmin"]}>
+                  <UsersAdmin />
+                </RequireRole>
+              }
+            />
+            <Route
+              path="mantenimiento"
+              element={
+                <RequireRole roles={["sysadmin"]}>
+                  <MaintenanceView />
+                </RequireRole>
+              }
+            />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
