@@ -3,6 +3,7 @@ import { api } from "../../api";
 import { ErrorBanner } from "../ErrorBanner";
 import { isValidIsbn13 } from "../../lib/isbn";
 import type { Author, Book, Genre } from "../../types";
+import { ChipSelect } from "./ChipSelect";
 
 interface Props {
   /** `undefined` = alta; con un libro = edición (el ISBN es la PK y no se toca). */
@@ -11,11 +12,6 @@ interface Props {
   genres: Genre[];
   onSaved: () => void;
   onCancel: () => void;
-}
-
-/** Ids seleccionados en un `<select multiple>`. */
-function selectedIds(select: HTMLSelectElement): number[] {
-  return Array.from(select.selectedOptions, (option) => Number(option.value));
 }
 
 export function BookForm({ book, authors, genres, onSaved, onCancel }: Props) {
@@ -125,38 +121,25 @@ export function BookForm({ book, authors, genres, onSaved, onCancel }: Props) {
         />
       </label>
 
-      <label>
-        Autores
-        <select
-          multiple
-          size={5}
-          value={authorIds.map(String)}
-          onChange={(event) => setAuthorIds(selectedIds(event.target))}
-        >
-          {authors.map((author) => (
-            <option key={author.id} value={author.id}>
-              {author.name} (#{author.id})
-            </option>
-          ))}
-        </select>
-        <span className="field-hint">Ctrl/Cmd + clic para elegir varios.</span>
-      </label>
+      <ChipSelect
+        label="Autores"
+        options={authors}
+        selectedIds={authorIds}
+        onChange={setAuthorIds}
+        placeholder="Agregar autor..."
+        emptyText="Todavía no elegiste ningún autor."
+        exhaustedText="Ya agregaste todos los autores del catálogo"
+      />
 
-      <label>
-        Géneros
-        <select
-          multiple
-          size={5}
-          value={genreIds.map(String)}
-          onChange={(event) => setGenreIds(selectedIds(event.target))}
-        >
-          {genres.map((genre) => (
-            <option key={genre.id} value={genre.id}>
-              {genre.name}
-            </option>
-          ))}
-        </select>
-      </label>
+      <ChipSelect
+        label="Géneros"
+        options={genres}
+        selectedIds={genreIds}
+        onChange={setGenreIds}
+        placeholder="Agregar género..."
+        emptyText="Todavía no elegiste ningún género."
+        exhaustedText="Ya agregaste todos los géneros del catálogo"
+      />
 
       <div className="actions">
         <button type="button" onClick={onCancel} disabled={submitting}>
