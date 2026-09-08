@@ -11,7 +11,7 @@ class PhysicalBookRepository:
     def get(self, physical_book_id: int) -> PhysicalBook | None:
         return self.db.get(PhysicalBook, physical_book_id)
 
-    def list(
+    def list_all(
         self,
         isbn: str | None = None,
         library_id: int | None = None,

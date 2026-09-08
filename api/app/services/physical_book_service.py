@@ -30,7 +30,7 @@ def list_physical_books(
     library_id: int | None = None,
     status: PhysicalBookStatus | None = None,
 ) -> list[PhysicalBook]:
-    return PhysicalBookRepository(db).list(isbn=isbn, library_id=library_id, status=status)
+    return PhysicalBookRepository(db).list_all(isbn=isbn, library_id=library_id, status=status)
 
 
 def get_physical_book(db: Session, physical_book_id: int) -> PhysicalBook:

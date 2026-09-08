@@ -95,17 +95,17 @@ def list_reservations(
     repo = ReservationRepository(db)
 
     if viewer.role is UserRole.sysadmin:
-        return repo.list(library_id=library_id, is_open=is_open)
+        return repo.list_all(library_id=library_id, is_open=is_open)
 
     if viewer.role is UserRole.librarian:
         if viewer.library_id is None:
             raise ForbiddenError("This librarian is not assigned to any library")
         if library_id is not None and library_id != viewer.library_id:
             raise ForbiddenError("You can only list reservations of your own library")
-        return repo.list(library_id=viewer.library_id, is_open=is_open)
+        return repo.list_all(library_id=viewer.library_id, is_open=is_open)
 
     # A customer only ever sees their own reservations.
-    return repo.list(library_id=library_id, user_id=viewer.id, is_open=is_open)
+    return repo.list_all(library_id=library_id, user_id=viewer.id, is_open=is_open)
 
 
 def update_reservation(

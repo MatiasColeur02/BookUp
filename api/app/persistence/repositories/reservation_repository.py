@@ -23,7 +23,7 @@ class ReservationRepository:
     def get(self, reservation_id: int) -> Reservation | None:
         return self.db.get(Reservation, reservation_id)
 
-    def list(
+    def list_all(
         self,
         library_id: int | None = None,
         user_id: int | None = None,
