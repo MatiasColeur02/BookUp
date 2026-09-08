@@ -13,6 +13,7 @@ luego desplegarse sobre servicios gestionados de AWS.
 - **API**: Python 3.12 + FastAPI, monolito en capas (persistence / services /
   controllers)
 - **Base de datos**: PostgreSQL 16, migraciones con Alembic
+- **Cache**: Redis 7 (ElastiCache for Redis en AWS)
 - **Frontend**: React 18 + TypeScript + Vite
 - **Local dev**: Docker Compose
 
@@ -22,7 +23,8 @@ luego desplegarse sobre servicios gestionados de AWS.
 api/
   app/
     main.py               # app FastAPI, CORS, registro de excepciones/rutas
-    config.py               # settings (DATABASE_URL, CORS, etc.)
+    config.py               # settings (DATABASE_URL, REDIS_URL, CORS, etc.)
+    cache.py                 # cache de lecturas sobre Redis
     persistence/              # capa de datos: no sabe nada de HTTP
       database.py               # engine, sesión, Base
       models.py                  # entidades ORM: User, Library, Book, Author,
@@ -66,7 +68,7 @@ Requiere Docker y Docker Compose.
 docker compose up --build
 ```
 
-Esto levanta Postgres, corre las migraciones de Alembic, expone la API en
+Esto levanta Postgres y Redis, corre las migraciones de Alembic, expone la API en
 `http://localhost:8000` (docs interactivas en `http://localhost:8000/docs`)
 y el frontend en `http://localhost:5173`.
 
@@ -76,8 +78,14 @@ Para cargar datos de ejemplo (bibliotecas, libros, ejemplares y usuarios):
 docker compose exec api python -m app.seed
 ```
 
-El seed crea tres sedes (Central, Norte y Sur) con su personal. **Todos los
-usuarios comparten la password `bookup123`:**
+El seed carga un dataset completo y **determinista** (mismo resultado en cualquier
+máquina): 10 sedes de todo el país, 71 libros de 53 autores en 16 géneros, ~400
+ejemplares repartidos entre las sedes y ~190 reservas que cubren todo el ciclo de vida
+(abiertas sin retirar, prestadas, algunas en mora, devueltas, canceladas y vencidas).
+Volver a correrlo no duplica nada: si ya hay datos, no hace nada.
+
+Hay un bibliotecario por sede (`<sede>@bookup.example`), dos sysadmins y 20 lectores.
+**Todos los usuarios comparten la password `bookup123`:**
 
 | Email | Password | Rol | Sede a cargo |
 |---|---|---|---|
@@ -85,7 +93,7 @@ usuarios comparten la password `bookup123`:**
 | `central@bookup.example` | `bookup123` | librarian | Biblioteca Central |
 | `norte@bookup.example` | `bookup123` | librarian | Biblioteca del Norte |
 | **`sur@bookup.example`** | **`bookup123`** | **librarian** | **Biblioteca Sur** |
-| `ana@bookup.example` | `bookup123` | customer | — |
+| `ana@bookup.example` | `bookup123` | customer | — (tiene reservas en todos los estados) |
 
 Para administrar la **Biblioteca Sur**, entrá en `http://localhost:5173` con
 `sur@bookup.example` / `bookup123`. Con ese usuario vas a ver:
@@ -139,7 +147,7 @@ Salvo el catálogo, las sedes (lectura) y el auto-registro, todo pide un JWT en
 | POST   | `/auth/login`                      | Obtener un token                                | público |
 | GET    | `/auth/me`                         | Usuario autenticado                             | autenticado |
 | GET    | `/health`                          | Health check                                    | público |
-| GET    | `/books`                           | Listado del catálogo                            | público |
+| GET    | `/books?limit=&offset=`            | Catálogo paginado (`{items, total, limit, offset}`) | público |
 | POST   | `/books`                           | Alta de un libro (ISBN-13 validado)             | librarian o sysadmin |
 | GET    | `/books/search?q=`                 | Búsqueda unificada por título/autor/ISBN/sinopsis | público |
 | GET    | `/books/{isbn}`                    | Detalle de un libro                             | público |
@@ -175,6 +183,37 @@ Salvo el catálogo, las sedes (lectura) y el auto-registro, todo pide un JWT en
 | PATCH  | `/users/{id}`                      | Actualización parcial (`role`/`library_id` solo sysadmin) | el propio usuario, o sysadmin |
 | DELETE | `/users/{id}`                      | Baja de un usuario                              | el propio usuario, o sysadmin |
 
+## Cache
+
+Las lecturas públicas se sirven desde Redis (`api/app/cache.py`). El cache vive en la
+capa de `controllers`: lo que se guarda son payloads JSON ya serializados por los
+esquemas Pydantic, no entidades ORM, así que `services` y `persistence` siguen sin
+enterarse de que existe — igual que no se enteran de HTTP.
+
+| Endpoint | TTL | Por qué |
+|---|---|---|
+| `GET /books/search?q=` | 120 s | La query más cara: un `ILIKE '%...%'` sobre cuatro columnas que no usa índice |
+| `GET /books`, `GET /books/{isbn}` | 300 s | El catálogo es de lectura casi pura |
+| `GET /books/{isbn}/availability` | 30 s | La pantalla más visitada, pero también la que más rápido queda vieja |
+| `GET /libraries`, `/authors`, `/genres` (+ detalle) | 600 s | Datos de referencia que casi nunca cambian |
+
+No se cachean `/reservations`, `/users` ni `/auth/me`: la respuesta depende del usuario
+del token, así que una entrada compartida filtraría datos de una persona a otra.
+Tampoco `/physical-books`, que es la pantalla de gestión de un bibliotecario (poco
+tráfico, mucha volatilidad, y tres filtros que multiplicarían las entradas).
+
+**Invalidación por generaciones.** Cada namespace tiene un contador cuyo valor va dentro
+de la clave; invalidar es un `INCR` O(1) y las claves viejas quedan huérfanas hasta que
+vence su TTL. Evita barrer con `KEYS`/`SCAN`, que en ElastiCache bloquea el nodo. Las
+escrituras invalidan siguiendo cómo se embeben los esquemas: renombrar un autor refresca
+el catálogo y la disponibilidad, reservar o devolver un ejemplar refresca la
+disponibilidad.
+
+**El cache nunca tira abajo la API.** Todo error de Redis se traga y se sirve desde la
+base, y un breaker lo apaga 10 s para que un nodo caído no le sume timeouts a cada
+request. Sin `REDIS_URL` queda directamente apagado — así corren los tests, y así se
+puede levantar la API sin Redis. `GET /health` reporta `cache: ok | down | disabled`.
+
 ## Frontend
 
 SPA con React Router y sesión propia (JWT en `localStorage`). Cada pantalla se
@@ -204,6 +243,8 @@ descriptos en la propuesta:
   se sirve como estático desde S3 + CloudFront.
 - **Base de datos**: RDS PostgreSQL Multi-AZ (réplicas de lectura por región
   para consultar stock del resto de la red sin afectar el nodo de escritura).
+- **Cache**: ElastiCache for Redis en subnets privadas. El código ya está: solo
+  cambia `REDIS_URL` del contenedor local al endpoint del cluster.
 - **Búsqueda**: el `ILIKE` de `/books/search` (en `BookRepository`) es un
   placeholder; en producción el índice lo sirve OpenSearch, alimentado desde
   Postgres.

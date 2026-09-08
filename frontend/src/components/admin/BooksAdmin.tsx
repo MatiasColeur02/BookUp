@@ -5,6 +5,7 @@ import { describeError } from "../../lib/errors";
 import type { Author, Book, Genre } from "../../types";
 import { BookForm } from "./BookForm";
 import { ErrorBanner } from "../ErrorBanner";
+import { Modal } from "../Modal";
 
 type FormState = { mode: "hidden" } | { mode: "create" } | { mode: "edit"; book: Book };
 
@@ -63,24 +64,27 @@ export function BooksAdmin() {
     <section className="librarian-panel">
       <div className="panel-filters">
         <h2>Libros</h2>
-        {form.mode === "hidden" && (
-          <button className="confirm-button" onClick={() => setForm({ mode: "create" })}>
-            Nuevo libro
-          </button>
-        )}
+        <button className="confirm-button" onClick={() => setForm({ mode: "create" })}>
+          Nuevo libro
+        </button>
       </div>
 
       <ErrorBanner error={error} />
 
       {form.mode !== "hidden" && (
-        <BookForm
-          key={form.mode === "edit" ? form.book.isbn : "nuevo"}
-          book={form.mode === "edit" ? form.book : undefined}
-          authors={authors}
-          genres={genres}
-          onSaved={handleSaved}
-          onCancel={() => setForm({ mode: "hidden" })}
-        />
+        <Modal
+          title={form.mode === "edit" ? `Editar «${form.book.title}»` : "Nuevo libro"}
+          onClose={() => setForm({ mode: "hidden" })}
+        >
+          <BookForm
+            key={form.mode === "edit" ? form.book.isbn : "nuevo"}
+            book={form.mode === "edit" ? form.book : undefined}
+            authors={authors}
+            genres={genres}
+            onSaved={handleSaved}
+            onCancel={() => setForm({ mode: "hidden" })}
+          />
+        </Modal>
       )}
 
       {loading ? (
