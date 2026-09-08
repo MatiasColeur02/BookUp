@@ -22,7 +22,7 @@ pytest tests/test_health.py                     # un archivo
 pytest tests/test_health.py::test_health -v     # un test puntual
 ```
 
-Con Docker Compose (desde la raíz del repo; levanta Postgres + API + frontend):
+Con Docker Compose (desde la raíz del repo; levanta Postgres + Redis + API + frontend):
 
 ```bash
 docker compose up --build
@@ -50,6 +50,30 @@ La regla de dónde vive cada chequeo:
 - **Reglas que dependen de los datos del recurso** (p. ej. "un `librarian` solo opera sobre su propia sede") → en el service, junto a la entidad que igual hay que cargar: `_assert_can_manage` en `library_service` y `reservation_service`. Por eso esos services reciben un `editor`/`viewer` (un `User` del dominio, no nada de HTTP) y lanzan `ForbiddenError`.
 
 `get_current_user` decodifica el JWT y recarga el `User` de la base en cada request, así que un token de un usuario borrado da 401 aunque la firma siga siendo válida.
+
+### Cache
+
+`app/cache.py` cachea las lecturas públicas en Redis (ElastiCache en AWS). Vive en
+`controllers`, no en `services`: lo que se guarda son payloads JSON ya serializados por
+los esquemas Pydantic, no entidades ORM — que no son serializables y lazy-loadean fuera
+de la sesión. La regla de capas se mantiene: `services` y `persistence` no saben del
+cache, igual que no saben de HTTP.
+
+- **Uso**: `cache.cached(namespace, key, ttl=..., model=..., loader=...)` en los GET, y
+  `cache.invalidate(*namespaces)` después del service en los POST/PATCH/DELETE.
+- **Invalidación por generaciones**: cada namespace tiene un contador `bookup:ver:<ns>`
+  embebido en la clave; invalidar es un `INCR`. Nunca usar `KEYS`/`SCAN` para barrer, que
+  en ElastiCache bloquea el nodo.
+- **Qué namespaces tocar en una escritura** lo dicta cómo se embeben los esquemas, no
+  qué tabla se escribió: `BookOut` embebe autores y géneros, y `BookAvailability` embebe
+  `BookOut` y `LibraryOut`. Cada controller tiene su tupla `_WRITE_NAMESPACES` con el
+  motivo comentado. Al agregar un endpoint cacheado, revisar quién más embebe ese
+  esquema.
+- **Nunca se cachea nada que dependa del usuario del token** (`/reservations`, `/users`,
+  `/auth/me`): la clave es compartida entre usuarios y filtraría datos.
+- **Fail-open**: todo error de Redis se traga y se sirve desde la base, con un breaker de
+  10 s. Sin `REDIS_URL` el cache queda apagado; así corre la suite de tests, que usa un
+  `FakeRedis` propio en `tests/test_cache.py`.
 
 ### Modelo de datos
 

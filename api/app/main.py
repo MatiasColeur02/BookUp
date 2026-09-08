@@ -2,6 +2,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from . import cache
 from .config import settings
 from .controllers import (
     auth_controller,
@@ -61,4 +62,6 @@ app.include_router(user_controller.router)
 
 @app.get("/health")
 def health():
-    return {"status": "ok"}
+    # `cache` es informativo: la API sirve todo igual con Redis caído, así que un
+    # `down` acá no baja el status general ni saca la instancia del target group.
+    return {"status": "ok", "cache": cache.health()}

@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
+from .. import cache
 from ..persistence.database import get_db
 from ..persistence.models import User, UserRole
 from ..services import reservation_service
@@ -12,15 +13,22 @@ router = APIRouter(prefix="/reservations", tags=["reservations"])
 require_staff = require_roles(UserRole.librarian, UserRole.sysadmin)
 
 
+# Nada de este router se cachea: la respuesta depende del rol y del usuario del token
+# (un customer ve las suyas, un librarian las de su sede), así que una entrada compartida
+# filtraría reservas de una persona a otra. Lo que sí hacen las transiciones que mueven
+# el `status` del ejemplar es invalidar la disponibilidad pública.
 @router.post("", response_model=schemas.ReservationOut, status_code=201)
 def create_reservation(
     payload: schemas.ReservationCreate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    return reservation_service.create_reservation(
+    reservation = reservation_service.create_reservation(
         db, user=current_user, **payload.model_dump()
     )
+    # available -> reserved: el ejemplar deja de estar disponible.
+    cache.invalidate(cache.NS_AVAILABILITY)
+    return reservation
 
 
 @router.get("", response_model=list[schemas.ReservationOut])
@@ -42,7 +50,11 @@ def expire_reservations(
     db: Session = Depends(get_db),
     _: User = Depends(require_roles(UserRole.sysadmin)),
 ):
-    return schemas.ExpiredReservations(expired=reservation_service.expire_reservations(db))
+    expired = reservation_service.expire_reservations(db)
+    # reserved -> available en cada reserva vencida sin retirar.
+    if expired:
+        cache.invalidate(cache.NS_AVAILABILITY)
+    return schemas.ExpiredReservations(expired=expired)
 
 
 @router.get("/{reservation_id}", response_model=schemas.ReservationOut)
@@ -66,6 +78,9 @@ def update_reservation(
     )
 
 
+# `pickup` (reserved -> loaned) y `PATCH /{id}` (solo mueve `expires_at`) no invalidan:
+# la disponibilidad lista únicamente los ejemplares `available`, y ninguna de las dos
+# transiciones entra ni sale de ese conjunto.
 @router.patch("/{reservation_id}/pickup", response_model=schemas.ReservationOut)
 def mark_picked_up(
     reservation_id: int,
@@ -81,7 +96,10 @@ def mark_returned(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_staff),
 ):
-    return reservation_service.mark_returned(db, reservation_id, viewer=current_user)
+    reservation = reservation_service.mark_returned(db, reservation_id, viewer=current_user)
+    # loaned -> available: el ejemplar vuelve al stock.
+    cache.invalidate(cache.NS_AVAILABILITY)
+    return reservation
 
 
 @router.post("/{reservation_id}/cancel", response_model=schemas.ReservationOut)
@@ -90,4 +108,7 @@ def cancel_reservation(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    return reservation_service.cancel_reservation(db, reservation_id, viewer=current_user)
+    reservation = reservation_service.cancel_reservation(db, reservation_id, viewer=current_user)
+    # reserved -> available: el ejemplar vuelve al stock.
+    cache.invalidate(cache.NS_AVAILABILITY)
+    return reservation

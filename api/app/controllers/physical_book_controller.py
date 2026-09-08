@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
+from .. import cache
 from ..persistence.database import get_db
 from ..persistence.models import PhysicalBookStatus, User, UserRole
 from ..services import physical_book_service
@@ -12,6 +13,10 @@ router = APIRouter(prefix="/physical-books", tags=["physical_books"])
 require_staff = require_roles(UserRole.librarian, UserRole.sysadmin)
 
 
+# Los GET de este router no se cachean: son la pantalla de gestión de un bibliotecario
+# (poco tráfico, mucha volatilidad) y filtran por tres parámetros, así que cada
+# combinación sería una entrada distinta. Lo que sí hacen las escrituras es invalidar la
+# disponibilidad, que es la vista pública de este mismo stock.
 @router.get("", response_model=list[schemas.PhysicalBookOut])
 def list_physical_books(
     isbn: str | None = None,
@@ -30,9 +35,11 @@ def create_physical_book(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_staff),
 ):
-    return physical_book_service.create_physical_book(
+    physical_book = physical_book_service.create_physical_book(
         db, editor=current_user, **payload.model_dump()
     )
+    cache.invalidate(cache.NS_AVAILABILITY)
+    return physical_book
 
 
 @router.get("/{physical_book_id}", response_model=schemas.PhysicalBookOut)
@@ -47,9 +54,11 @@ def update_status(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_staff),
 ):
-    return physical_book_service.update_status(
+    physical_book = physical_book_service.update_status(
         db, physical_book_id, status=payload.status, editor=current_user
     )
+    cache.invalidate(cache.NS_AVAILABILITY)
+    return physical_book
 
 
 @router.delete("/{physical_book_id}", status_code=204)
@@ -59,3 +68,4 @@ def delete_physical_book(
     current_user: User = Depends(require_staff),
 ):
     physical_book_service.delete_physical_book(db, physical_book_id, editor=current_user)
+    cache.invalidate(cache.NS_AVAILABILITY)

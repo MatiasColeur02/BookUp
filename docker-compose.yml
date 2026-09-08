@@ -15,10 +15,32 @@ services:
       timeout: 5s
       retries: 5
 
+  # Stand-in local de ElastiCache for Redis: sin persistencia (`--appendonly no --save ""`),
+  # que es como se configura un cache puro.
+  #
+  # `volatile-lru` no es un detalle: es el default de ElastiCache y, sobre todo, es lo que
+  # hace segura la invalidación por generaciones. Solo desaloja claves con TTL, y los
+  # contadores `bookup:ver:*` se escriben con INCR, sin TTL. Con `allkeys-lru` un contador
+  # podría ser desalojado, volver a leerse como 0 y resucitar entradas viejas de la
+  # generación 0 que todavía no vencieron. Ver `api/app/cache.py`.
+  cache:
+    image: redis:7-alpine
+    command: >
+      redis-server --appendonly no --save "" --maxmemory 256mb
+      --maxmemory-policy volatile-lru
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
   api:
     build: ./api
     environment:
       DATABASE_URL: postgresql+psycopg2://bookup:bookup@db:5432/bookup
+      REDIS_URL: redis://cache:6379/0
       JWT_SECRET: dev-secret-change-me
       JWT_ALGORITHM: HS256
       JWT_EXPIRE_MINUTES: 60
@@ -26,6 +48,8 @@ services:
       - "8000:8000"
     depends_on:
       db:
+        condition: service_healthy
+      cache:
         condition: service_healthy
     volumes:
       - ./api:/app
