@@ -90,9 +90,20 @@ def get_reservation(db: Session, reservation_id: int, *, viewer: User) -> Reserv
 
 
 def list_reservations(
-    db: Session, *, viewer: User, library_id: int | None = None, is_open: bool | None = None
+    db: Session,
+    *,
+    viewer: User,
+    library_id: int | None = None,
+    is_open: bool | None = None,
+    mine: bool = False,
 ) -> list[Reservation]:
     repo = ReservationRepository(db)
+
+    # "Las mías" no depende del rol: un librarian puede reservar en cualquier sede, y
+    # sin esto no tendría forma de listar sus propias reservas — el alcance por rol lo
+    # acotaría a su sede. No expone nada nuevo: el dueño ya puede ver cada una por id.
+    if mine:
+        return repo.list_all(library_id=library_id, user_id=viewer.id, is_open=is_open)
 
     if viewer.role is UserRole.sysadmin:
         return repo.list_all(library_id=library_id, is_open=is_open)

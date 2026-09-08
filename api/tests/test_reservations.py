@@ -136,6 +136,60 @@ def test_librarian_lists_only_their_own_library(
     assert response.status_code == 403
 
 
+def test_mine_returns_own_reservations_regardless_of_role(
+    client, reservation_setup, auth_headers, make_user, db_session
+):
+    """A librarian can reserve at any branch, including one that is not theirs.
+
+    Without `mine`, the role scope would narrow the listing to their own branch and
+    hide the reservation from them.
+    """
+    physical_book, _ = reservation_setup
+
+    other_library = Library(name="Norte", address="Calle 2", state="SF", city="Rosario")
+    db_session.add(other_library)
+    db_session.commit()
+
+    librarian = make_user(UserRole.librarian, library_id=other_library.id)
+    headers = auth_headers(librarian)
+    created = _reserve(client, headers, physical_book.id).json()
+
+    # Scoped by role: their branch has no reservations.
+    assert client.get("/reservations", headers=headers).json() == []
+
+    response = client.get("/reservations", params={"mine": True}, headers=headers)
+    assert response.status_code == 200
+    body = response.json()
+    assert [r["id"] for r in body] == [created["id"]]
+    assert body[0]["user_id"] == librarian.id
+
+
+def test_mine_does_not_leak_other_peoples_reservations(
+    client, reservation_setup, auth_headers, make_user, sysadmin_headers
+):
+    physical_book, user = reservation_setup
+    _reserve(client, auth_headers(user), physical_book.id)
+
+    # A sysadmin sees every reservation, but `mine` narrows it to their own.
+    assert len(client.get("/reservations", headers=sysadmin_headers).json()) == 1
+    response = client.get("/reservations", params={"mine": True}, headers=sysadmin_headers)
+    assert response.status_code == 200
+    assert response.json() == []
+
+
+def test_mine_combines_with_is_open(client, reservation_setup, auth_headers):
+    physical_book, user = reservation_setup
+    headers = auth_headers(user)
+    created = _reserve(client, headers, physical_book.id).json()
+    client.post(f"/reservations/{created['id']}/cancel", headers=headers)
+
+    open_only = client.get("/reservations", params={"mine": True, "is_open": True}, headers=headers)
+    assert open_only.json() == []
+
+    closed = client.get("/reservations", params={"mine": True, "is_open": False}, headers=headers)
+    assert [r["id"] for r in closed.json()] == [created["id"]]
+
+
 def test_get_reservation_as_owner(client, reservation_setup, auth_headers):
     physical_book, user = reservation_setup
     created = _reserve(client, auth_headers(user), physical_book.id).json()

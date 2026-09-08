@@ -20,8 +20,9 @@ export function MyReservationsView() {
     setLoading(true);
     setError(null);
     try {
-      // Un `customer` recibe solo las propias: no hace falta filtrar acá.
-      setReservations(await api.reservations.list({ is_open: isOpenParam(filter) }));
+      // `mine` es imprescindible: sin él, a un `librarian` la API le devuelve las
+      // reservas de su sede en vez de las suyas, y a un `sysadmin` todas.
+      setReservations(await api.reservations.list({ is_open: isOpenParam(filter), mine: true }));
     } catch (err) {
       setError(describeError(err));
     } finally {

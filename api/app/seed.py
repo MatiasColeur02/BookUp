@@ -28,7 +28,16 @@ def seed() -> None:
             state="Santa Fe",
             city="Rosario",
         )
-        db.add_all([central, norte])
+        sur = models.Library(
+            name="Biblioteca Sur",
+            address="Av. Siempreviva 742",
+            state="Buenos Aires",
+            city="Quilmes",
+            hours="L-V 9 a 18",
+            phone="11-5555-0000",
+            email="sur@bookup.example",
+        )
+        db.add_all([central, norte, sur])
         db.flush()
 
         garcia_marquez = models.Author(name="Gabriel García Márquez")
@@ -73,6 +82,8 @@ def seed() -> None:
                 models.PhysicalBook(isbn=books[0].isbn, library_id=norte.id),
                 models.PhysicalBook(isbn=books[1].isbn, library_id=central.id),
                 models.PhysicalBook(isbn=books[2].isbn, library_id=norte.id),
+                models.PhysicalBook(isbn=books[1].isbn, library_id=sur.id),
+                models.PhysicalBook(isbn=books[2].isbn, library_id=sur.id),
             ]
         )
         # Without at least one sysadmin nobody can create libraries or staff
@@ -99,6 +110,13 @@ def seed() -> None:
                     name="Bibliotecario Norte",
                     role=models.UserRole.librarian,
                     library_id=norte.id,
+                ),
+                models.User(
+                    email="sur@bookup.example",
+                    password_hash=password_hash,
+                    name="Bibliotecario Sur",
+                    role=models.UserRole.librarian,
+                    library_id=sur.id,
                 ),
                 models.User(
                     email="ana@bookup.example",

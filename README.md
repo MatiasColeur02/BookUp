@@ -76,11 +76,32 @@ Para cargar datos de ejemplo (bibliotecas, libros, ejemplares y usuarios):
 docker compose exec api python -m app.seed
 ```
 
-El seed crea un usuario por rol, todos con la password `bookup123`:
-`admin@bookup.example` (sysadmin), `central@bookup.example` y
-`norte@bookup.example` (librarians de cada sede) y `ana@bookup.example`
-(customer). Sin al menos un sysadmin no se pueden crear sedes ni personal por
-la API.
+El seed crea tres sedes (Central, Norte y Sur) con su personal. **Todos los
+usuarios comparten la password `bookup123`:**
+
+| Email | Password | Rol | Sede a cargo |
+|---|---|---|---|
+| `admin@bookup.example` | `bookup123` | sysadmin | — (ve y administra todas) |
+| `central@bookup.example` | `bookup123` | librarian | Biblioteca Central |
+| `norte@bookup.example` | `bookup123` | librarian | Biblioteca del Norte |
+| **`sur@bookup.example`** | **`bookup123`** | **librarian** | **Biblioteca Sur** |
+| `ana@bookup.example` | `bookup123` | customer | — |
+
+Para administrar la **Biblioteca Sur**, entrá en `http://localhost:5173` con
+`sur@bookup.example` / `bookup123`. Con ese usuario vas a ver:
+
+- **Panel bibliotecario**: las reservas de la sede Sur, con retiro, devolución,
+  cancelación y extensión del vencimiento.
+- **Gestión → Ejemplares**: alta y baja de ejemplares de esa sede (la sede queda
+  fijada, un librarian no puede tocar otra).
+- **Gestión → Sedes**: el formulario de edición de la Biblioteca Sur únicamente;
+  el alta y la baja de sedes son de `sysadmin`.
+- **Gestión → Libros / Autores / Géneros**: el catálogo es compartido por toda la
+  red, así que se edita completo desde cualquier sede.
+
+Las pantallas de **Usuarios** y **Mantenimiento** no le aparecen: son de
+`sysadmin` (entrá con `admin@bookup.example` para eso). Sin al menos un sysadmin
+no se pueden crear sedes ni personal por la API, por eso el seed lo bootstrapea.
 
 ### Backend sin Docker
 
@@ -156,12 +177,22 @@ Salvo el catálogo, las sedes (lectura) y el auto-registro, todo pide un JWT en
 
 ## Frontend
 
-SPA mínima sin router (dos vistas conmutadas por estado):
+SPA con React Router y sesión propia (JWT en `localStorage`). Cada pantalla se
+muestra según el rol del token; detalle y decisiones en
+[`frontend/ROADMAP.md`](frontend/ROADMAP.md).
 
-- **Catálogo**: buscar libros, ver disponibilidad por biblioteca y reservar un
-  ejemplar.
-- **Panel bibliotecario**: listar reservas y confirmarlas (requiere iniciar
-  sesión como `librarian` o `sysadmin`).
+| Pantalla | Acceso |
+|---|---|
+| Catálogo: buscar, ver disponibilidad por sede y reservar | público (reservar pide sesión) |
+| Sedes: listado con dirección, horarios y contacto | público |
+| Ingresar / Crear cuenta | público |
+| Mis reservas: seguimiento y cancelación | autenticado |
+| Mi perfil: datos, contraseña y baja de cuenta | autenticado |
+| Panel bibliotecario: retiro, devolución, cancelación y extensión | librarian (su sede) / sysadmin |
+| Gestión → Libros, Autores, Géneros | librarian / sysadmin |
+| Gestión → Ejemplares | librarian (su sede) / sysadmin |
+| Gestión → Sedes | librarian (edita la suya) / sysadmin (ABM completo) |
+| Gestión → Usuarios, Mantenimiento | sysadmin |
 
 ## De este MVP a la arquitectura en AWS
 

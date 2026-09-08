@@ -251,8 +251,13 @@ export const api = {
   },
 
   reservations: {
-    /** El alcance lo define el rol del token: propias, de la sede, o todas. */
-    list: (filters: { library_id?: number; is_open?: boolean } = {}) =>
+    /**
+     * El alcance lo define el rol del token: propias, de la sede, o todas.
+     * `mine: true` lo cambia por "las del usuario del token" sin importar el rol —
+     * necesario para un `librarian`/`sysadmin`, cuyo alcance por rol no incluye sus
+     * propias reservas si están en otra sede.
+     */
+    list: (filters: { library_id?: number; is_open?: boolean; mine?: boolean } = {}) =>
       request<Reservation[]>(`/reservations${buildQuery(filters)}`),
 
     get: (reservationId: number) => request<Reservation>(`/reservations/${reservationId}`),

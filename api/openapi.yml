@@ -804,6 +804,11 @@ paths:
       description: >
         El alcance depende del rol: un `sysadmin` ve todas, un `librarian` solo
         las de su sede (pedir otra da 403), y un `customer` solo las propias.
+        `mine=true` cambia ese alcance por "las reservas del usuario del token",
+        sin importar el rol: es la única forma de que un `librarian` o un
+        `sysadmin` liste las suyas, porque el alcance por rol se las acotaría a
+        su sede (o a todas). No expone nada nuevo — el dueño de una reserva ya
+        puede leerla con `GET /reservations/{id}`.
       operationId: listReservations
       security:
         - bearerAuth: []
@@ -822,6 +827,16 @@ paths:
           description: >
             `true` devuelve solo las reservas abiertas, `false` solo las ya
             cerradas (canceladas o devueltas). Omitirlo devuelve el historial completo.
+        - name: mine
+          in: query
+          required: false
+          schema:
+            type: boolean
+            default: false
+          description: >
+            `true` devuelve las reservas del usuario autenticado, cualquiera sea
+            su rol, ignorando el alcance por rol. Se puede combinar con
+            `library_id` e `is_open`.
       responses:
         "200":
           description: Lista de reservas

@@ -27,11 +27,12 @@ def create_reservation(
 def list_reservations(
     library_id: int | None = None,
     is_open: bool | None = None,
+    mine: bool = False,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     return reservation_service.list_reservations(
-        db, viewer=current_user, library_id=library_id, is_open=is_open
+        db, viewer=current_user, library_id=library_id, is_open=is_open, mine=mine
     )
 
 
