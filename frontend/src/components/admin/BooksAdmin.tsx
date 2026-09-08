@@ -4,6 +4,7 @@ import { api } from "../../api";
 import { describeError } from "../../lib/errors";
 import type { Author, Book, Genre } from "../../types";
 import { BookForm } from "./BookForm";
+import { ErrorBanner } from "../ErrorBanner";
 
 type FormState = { mode: "hidden" } | { mode: "create" } | { mode: "edit"; book: Book };
 
@@ -69,7 +70,7 @@ export function BooksAdmin() {
         )}
       </div>
 
-      {error && <p className="error">{error}</p>}
+      <ErrorBanner error={error} />
 
       {form.mode !== "hidden" && (
         <BookForm

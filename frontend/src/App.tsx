@@ -1,5 +1,6 @@
 import { Link, NavLink, Navigate, Route, Routes } from "react-router-dom";
 import { AdminLayout } from "./components/admin/AdminLayout";
+import { ApiStatus } from "./components/ApiStatus";
 import { AuthorsAdmin } from "./components/admin/AuthorsAdmin";
 import { BooksAdmin } from "./components/admin/BooksAdmin";
 import { GenresAdmin } from "./components/admin/GenresAdmin";
@@ -93,6 +94,7 @@ export default function App() {
         </nav>
         <SessionMenu />
       </header>
+      <ApiStatus />
       <main>
         <Routes>
           <Route path="/" element={<CatalogView />} />

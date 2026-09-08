@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { api } from "../../api";
-import { describeError } from "../../lib/errors";
+import { ErrorBanner } from "../ErrorBanner";
 import { isValidIsbn13 } from "../../lib/isbn";
 import type { Author, Book, Genre } from "../../types";
 
@@ -32,7 +32,7 @@ export function BookForm({ book, authors, genres, onSaved, onCancel }: Props) {
   const [genreIds, setGenreIds] = useState<number[]>(book?.genres.map((g) => g.id) ?? []);
 
   const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<unknown>(null);
 
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault();
@@ -61,12 +61,7 @@ export function BookForm({ book, authors, genres, onSaved, onCancel }: Props) {
       }
       onSaved();
     } catch (err) {
-      setError(
-        describeError(err, {
-          409: "Ya existe un libro con ese ISBN.",
-          404: "Alguno de los autores o géneros elegidos ya no existe. Recargá la página.",
-        })
-      );
+      setError(err);
     } finally {
       setSubmitting(false);
     }
@@ -76,7 +71,13 @@ export function BookForm({ book, authors, genres, onSaved, onCancel }: Props) {
     <form className="form-card" onSubmit={handleSubmit}>
       <h3>{editing ? `Editar «${book.title}»` : "Nuevo libro"}</h3>
 
-      {error && <p className="error">{error}</p>}
+      <ErrorBanner
+        error={error}
+        overrides={{
+          409: "Ya existe un libro con ese ISBN.",
+          404: "Alguno de los autores o géneros elegidos ya no existe. Recargá la página.",
+        }}
+      />
 
       <label>
         ISBN

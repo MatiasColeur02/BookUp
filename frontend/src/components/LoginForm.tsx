@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useSession } from "../context/SessionContext";
-import { describeError } from "../lib/errors";
+import { ErrorBanner } from "./ErrorBanner";
 
 interface LocationState {
   from?: { pathname: string; search?: string };
@@ -14,7 +14,7 @@ export function LoginForm() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<unknown>(null);
 
   // A dónde iba antes de llegar acá: `RequireRole` lo guarda, y el catálogo también
   // cuando alguien sin sesión aprieta "Reservar" (el `search` lleva el ejemplar).
@@ -29,9 +29,7 @@ export function LoginForm() {
       await login(email, password);
       navigate(from, { replace: true });
     } catch (err) {
-      // La API responde 401 tanto si el email no existe como si la password es
-      // incorrecta, a propósito: no filtrar cuál de las dos fue.
-      setError(describeError(err, { 401: "Email o contraseña incorrectos." }));
+      setError(err);
     } finally {
       setSubmitting(false);
     }
@@ -41,7 +39,9 @@ export function LoginForm() {
     <div className="auth-view">
       <form className="form-card" onSubmit={handleSubmit}>
         <h2>Ingresar</h2>
-        {error && <p className="error">{error}</p>}
+        {/* La API responde 401 tanto si el email no existe como si la password es
+            incorrecta, a propósito: no filtrar cuál de las dos fue. */}
+        <ErrorBanner error={error} overrides={{ 401: "Email o contraseña incorrectos." }} />
         <label>
           Email
           <input

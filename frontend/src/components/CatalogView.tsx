@@ -8,6 +8,7 @@ import { BookAvailabilityView } from "./BookAvailabilityView";
 import { BookResults } from "./BookResults";
 import { ReservationForm } from "./ReservationForm";
 import { SearchBar } from "./SearchBar";
+import { ErrorBanner } from "./ErrorBanner";
 
 export function CatalogView() {
   const { user } = useSession();
@@ -23,6 +24,7 @@ export function CatalogView() {
   const [results, setResults] = useState<Book[]>([]);
   const [availability, setAvailability] = useState<BookAvailability | null>(null);
   const [loading, setLoading] = useState(false);
+  const [loadingAvailability, setLoadingAvailability] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirmationMessage, setConfirmationMessage] = useState<string | null>(null);
@@ -37,6 +39,7 @@ export function CatalogView() {
       return;
     }
     let cancelled = false;
+    setLoadingAvailability(true);
     api.books
       .availability(selectedIsbn)
       .then((next) => {
@@ -44,6 +47,9 @@ export function CatalogView() {
       })
       .catch((err) => {
         if (!cancelled) setError(describeError(err));
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingAvailability(false);
       });
     return () => {
       cancelled = true;
@@ -119,11 +125,12 @@ export function CatalogView() {
   return (
     <div className="catalog">
       <SearchBar onSearch={handleSearch} loading={loading} />
-      {error && <p className="error">{error}</p>}
+      <ErrorBanner error={error} />
       <div className="catalog-layout">
         <BookResults books={results} selectedIsbn={selectedIsbn ?? undefined} onSelect={handleSelect} />
         <div className="catalog-detail">
           {confirmationMessage && <p className="success">{confirmationMessage}</p>}
+          {loadingAvailability && <p className="muted">Consultando disponibilidad...</p>}
           {availability && (
             <BookAvailabilityView availability={availability} onReserve={handleStartReservation} />
           )}

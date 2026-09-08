@@ -2,7 +2,7 @@ import { useEffect, useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import { api } from "../api";
 import { useSession } from "../context/SessionContext";
-import { describeError } from "../lib/errors";
+import { ErrorBanner } from "./ErrorBanner";
 import { roleLabel } from "../lib/roles";
 import type { UserUpdate } from "../types";
 
@@ -19,7 +19,7 @@ export function ProfileView() {
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<unknown>(null);
   const [saved, setSaved] = useState(false);
 
   const userId = user?.id;
@@ -36,7 +36,7 @@ export function ProfileView() {
         setLanguage(me.language);
       })
       .catch((err) => {
-        if (!cancelled) setError(describeError(err));
+        if (!cancelled) setError(err);
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -64,7 +64,7 @@ export function ProfileView() {
       setPassword("");
       setSaved(true);
     } catch (err) {
-      setError(describeError(err));
+      setError(err);
     } finally {
       setSubmitting(false);
     }
@@ -82,7 +82,7 @@ export function ProfileView() {
       logout();
       navigate("/", { replace: true });
     } catch (err) {
-      setError(describeError(err));
+      setError(err);
     }
   };
 
@@ -94,7 +94,7 @@ export function ProfileView() {
           {user.email} · {roleLabel(user.role)}
         </p>
 
-        {error && <p className="error">{error}</p>}
+        <ErrorBanner error={error} />
         {saved && <p className="success">Perfil actualizado.</p>}
 
         {loading ? (

@@ -2,7 +2,7 @@ import { useState, type FormEvent } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { api } from "../api";
 import { useSession } from "../context/SessionContext";
-import { describeError } from "../lib/errors";
+import { ErrorBanner } from "./ErrorBanner";
 
 interface LocationState {
   from?: { pathname: string; search?: string };
@@ -16,7 +16,7 @@ export function RegisterForm() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<unknown>(null);
 
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault();
@@ -33,7 +33,7 @@ export function RegisterForm() {
       const origin = (location.state as LocationState | null)?.from;
       navigate(origin ? `${origin.pathname}${origin.search ?? ""}` : "/", { replace: true });
     } catch (err) {
-      setError(describeError(err, { 409: "Ese email ya está registrado." }));
+      setError(err);
     } finally {
       setSubmitting(false);
     }
@@ -43,7 +43,7 @@ export function RegisterForm() {
     <div className="auth-view">
       <form className="form-card" onSubmit={handleSubmit}>
         <h2>Crear cuenta</h2>
-        {error && <p className="error">{error}</p>}
+        <ErrorBanner error={error} overrides={{ 409: "Ese email ya está registrado." }} />
         <label>
           Nombre
           <input value={name} onChange={(event) => setName(event.target.value)} required />

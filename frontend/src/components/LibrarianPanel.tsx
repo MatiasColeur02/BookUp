@@ -7,6 +7,7 @@ import { isOpen, isOpenParam, OPEN_FILTERS, type OpenFilter } from "../lib/reser
 import type { Library, Reservation } from "../types";
 import { CheckIcon } from "./icons";
 import { ReservationStatusBadge } from "./ReservationStatusBadge";
+import { ErrorBanner } from "./ErrorBanner";
 
 const ALL_LIBRARIES = "all";
 
@@ -158,7 +159,7 @@ export function LibrarianPanel() {
         )}
       </div>
 
-      {error && <p className="error">{error}</p>}
+      <ErrorBanner error={error} />
 
       {loading ? (
         <p className="muted">Cargando reservas...</p>

@@ -5,6 +5,7 @@ import { describeError } from "../lib/errors";
 import { isOpenParam, OPEN_FILTERS, type OpenFilter } from "../lib/reservations";
 import type { Reservation } from "../types";
 import { canBeCancelled, ReservationStatusBadge } from "./ReservationStatusBadge";
+import { ErrorBanner } from "./ErrorBanner";
 
 export function MyReservationsView() {
   const [filter, setFilter] = useState<OpenFilter>("open");
@@ -66,7 +67,7 @@ export function MyReservationsView() {
         ))}
       </div>
 
-      {error && <p className="error">{error}</p>}
+      <ErrorBanner error={error} />
 
       {loading ? (
         <p className="muted">Cargando reservas...</p>

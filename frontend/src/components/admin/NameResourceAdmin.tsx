@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { describeError } from "../../lib/errors";
+import { ErrorBanner } from "../ErrorBanner";
 
 export interface NamedResource {
   id: number;
@@ -102,7 +103,7 @@ export function NameResourceAdmin({
       <h2>{title}</h2>
       <p className="hint">{hint}</p>
 
-      {error && <p className="error">{error}</p>}
+      <ErrorBanner error={error} />
 
       <form className="extend-form" onSubmit={handleCreate}>
         <label className="inline-select">

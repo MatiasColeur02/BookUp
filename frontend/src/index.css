@@ -882,6 +882,26 @@ tbody tr:hover {
   font-size: 0.88rem;
 }
 
+/* Detalle de campos de un 422. */
+.error p,
+.error ul {
+  margin: 0;
+}
+
+.error ul {
+  padding-left: 1.1rem;
+  margin-top: 0.3rem;
+}
+
+.api-status {
+  margin: 0 0 1.25rem;
+  padding: 0.5rem 0.75rem;
+  border-radius: 8px;
+  background: var(--warning-soft);
+  color: var(--warning);
+  font-size: 0.88rem;
+}
+
 .success {
   color: var(--success);
   background: var(--success-soft);

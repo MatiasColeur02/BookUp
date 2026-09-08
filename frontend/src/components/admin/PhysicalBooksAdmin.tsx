@@ -3,6 +3,7 @@ import { api } from "../../api";
 import { useSession } from "../../context/SessionContext";
 import { describeError } from "../../lib/errors";
 import { isValidIsbn13 } from "../../lib/isbn";
+import { ErrorBanner } from "../ErrorBanner";
 import type {
   Book,
   Library,
@@ -164,7 +165,7 @@ export function PhysicalBooksAdmin() {
         la reserva abierta que hubiera, y volver a «disponible» solo sale de «perdido».
       </p>
 
-      {error && <p className="error">{error}</p>}
+      <ErrorBanner error={error} />
 
       <form className="extend-form" onSubmit={handleCreate}>
         <label className="inline-select">
