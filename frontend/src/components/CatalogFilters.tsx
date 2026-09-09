@@ -1,6 +1,5 @@
-import { useEffect, useState } from "react";
-import { api } from "../api";
-import type { Author, Genre } from "../types";
+import { useState } from "react";
+import type { CatalogFilterOptions } from "../hooks/useCatalogFilterOptions";
 
 export interface CatalogFilterState {
   authorIds: number[];
@@ -16,6 +15,8 @@ export function countFilters(filters: CatalogFilterState): number {
 
 interface Props {
   filters: CatalogFilterState;
+  /** Cargadas por `useCatalogFilterOptions` en la pantalla: también las usan los chips. */
+  options: CatalogFilterOptions;
   onChange: (filters: CatalogFilterState) => void;
 }
 
@@ -23,34 +24,12 @@ interface Props {
  * Filtros del catálogo: ciudad, género y autor, cada uno multi-selección.
  *
  * El panel arranca cerrado para no tapar la grilla de portadas, pero se abre solo si ya
- * hay filtros puestos (por ejemplo al volver con una URL compartida). Las opciones se
- * cargan una vez: son datos de referencia que casi no cambian y la API los cachea 600 s.
- *
- * La ciudad no sale de `/libraries` sino de `/books/cities`, que devuelve solo las que
- * hoy tienen stock disponible: ofrecer una ciudad que va a dar cero resultados es peor
- * que no ofrecerla.
+ * hay filtros puestos. Lo que quedó elegido se ve igual con el panel cerrado, en los
+ * chips de `ActiveFilters`, al lado del conteo de resultados.
  */
-export function CatalogFilters({ filters, onChange }: Props) {
+export function CatalogFilters({ filters, options, onChange }: Props) {
   const [open, setOpen] = useState(() => countFilters(filters) > 0);
-  const [authors, setAuthors] = useState<Author[]>([]);
-  const [genres, setGenres] = useState<Genre[]>([]);
-  const [cities, setCities] = useState<string[]>([]);
-
-  useEffect(() => {
-    let cancelled = false;
-    Promise.all([api.authors.list(), api.genres.list(), api.books.cities()])
-      .then(([nextAuthors, nextGenres, nextCities]) => {
-        if (cancelled) return;
-        setAuthors(nextAuthors);
-        setGenres(nextGenres);
-        setCities(nextCities);
-      })
-      // Si no cargan, la pantalla sigue funcionando sin filtros: no vale un error.
-      .catch(() => undefined);
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+  const { authors, genres, cities } = options;
 
   const active = countFilters(filters);
 

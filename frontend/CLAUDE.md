@@ -643,7 +643,12 @@ Es la pantalla que más gana con el rediseño y la que primero se ve.
   `style={{ "--cover-hue": … }}`), con saturación y luminosidad fijas por token para que
   ninguno quede estridente ni ilegible. Es lo que hace que una grilla sin portadas —el estado
   real hoy, el seed no carga imágenes— se vea intencional.
-- **Cabecera de resultados**: el "Catálogo · 12 de 71" pasa a `h2` + `.badge-neutral`.
+- **Cabecera de resultados**: el "Catálogo · 12 de 71" pasa a `h2` + `.badge-neutral`, y
+  al lado van los **filtros activos** como chips removibles (`ActiveFilters`). Cada chip
+  toma el tono de su propio texto con la misma fórmula que el placeholder de portada
+  (`lib/hue.ts` + los tokens `--cover-*`), así «Rosario» tiene el mismo color en el chip
+  y en la grilla. El contraste texto/fondo está verificado sobre los 360 tonos en los dos
+  temas: el peor caso da 5.88:1, por encima de AA.
 - **Carga**: skeletons en vez de "Cargando catálogo…" (6.10).
 - **"Cargar más"**: `.btn-secondary` centrado, con el remanente en el texto ("Cargar más — 59
   restantes").

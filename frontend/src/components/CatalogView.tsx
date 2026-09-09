@@ -13,6 +13,8 @@ import {
   EMPTY_FILTERS,
   type CatalogFilterState,
 } from "./CatalogFilters";
+import { ActiveFilters } from "./ActiveFilters";
+import { useCatalogFilterOptions } from "../hooks/useCatalogFilterOptions";
 import { ReservationForm } from "./ReservationForm";
 import { SearchBar } from "./SearchBar";
 import { ErrorBanner } from "./ErrorBanner";
@@ -39,8 +41,12 @@ export function CatalogView() {
   const [total, setTotal] = useState(0);
   const [loadingCatalog, setLoadingCatalog] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
+  // `queryInput` es lo tipeado; `activeQuery` es lo que se está filtrando. Se separan
+  // porque la búsqueda se dispara al enviar, no en cada tecla.
+  const [queryInput, setQueryInput] = useState("");
   const [activeQuery, setActiveQuery] = useState("");
   const [filters, setFilters] = useState<CatalogFilterState>(EMPTY_FILTERS);
+  const filterOptions = useCatalogFilterOptions();
   const [availability, setAvailability] = useState<BookAvailability | null>(
     null,
   );
@@ -126,7 +132,11 @@ export function CatalogView() {
 
   // Buscar y limpiar solo tocan el estado: la consulta la dispara el efecto de arriba.
   const handleSearch = (query: string) => setActiveQuery(query);
-  const handleClearSearch = () => setActiveQuery("");
+
+  const handleClearSearch = () => {
+    setQueryInput("");
+    setActiveQuery("");
+  };
 
   const handleSelect = (book: Book) => {
     setError(null);
@@ -201,6 +211,8 @@ export function CatalogView() {
     <div className="catalog">
       <div className="catalog-search">
         <SearchBar
+          value={queryInput}
+          onValueChange={setQueryInput}
           onSearch={handleSearch}
           onClear={handleClearSearch}
           loading={loadingCatalog}
@@ -210,7 +222,7 @@ export function CatalogView() {
             Buscá entre {total} libros de toda la red por título, autor, ISBN o sinopsis.
           </p>
         )}
-        <CatalogFilters filters={filters} onChange={setFilters} />
+        <CatalogFilters filters={filters} options={filterOptions} onChange={setFilters} />
       </div>
       {/* Con el modal abierto el error se muestra adentro, no tapado detrás del fondo. */}
       <ErrorBanner error={selectedIsbn === null ? error : null} />
@@ -218,6 +230,13 @@ export function CatalogView() {
         <div className="catalog-results-header">
           <h2>{filtering ? "Resultados" : "Catálogo"}</h2>
           <span className="badge badge-neutral">{listCaption}</span>
+          <ActiveFilters
+            query={activeQuery}
+            filters={filters}
+            options={filterOptions}
+            onRemoveQuery={handleClearSearch}
+            onChange={setFilters}
+          />
         </div>
         {loadingCatalog ? (
           <BookResultsSkeleton />

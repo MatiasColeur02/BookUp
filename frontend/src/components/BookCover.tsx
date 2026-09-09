@@ -1,4 +1,5 @@
 import { useEffect, useState, type CSSProperties } from "react";
+import { hueFrom } from "../lib/hue";
 import type { Book } from "../types";
 import { BookIcon } from "./icons";
 
@@ -6,20 +7,6 @@ interface Props {
   book: Pick<Book, "isbn" | "title" | "cover_url">;
   /** `eager` para la portada del detalle, que se ve sí o sí. */
   loading?: "lazy" | "eager";
-}
-
-/**
- * Tono estable por libro para el placeholder. Sale del ISBN, así el mismo libro tiene
- * siempre el mismo color y una grilla sin portadas se ve intencional en vez de vacía.
- * La saturación y la luminosidad las fija el tema (`--cover-*`), así que ningún tono
- * puede quedar estridente ni ilegible.
- */
-function hueFrom(isbn: string): number {
-  let hash = 0;
-  for (let index = 0; index < isbn.length; index += 1) {
-    hash = (hash * 31 + isbn.charCodeAt(index)) % 360;
-  }
-  return hash;
 }
 
 /**
