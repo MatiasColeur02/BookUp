@@ -19,6 +19,7 @@ from __future__ import annotations
 import logging
 import uuid
 from functools import lru_cache
+from typing import NamedTuple
 
 import boto3
 from botocore.client import Config
@@ -130,22 +131,35 @@ def presign_upload(key: str, content_type: str) -> str:
     )
 
 
-def exists(key: str) -> bool:
-    """¿El objeto está realmente subido?
+class ObjectInfo(NamedTuple):
+    """Lo que devuelve un `HEAD` del objeto: su tamaño real y su tipo real."""
 
-    Se chequea antes de guardar la key en la base: si el `PUT` del browser falló, la fila
-    quedaría apuntando a una portada que no existe y el catálogo mostraría imágenes rotas.
+    size: int
+    content_type: str
+
+
+def describe(key: str) -> ObjectInfo | None:
+    """Metadatos del objeto subido, o `None` si no está.
+
+    Se consulta antes de guardar la key en la base por dos motivos. El primero es que si
+    el `PUT` del browser falló, la fila quedaría apuntando a una portada inexistente y el
+    catálogo mostraría imágenes rotas. El segundo es el tope de tamaño: el `size` que
+    manda el cliente al pedir la firma es una **declaración**, y la URL firmada no la
+    hace cumplir, así que el único tamaño confiable es el del objeto ya subido.
     """
     if not is_enabled():
-        return False
+        return None
     try:
-        _internal_client().head_object(Bucket=settings.s3_bucket, Key=key)
-        return True
+        head = _internal_client().head_object(Bucket=settings.s3_bucket, Key=key)
+        return ObjectInfo(
+            size=int(head.get("ContentLength", 0)),
+            content_type=str(head.get("ContentType", "")),
+        )
     except ClientError:
-        return False
+        return None
     except BotoCoreError as exc:
         logger.warning("no se pudo verificar la portada %s: %s", key, exc)
-        return False
+        return None
 
 
 def delete(key: str | None) -> None:

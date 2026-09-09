@@ -51,6 +51,49 @@ La regla de dónde vive cada chequeo:
 
 `get_current_user` decodifica el JWT y recarga el `User` de la base en cada request, así que un token de un usuario borrado da 401 aunque la firma siga siendo válida.
 
+### Validación de entrada y límites
+
+La regla es que **ningún valor del cliente llegue a la base sin un techo**. Vive en
+`controllers/schemas.py` porque es validación de payload, no de dominio.
+
+- **Los `max_length` de los esquemas replican el ancho de las columnas de `models.py`**
+  (el helper `_text(...)` deja el número al lado del campo). Sin eso el valor pasa la
+  validación, revienta en Postgres (`StringDataRightTruncation`) y sale como **500** en
+  lugar de 422. Ojo al testear: SQLite ignora el ancho de un VARCHAR, así que la suite
+  solo ve el límite del esquema. Al agregar una columna de texto, agregar su tope.
+- **Los opcionales usan `min_length=0`**: el frontend manda `""` para vaciar un campo.
+  Los obligatorios usan `min_length=1` con `strip_whitespace`, así `"   "` no es nombre.
+- **Lo que no tiene columna que lo acote lleva un límite de dominio**: `pages` (1 a
+  50.000), `synopsis` (un `Text`, sin tope en la base), `expires_at` de una reserva (a lo
+  sumo 365 días: futuro no alcanza, un vencimiento lejano retiene el ejemplar).
+- **La contraseña se corta en 72 bytes** porque es todo lo que mira bcrypt: aceptar más
+  sería truncar en silencio y hacer que dos contraseñas distintas abran la misma cuenta.
+- **Los parámetros de lectura también** (`catalog_controller`): largo del texto de
+  búsqueda, y `max_length` sobre las listas para acotar cuántas veces se repite un filtro.
+- **Inyección SQL**: no hay SQL escrito a mano en `persistence`; todo pasa por el ORM,
+  que parametriza. Lo que sí se hace es escapar `%` y `_` en el patrón de los `ILIKE`
+  (`_like_pattern`), que no es inyección pero convierte una búsqueda en un scan completo.
+- **Techo del cuerpo del request** (`main.py`, middleware): 1 MB por `Content-Length`,
+  antes de leerlo. Las portadas no cuentan, van directo a S3.
+- **Portadas**: el `size` del pedido de firma es una *declaración*; el tamaño y el tipo
+  reales se verifican con un `HEAD` al confirmar la key, y lo que no cumple se borra del
+  bucket antes de tocar la fila.
+
+### Rate limiting
+
+`app/ratelimit.py`, sobre el mismo Redis que el cache y con el mismo criterio de capas
+(vive en `controllers`; `services` no sabe que existe) y de fallas (**fail-open**: si
+Redis no contesta se deja pasar, porque un nodo caído no puede dejar a todo el mundo
+afuera del login).
+
+- Ventana fija con `INCR` + `EXPIRE`, atómico y O(1).
+- **Login**: un contador por IP *antes* de autenticar —comparar un hash de bcrypt es caro
+  por diseño, así que ese chequeo es lo que frena el gasto de CPU— y otro por cuenta
+  contando **solo los intentos fallidos**, *después*. El orden no es un detalle: con el
+  chequeo por cuenta hecho antes, cualquiera dejaba al dueño afuera errándole diez veces
+  la contraseña. Contando solo fallos, la contraseña correcta siempre entra.
+- **Auto-registro**: por IP. `POST /users/staff` no se frena, ya pide token de sysadmin.
+
 ### Cache
 
 `app/cache.py` cachea las lecturas públicas en Redis (ElastiCache en AWS). Vive en

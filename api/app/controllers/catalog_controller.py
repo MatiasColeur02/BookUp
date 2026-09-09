@@ -1,4 +1,7 @@
+from typing import Annotated
+
 from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import StringConstraints
 from sqlalchemy.orm import Session
 
 from .. import cache, storage
@@ -11,6 +14,14 @@ from .dependencies import require_roles
 
 router = APIRouter(prefix="/books", tags=["catalog"])
 
+# Topes de los parámetros de lectura. El catálogo es público y sin sesión, así que es
+# la superficie que más conviene acotar: cada combinación distinta es una consulta a la
+# base y una entrada de cache.
+MAX_QUERY_LENGTH = 200
+MAX_FILTER_VALUES = 20
+# `Library.city` es un String(100): una ciudad más larga que eso no existe en la base.
+CityFilter = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=100)]
+
 require_staff = require_roles(UserRole.librarian, UserRole.sysadmin)
 
 # Un libro embebe sus autores y géneros, y la disponibilidad embebe al libro: tocar el
@@ -22,10 +33,18 @@ _WRITE_NAMESPACES = (cache.NS_CATALOG, cache.NS_AVAILABILITY)
 @router.get("", response_model=schemas.BookPage)
 def list_books(
     db: Session = Depends(get_db),
-    q: str | None = Query(None, min_length=1, description="Texto libre: título, autor, ISBN o sinopsis"),
-    author_id: list[int] = Query(default=[]),
-    genre_id: list[int] = Query(default=[]),
-    city: list[str] = Query(default=[]),
+    q: str | None = Query(
+        None,
+        min_length=1,
+        max_length=MAX_QUERY_LENGTH,
+        description="Texto libre: título, autor, ISBN o sinopsis",
+    ),
+    # `max_length` sobre una lista acota **cuántas veces** se puede repetir el
+    # parámetro: sin eso, `?genre_id=1&genre_id=2&...` mil veces arma un IN gigante y
+    # una clave de cache distinta por combinación.
+    author_id: list[int] = Query(default=[], max_length=MAX_FILTER_VALUES),
+    genre_id: list[int] = Query(default=[], max_length=MAX_FILTER_VALUES),
+    city: list[CityFilter] = Query(default=[], max_length=MAX_FILTER_VALUES),
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
 ):
@@ -90,7 +109,10 @@ def create_book(
 
 # Declared before `/{isbn}` so FastAPI does not match "search" as an ISBN.
 @router.get("/search", response_model=list[schemas.BookOut])
-def search_books(q: str = Query(..., min_length=1), db: Session = Depends(get_db)):
+def search_books(
+    q: str = Query(..., min_length=1, max_length=MAX_QUERY_LENGTH),
+    db: Session = Depends(get_db),
+):
     # La consulta más cara del MVP: un ILIKE con `%...%` a cuatro columnas, que no usa
     # índice y escanea la tabla entera. Es la que más gana con el cache.
     return cache.cached(
@@ -200,9 +222,28 @@ def attach_cover(
     # verdad — si el PUT del browser falló, la fila quedaría con una imagen rota.
     if not storage.owns_key(isbn, payload.key):
         raise HTTPException(status_code=422, detail="La key no corresponde a este libro.")
-    if not storage.exists(payload.key):
+
+    uploaded = storage.describe(payload.key)
+    if uploaded is None:
         raise HTTPException(
             status_code=422, detail="La portada no está en el bucket: reintentá la subida."
+        )
+
+    # El `size` del paso anterior era lo que **declaró** el cliente, y la URL firmada no
+    # obliga a respetarlo: con la misma firma se puede subir un archivo de 500 MB, o un
+    # ejecutable con un content-type mentido. Lo único confiable es el objeto ya subido,
+    # así que se valida acá y, si no cumple, se borra: nunca llega a la fila del libro.
+    if uploaded.size > settings.cover_max_bytes:
+        storage.delete(payload.key)
+        raise HTTPException(
+            status_code=422,
+            detail=f"La portada no puede superar {settings.cover_max_bytes // (1024 * 1024)} MB.",
+        )
+    if uploaded.content_type not in storage.ALLOWED_CONTENT_TYPES:
+        storage.delete(payload.key)
+        raise HTTPException(
+            status_code=422,
+            detail=f"Formato no soportado. Se aceptan: {', '.join(storage.ALLOWED_CONTENT_TYPES)}.",
         )
 
     book, previous_key = catalog_service.set_cover(db, isbn, payload.key)

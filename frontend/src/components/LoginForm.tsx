@@ -2,6 +2,7 @@ import { useState, type FormEvent } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useSession } from "../context/SessionContext";
 import { useToast } from "../context/ToastContext";
+import { LIMITS } from "../lib/limits";
 import { ErrorBanner } from "./ErrorBanner";
 
 interface LocationState {
@@ -52,6 +53,7 @@ export function LoginForm() {
             value={email}
             onChange={(event) => setEmail(event.target.value)}
             autoComplete="email"
+            maxLength={LIMITS.user.email}
             required
           />
         </label>
@@ -62,6 +64,7 @@ export function LoginForm() {
             value={password}
             onChange={(event) => setPassword(event.target.value)}
             autoComplete="current-password"
+            maxLength={LIMITS.user.passwordMax}
             required
           />
         </label>

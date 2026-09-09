@@ -1,5 +1,6 @@
 import { useCallback } from "react";
 import { api } from "../../api";
+import { LIMITS } from "../../lib/limits";
 import { NameResourceAdmin } from "./NameResourceAdmin";
 
 export function AuthorsAdmin() {
@@ -12,6 +13,7 @@ export function AuthorsAdmin() {
     <NameResourceAdmin
       title="Autores"
       singular="el autor"
+      maxNameLength={LIMITS.author.name}
       // `Author.name` no es unique en el modelo: la identidad es el id.
       hint="Se permiten homónimos: dos autores distintos pueden llamarse igual, y crear el mismo nombre dos veces genera dos autores separados."
       list={list}

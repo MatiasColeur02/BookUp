@@ -1,5 +1,6 @@
 import { useCallback } from "react";
 import { api } from "../../api";
+import { LIMITS } from "../../lib/limits";
 import { NameResourceAdmin } from "./NameResourceAdmin";
 
 export function GenresAdmin() {
@@ -12,6 +13,7 @@ export function GenresAdmin() {
     <NameResourceAdmin
       title="Géneros"
       singular="el género"
+      maxNameLength={LIMITS.genre.name}
       // A diferencia de los autores, `Genre.name` sí es unique.
       hint="El nombre es único: si ya existe un género con ese nombre, la API lo rechaza."
       list={list}

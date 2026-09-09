@@ -7,6 +7,7 @@ import { MonitorIcon, MoonIcon, SunIcon } from "./icons";
 import type { ThemePreference } from "../lib/theme";
 import { useSession } from "../context/SessionContext";
 import { useTheme } from "../context/ThemeContext";
+import { LIMITS } from "../lib/limits";
 import { ErrorBanner } from "./ErrorBanner";
 import { roleLabel } from "../lib/roles";
 import type { Library, UserUpdate } from "../types";
@@ -166,7 +167,12 @@ export function ProfileView() {
           <>
             <label>
               Nombre
-              <input value={name} onChange={(event) => setName(event.target.value)} required />
+              <input
+                value={name}
+                onChange={(event) => setName(event.target.value)}
+                maxLength={LIMITS.user.name}
+                required
+              />
             </label>
             <label>
               Idioma
@@ -185,7 +191,8 @@ export function ProfileView() {
                 value={password}
                 onChange={(event) => setPassword(event.target.value)}
                 autoComplete="new-password"
-                minLength={8}
+                minLength={LIMITS.user.passwordMin}
+                maxLength={LIMITS.user.passwordMax}
                 placeholder="Dejala vacía para no cambiarla"
               />
             </label>

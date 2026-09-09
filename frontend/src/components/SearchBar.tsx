@@ -1,4 +1,5 @@
 import { type FormEvent } from "react";
+import { LIMITS } from "../lib/limits";
 import { SearchIcon } from "./icons";
 
 interface Props {
@@ -25,6 +26,7 @@ export function SearchBar({ value, onValueChange, onSearch, onClear, loading }: 
       <input
         value={value}
         onChange={(event) => onValueChange(event.target.value)}
+        maxLength={LIMITS.searchQuery}
         placeholder="Buscar por título, autor, ISBN o sinopsis..."
       />
       {value !== "" && (

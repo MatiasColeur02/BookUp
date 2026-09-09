@@ -1,6 +1,7 @@
 import { useEffect, useState, type ChangeEvent, type FormEvent } from "react";
 import { api } from "../../api";
 import { useToast } from "../../context/ToastContext";
+import { LIMITS } from "../../lib/limits";
 import { ErrorBanner } from "../ErrorBanner";
 import { isValidIsbn13 } from "../../lib/isbn";
 import type { Author, Book, Genre } from "../../types";
@@ -149,7 +150,7 @@ export function BookForm({ book, authors, genres, onSaved, onCancel }: Props) {
           onChange={(event) => setIsbn(event.target.value)}
           disabled={editing}
           inputMode="numeric"
-          maxLength={13}
+          maxLength={LIMITS.book.isbn}
           required
         />
         <span className="field-hint">
@@ -159,19 +160,30 @@ export function BookForm({ book, authors, genres, onSaved, onCancel }: Props) {
 
       <label>
         Título
-        <input value={title} onChange={(event) => setTitle(event.target.value)} required />
+        <input
+          value={title}
+          onChange={(event) => setTitle(event.target.value)}
+          maxLength={LIMITS.book.title}
+          required
+        />
       </label>
 
       <label>
         Idioma
-        <input value={language} onChange={(event) => setLanguage(event.target.value)} required />
+        <input
+          value={language}
+          onChange={(event) => setLanguage(event.target.value)}
+          maxLength={LIMITS.book.language}
+          required
+        />
       </label>
 
       <label>
         Páginas
         <input
           type="number"
-          min={1}
+          min={LIMITS.book.pagesMin}
+          max={LIMITS.book.pagesMax}
           value={pages}
           onChange={(event) => setPages(event.target.value)}
           placeholder="Opcional"
@@ -184,6 +196,7 @@ export function BookForm({ book, authors, genres, onSaved, onCancel }: Props) {
           rows={4}
           value={synopsis}
           onChange={(event) => setSynopsis(event.target.value)}
+          maxLength={LIMITS.book.synopsis}
           placeholder="Opcional"
         />
       </label>

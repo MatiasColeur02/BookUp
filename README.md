@@ -222,6 +222,38 @@ base, y un breaker lo apaga 10 s para que un nodo caído no le sume timeouts a c
 request. Sin `REDIS_URL` queda directamente apagado — así corren los tests, y así se
 puede levantar la API sin Redis. `GET /health` reporta `cache: ok | down | disabled`.
 
+## Validación de entrada y rate limiting
+
+Toda entrada del cliente tiene un techo, y el techo está en el backend: el frontend
+repite los mismos números (`frontend/src/lib/limits.ts`) solo para no hacer escribir 400
+caracteres y devolver un 422 recién al enviar.
+
+| Riesgo | Qué lo corta |
+|---|---|
+| Inyección SQL | El ORM parametriza todo; no hay SQL armado con f-strings. Además se escapan los comodines `%` y `_` del `ILIKE`, que no son inyección pero convierten una búsqueda en un scan completo |
+| Texto larguísimo (nombres, sinopsis) | `max_length` en los esquemas Pydantic, igual al ancho de cada columna. Antes, un nombre de 5.000 caracteres llegaba a Postgres y salía como **500**; ahora es un 422 |
+| Portada enorme | Doble barrera: el tamaño declarado al pedir la URL firmada, y el tamaño **real** del objeto (un `HEAD`) al confirmarla. Lo que no cumple se borra del bucket y nunca llega a la fila |
+| Cuerpo de request gigante | Middleware de 1 MB por `Content-Length`, antes de leer el cuerpo (413) |
+| Fuerza bruta sobre el login | Rate limit por IP y por cuenta sobre Redis (429 + `Retry-After`) |
+| Alta masiva de cuentas | Rate limit por IP en `POST /users` |
+| Reserva que retiene un ejemplar para siempre | `expires_at` tiene techo (365 días), no solo piso |
+| Contraseña que bcrypt truncaría | Se rechaza lo que pase de 72 bytes en vez de truncarlo en silencio |
+
+Dos decisiones del rate limiting que no son obvias:
+
+- **Es fail-open.** Si Redis se cae, se deja pasar el request. Un límite anti-abuso no
+  puede dejar a todo el mundo afuera del login por un problema de infraestructura; el
+  control que **no** puede fallar así es la autorización por rol, y ese no depende de
+  Redis. Sin `REDIS_URL` el límite queda apagado, igual que el cache.
+- **El contador por cuenta cuenta solo intentos fallidos, y se evalúa después de
+  autenticar.** Si se evaluara antes, cualquiera podría dejar a otra persona afuera de su
+  cuenta tirándole diez contraseñas incorrectas. Así, lo único que se bloquea es seguir
+  adivinando: la contraseña correcta siempre entra.
+
+En la arquitectura target esto no reemplaza al rate limiting de API Gateway/WAF, que
+corta antes de llegar al cómputo; lo complementa con el límite por cuenta, que el borde
+no puede aplicar porque no sabe qué email se está intentando.
+
 ## Portadas de libros
 
 Las portadas viven en un bucket S3 (MinIO en local, `S3_BUCKET` en AWS). **La imagen

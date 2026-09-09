@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from "react";
 import type { LibraryAvailability } from "../types";
+import { LIMITS } from "../lib/limits";
 import { CheckIcon } from "./icons";
 
 /** Ventana por defecto para retirar el ejemplar. */
@@ -104,6 +105,9 @@ export function ReservationForm({
           type="date"
           value={date}
           min={toDateInput(addDays(1))}
+          // La API rechaza un vencimiento a más de un año: sin este tope, el date picker
+          // deja elegir el año 9999 y el ejemplar quedaría retenido para siempre.
+          max={toDateInput(addDays(LIMITS.reservationDays))}
           onChange={(event) => setDate(event.target.value)}
           required
         />

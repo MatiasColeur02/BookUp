@@ -1,6 +1,7 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from sqlalchemy.orm import Session
 
+from .. import ratelimit
 from ..persistence.database import get_db
 from ..persistence.models import User, UserRole
 from ..services import user_service
@@ -11,7 +12,9 @@ router = APIRouter(prefix="/users", tags=["users"])
 
 
 @router.post("", response_model=schemas.UserOut, status_code=201)
-def create_user(payload: schemas.UserCreate, db: Session = Depends(get_db)):
+def create_user(request: Request, payload: schemas.UserCreate, db: Session = Depends(get_db)):
+    # `POST /users/staff` no se frena: pide un token de sysadmin, así que ya está acotado.
+    ratelimit.signup_attempt(request)
     return user_service.create_user(db, **payload.model_dump())
 
 

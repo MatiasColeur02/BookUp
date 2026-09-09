@@ -3,6 +3,7 @@ import { api } from "../../api";
 import { useToast } from "../../context/ToastContext";
 import { roleLabel } from "../../lib/roles";
 import type { Library, User, UserRole, UserUpdate } from "../../types";
+import { LIMITS } from "../../lib/limits";
 import { ErrorBanner } from "../ErrorBanner";
 
 const ROLES: UserRole[] = ["customer", "librarian", "sysadmin"];
@@ -88,6 +89,7 @@ export function UserForm({ user, libraries, onSaved, onCancel }: Props) {
           value={email}
           onChange={(event) => setEmail(event.target.value)}
           disabled={editing}
+          maxLength={LIMITS.user.email}
           required
         />
         {editing && <span className="field-hint">El email no se puede cambiar desde acá.</span>}
@@ -95,7 +97,12 @@ export function UserForm({ user, libraries, onSaved, onCancel }: Props) {
 
       <label>
         Nombre
-        <input value={name} onChange={(event) => setName(event.target.value)} required />
+        <input
+          value={name}
+          onChange={(event) => setName(event.target.value)}
+          maxLength={LIMITS.user.name}
+          required
+        />
       </label>
 
       <label>
@@ -105,7 +112,8 @@ export function UserForm({ user, libraries, onSaved, onCancel }: Props) {
           value={password}
           onChange={(event) => setPassword(event.target.value)}
           autoComplete="new-password"
-          minLength={8}
+          minLength={LIMITS.user.passwordMin}
+          maxLength={LIMITS.user.passwordMax}
           placeholder={editing ? "Dejala vacía para no cambiarla" : "Al menos 8 caracteres"}
           required={!editing}
         />

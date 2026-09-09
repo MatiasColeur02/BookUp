@@ -2,7 +2,7 @@
 
 La suite corre sin `S3_BUCKET`, así que por defecto la feature está apagada. Los tests
 que ejercitan el flujo completo encienden el bucket por settings y reemplazan las tres
-funciones que hablan con S3 (`presign_upload`, `exists`, `delete`): lo que se prueba acá
+funciones que hablan con S3 (`presign_upload`, `describe`, `delete`): lo que se prueba acá
 es la lógica del endpoint, no boto3.
 """
 
@@ -33,7 +33,10 @@ def s3(monkeypatch):
 
     deleted: list[str] = []
     monkeypatch.setattr(storage, "presign_upload", lambda key, content_type: f"https://s3/{key}")
-    monkeypatch.setattr(storage, "exists", lambda key: True)
+    # Por defecto el objeto subido es una imagen chica y válida.
+    monkeypatch.setattr(
+        storage, "describe", lambda key: storage.ObjectInfo(size=1024, content_type="image/png")
+    )
     monkeypatch.setattr(storage, "delete", lambda key: deleted.append(key) if key else None)
     return deleted
 
@@ -122,7 +125,7 @@ def test_attach_cover_rejects_key_of_another_book(client, book, s3, sysadmin_hea
 
 def test_attach_cover_rejects_missing_object(client, book, s3, sysadmin_headers, monkeypatch):
     # El PUT del browser falló: guardar la key dejaría el catálogo con una imagen rota.
-    monkeypatch.setattr(storage, "exists", lambda key: False)
+    monkeypatch.setattr(storage, "describe", lambda key: None)
     response = client.put(
         f"/books/{ISBN}/cover", json={"key": f"covers/{ISBN}/x.png"}, headers=sysadmin_headers
     )
@@ -153,3 +156,50 @@ def test_deleting_a_book_deletes_its_cover(client, book, s3, sysadmin_headers):
 
     assert client.delete(f"/books/{ISBN}", headers=sysadmin_headers).status_code == 204
     assert s3 == [key]
+
+
+def test_attach_cover_rejects_an_object_bigger_than_the_limit(
+    client, book, s3, sysadmin_headers, monkeypatch
+):
+    """El tope real: `size` al firmar es una declaración, el objeto subido puede ser otro."""
+    key = f"covers/{ISBN}/grande.png"
+    monkeypatch.setattr(
+        storage,
+        "describe",
+        lambda k: storage.ObjectInfo(
+            size=settings.cover_max_bytes + 1, content_type="image/png"
+        ),
+    )
+    response = client.put(f"/books/{ISBN}/cover", json={"key": key}, headers=sysadmin_headers)
+
+    assert response.status_code == 422
+    assert "MB" in response.json()["detail"]
+    # El objeto que no cumple no queda huérfano en el bucket.
+    assert s3 == [key]
+    assert book.cover_key is None
+
+
+def test_attach_cover_rejects_an_object_that_is_not_an_image(
+    client, book, s3, sysadmin_headers, monkeypatch
+):
+    key = f"covers/{ISBN}/payload.png"
+    monkeypatch.setattr(
+        storage,
+        "describe",
+        lambda k: storage.ObjectInfo(size=1024, content_type="application/x-msdownload"),
+    )
+    response = client.put(f"/books/{ISBN}/cover", json={"key": key}, headers=sysadmin_headers)
+
+    assert response.status_code == 422
+    assert s3 == [key]
+    assert book.cover_key is None
+
+
+def test_cover_upload_rejects_a_declared_size_over_the_limit(client, book, s3, sysadmin_headers):
+    """Primera barrera: ni se firma una URL para algo que ya se declara demasiado grande."""
+    response = client.post(
+        f"/books/{ISBN}/cover-upload",
+        json={"content_type": "image/png", "size": settings.cover_max_bytes + 1},
+        headers=sysadmin_headers,
+    )
+    assert response.status_code == 422

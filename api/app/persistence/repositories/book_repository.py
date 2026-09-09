@@ -4,6 +4,18 @@ from sqlalchemy.orm import Session
 from ..models import Author, Book, Library, PhysicalBook, PhysicalBookStatus, book_authors, book_genres
 
 
+def _like_pattern(query: str) -> str:
+    """Patrón de un ILIKE con los comodines del usuario neutralizados.
+
+    `%` y `_` son comodines de LIKE, así que sin escaparlos buscar «%» matchea el
+    catálogo entero y «100_» matchea «1000». No es inyección —el patrón viaja como
+    parámetro— pero sí es una búsqueda que devuelve cualquier cosa y que recorre toda la
+    tabla. Se escapa también la propia `\\` para que no se pueda anular el escape.
+    """
+    escaped = query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    return f"%{escaped}%"
+
+
 class BookRepository:
     """Data access for the book catalog.
 
@@ -43,18 +55,18 @@ class BookRepository:
         conditions = []
 
         if query:
-            pattern = f"%{query}%"
+            pattern = _like_pattern(query)
             author_match = (
                 select(1)
                 .select_from(book_authors.join(Author, Author.id == book_authors.c.author_id))
-                .where(book_authors.c.isbn == Book.isbn, Author.name.ilike(pattern))
+                .where(book_authors.c.isbn == Book.isbn, Author.name.ilike(pattern, escape="\\"))
                 .exists()
             )
             conditions.append(
                 or_(
-                    Book.title.ilike(pattern),
-                    Book.isbn.ilike(pattern),
-                    Book.synopsis.ilike(pattern),
+                    Book.title.ilike(pattern, escape="\\"),
+                    Book.isbn.ilike(pattern, escape="\\"),
+                    Book.synopsis.ilike(pattern, escape="\\"),
                     author_match,
                 )
             )
@@ -134,16 +146,16 @@ class BookRepository:
         return list(self.db.scalars(stmt).all())
 
     def search(self, query: str, limit: int = 50) -> list[Book]:
-        pattern = f"%{query}%"
+        pattern = _like_pattern(query)
         stmt = (
             select(Book)
             .outerjoin(Book.authors)
             .where(
                 or_(
-                    Book.title.ilike(pattern),
-                    Book.isbn.ilike(pattern),
-                    Book.synopsis.ilike(pattern),
-                    Author.name.ilike(pattern),
+                    Book.title.ilike(pattern, escape="\\"),
+                    Book.isbn.ilike(pattern, escape="\\"),
+                    Book.synopsis.ilike(pattern, escape="\\"),
+                    Author.name.ilike(pattern, escape="\\"),
                 )
             )
             .limit(limit)

@@ -50,6 +50,13 @@ paths:
         rol y la sede del usuario. Responde 401 tanto si el email no existe como
         si la password es incorrecta, para no filtrar qué emails están
         registrados.
+
+
+        **Rate limit**: se cuentan los intentos por IP (antes de autenticar, porque
+        comparar un hash de bcrypt es caro) y los intentos **fallidos** por cuenta
+        (después, para que nadie pueda dejar afuera al dueño de la cuenta errándole la
+        contraseña a propósito: la contraseña correcta siempre entra). Al pasarse, 429
+        con `Retry-After`.
       operationId: login
       requestBody:
         required: true
@@ -68,6 +75,8 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "422":
           $ref: "#/components/responses/ValidationError"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
 
   /auth/me:
     get:
@@ -125,29 +134,34 @@ paths:
         - name: q
           in: query
           required: false
-          description: Texto libre sobre título, ISBN, sinopsis y nombre de autor.
-          schema: { type: string, minLength: 1 }
+          description: >
+            Texto libre sobre título, ISBN, sinopsis y nombre de autor. Los comodines de
+            LIKE (`%` y `_`) se escapan: se busca el texto tal cual se escribió.
+          schema: { type: string, minLength: 1, maxLength: 200 }
         - name: author_id
           in: query
           required: false
-          description: Repetible; suma autores (OR).
+          description: Repetible hasta 20 veces; suma autores (OR).
           schema:
             type: array
+            maxItems: 20
             items: { type: integer }
         - name: genre_id
           in: query
           required: false
-          description: Repetible; suma géneros (OR).
+          description: Repetible hasta 20 veces; suma géneros (OR).
           schema:
             type: array
+            maxItems: 20
             items: { type: integer }
         - name: city
           in: query
           required: false
-          description: Repetible; suma ciudades (OR). Solo cuenta el stock disponible.
+          description: Repetible hasta 20 veces; suma ciudades (OR). Solo cuenta el stock disponible.
           schema:
             type: array
-            items: { type: string }
+            maxItems: 20
+            items: { type: string, minLength: 1, maxLength: 100 }
         - name: limit
           in: query
           required: false
@@ -233,6 +247,7 @@ paths:
           schema:
             type: string
             minLength: 1
+            maxLength: 200
       responses:
         "200":
           description: Libros que matchean la búsqueda
@@ -1208,7 +1223,8 @@ paths:
       description: >
         Auto-registro público: crea un usuario con rol `customer` fijo. Para
         dar de alta `librarian`/`sysadmin` está `POST /users/staff`. Falla con
-        409 si el email ya está registrado.
+        409 si el email ya está registrado, y con 429 si se superó el límite de
+        altas por IP.
       operationId: createUser
       requestBody:
         required: true
@@ -1227,6 +1243,8 @@ paths:
           $ref: "#/components/responses/Conflict"
         "422":
           $ref: "#/components/responses/ValidationError"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
     get:
       tags: [users]
       summary: Listar usuarios
@@ -1446,6 +1464,30 @@ components:
         application/json:
           schema:
             $ref: "#/components/schemas/ErrorDetail"
+    TooManyRequests:
+      description: >
+        Se superó el límite de intentos de la ventana. Aplica a los endpoints públicos
+        sin sesión (`POST /auth/login` y `POST /users`). El header `Retry-After` indica
+        en cuántos segundos se libera. Si el cache está apagado o caído, el límite no se
+        aplica: es fail-open a propósito.
+      headers:
+        Retry-After:
+          schema:
+            type: integer
+          example: 300
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorDetail"
+    PayloadTooLarge:
+      description: >
+        El cuerpo del request supera `MAX_REQUEST_BYTES` (1 MB por defecto). Se corta
+        mirando el `Content-Length`, antes de leer el cuerpo. Cualquier endpoint puede
+        responderlo; las portadas no pasan por acá, van directo a S3.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorDetail"
     ValidationError:
       description: Error de validación del payload/parámetros (FastAPI/Pydantic)
       content:
@@ -1483,27 +1525,44 @@ components:
 
     LibraryBase:
       type: object
+      description: >
+        Los `maxLength` replican el ancho de cada columna en la base: un texto más largo
+        da 422. Los campos de texto se guardan sin espacios al principio ni al final, y
+        los obligatorios no aceptan un valor en blanco. Los opcionales sí aceptan "":
+        es como se vacía un campo ya cargado.
       required: [name, address, state, city]
       properties:
         name:
           type: string
+          minLength: 1
+          maxLength: 150
         address:
           type: string
+          minLength: 1
+          maxLength: 255
         state:
           type: string
+          minLength: 1
+          maxLength: 100
         city:
           type: string
+          minLength: 1
+          maxLength: 100
         hours:
           type: string
+          maxLength: 255
           nullable: true
         phone:
           type: string
+          maxLength: 50
           nullable: true
         email:
           type: string
+          maxLength: 255
           nullable: true
         website:
           type: string
+          maxLength: 255
           nullable: true
 
     LibraryCreate:
@@ -1564,6 +1623,7 @@ components:
         name:
           type: string
           minLength: 1
+          maxLength: 200
 
     AuthorUpdate:
       type: object
@@ -1571,6 +1631,7 @@ components:
         name:
           type: string
           minLength: 1
+          maxLength: 200
           nullable: true
 
     GenreOut:
@@ -1589,6 +1650,7 @@ components:
         name:
           type: string
           minLength: 1
+          maxLength: 100
 
     GenreUpdate:
       type: object
@@ -1596,6 +1658,7 @@ components:
         name:
           type: string
           minLength: 1
+          maxLength: 100
           nullable: true
 
     BookBase:
@@ -1604,16 +1667,27 @@ components:
       properties:
         isbn:
           type: string
+          maxLength: 13
         title:
           type: string
+          minLength: 1
+          maxLength: 255
         language:
           type: string
+          minLength: 1
+          maxLength: 50
         pages:
           type: integer
+          minimum: 1
+          maximum: 50000
           nullable: true
         synopsis:
           type: string
+          maxLength: 5000
           nullable: true
+          description: >
+            La columna es un `TEXT` sin tope en la base; el límite lo pone el esquema
+            para que un POST no pueda escribir megabytes por fila.
 
     BookOut:
       allOf:
@@ -1831,10 +1905,18 @@ components:
         password:
           type: string
           minLength: 8
+          maxLength: 72
+          description: >
+            El techo son 72 **bytes** en UTF-8, que es todo lo que mira bcrypt: aceptar
+            más sería truncar en silencio y hacer equivalentes dos contraseñas distintas.
         name:
           type: string
+          minLength: 1
+          maxLength: 150
         language:
           type: string
+          minLength: 1
+          maxLength: 10
           default: es
 
     UserStaffCreate:
@@ -1847,10 +1929,18 @@ components:
         password:
           type: string
           minLength: 8
+          maxLength: 72
+          description: >
+            El techo son 72 **bytes** en UTF-8, que es todo lo que mira bcrypt: aceptar
+            más sería truncar en silencio y hacer equivalentes dos contraseñas distintas.
         name:
           type: string
+          minLength: 1
+          maxLength: 150
         language:
           type: string
+          minLength: 1
+          maxLength: 10
           default: es
         role:
           $ref: "#/components/schemas/UserRole"
@@ -1864,13 +1954,18 @@ components:
       properties:
         name:
           type: string
+          minLength: 1
+          maxLength: 150
           nullable: true
         language:
           type: string
+          minLength: 1
+          maxLength: 10
           nullable: true
         password:
           type: string
           minLength: 8
+          maxLength: 72
           nullable: true
         role:
           allOf:
@@ -1916,7 +2011,9 @@ components:
         expires_at:
           type: string
           format: date-time
-          description: Tiene que ser una fecha futura.
+          description: >
+            Futura, y a lo sumo a 365 días. Sin techo, un `expires_at` lejano retendría
+            el ejemplar indefinidamente.
 
     ReservationUpdate:
       type: object
@@ -1925,7 +2022,8 @@ components:
           type: string
           format: date-time
           nullable: true
-          description: Nuevo vencimiento; tiene que ser una fecha futura.
+          description: >
+            Nuevo vencimiento: futuro y a lo sumo a 365 días, igual que en el alta.
 
     ReservationOut:
       type: object

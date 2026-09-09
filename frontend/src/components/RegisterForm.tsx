@@ -3,6 +3,7 @@ import { Link, useLocation, useNavigate } from "react-router-dom";
 import { api } from "../api";
 import { useSession } from "../context/SessionContext";
 import { useToast } from "../context/ToastContext";
+import { LIMITS } from "../lib/limits";
 import { ErrorBanner } from "./ErrorBanner";
 
 interface LocationState {
@@ -49,7 +50,12 @@ export function RegisterForm() {
         <ErrorBanner error={error} overrides={{ 409: "Ese email ya está registrado." }} />
         <label>
           Nombre
-          <input value={name} onChange={(event) => setName(event.target.value)} required />
+          <input
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+            maxLength={LIMITS.user.name}
+            required
+          />
         </label>
         <label>
           Email
@@ -58,6 +64,7 @@ export function RegisterForm() {
             value={email}
             onChange={(event) => setEmail(event.target.value)}
             autoComplete="email"
+            maxLength={LIMITS.user.email}
             required
           />
         </label>
@@ -68,7 +75,8 @@ export function RegisterForm() {
             value={password}
             onChange={(event) => setPassword(event.target.value)}
             autoComplete="new-password"
-            minLength={8}
+            minLength={LIMITS.user.passwordMin}
+            maxLength={LIMITS.user.passwordMax}
             required
           />
           <span className="field-hint">Al menos 8 caracteres.</span>

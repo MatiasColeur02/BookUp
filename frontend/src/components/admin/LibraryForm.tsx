@@ -2,6 +2,7 @@ import { useState, type FormEvent } from "react";
 import { api } from "../../api";
 import { useToast } from "../../context/ToastContext";
 import type { Library } from "../../types";
+import { LIMITS } from "../../lib/limits";
 import { ErrorBanner } from "../ErrorBanner";
 
 interface Props {
@@ -54,31 +55,57 @@ export function LibraryForm({ library, onSaved, onCancel }: Props) {
 
       <label>
         Nombre
-        <input value={name} onChange={(event) => setName(event.target.value)} required />
+        <input
+          value={name}
+          onChange={(event) => setName(event.target.value)}
+          maxLength={LIMITS.library.name}
+          required
+        />
       </label>
       <label>
         Dirección
-        <input value={address} onChange={(event) => setAddress(event.target.value)} required />
+        <input
+          value={address}
+          onChange={(event) => setAddress(event.target.value)}
+          maxLength={LIMITS.library.address}
+          required
+        />
       </label>
       <label>
         Ciudad
-        <input value={city} onChange={(event) => setCity(event.target.value)} required />
+        <input
+          value={city}
+          onChange={(event) => setCity(event.target.value)}
+          maxLength={LIMITS.library.city}
+          required
+        />
       </label>
       <label>
         Provincia
-        <input value={state} onChange={(event) => setState(event.target.value)} required />
+        <input
+          value={state}
+          onChange={(event) => setState(event.target.value)}
+          maxLength={LIMITS.library.state}
+          required
+        />
       </label>
       <label>
         Horarios
         <input
           value={hours}
           onChange={(event) => setHours(event.target.value)}
+          maxLength={LIMITS.library.hours}
           placeholder="Opcional. Ej: L-V 9 a 18"
         />
       </label>
       <label>
         Teléfono
-        <input value={phone} onChange={(event) => setPhone(event.target.value)} placeholder="Opcional" />
+        <input
+          value={phone}
+          onChange={(event) => setPhone(event.target.value)}
+          maxLength={LIMITS.library.phone}
+          placeholder="Opcional"
+        />
       </label>
       <label>
         Email
@@ -86,12 +113,18 @@ export function LibraryForm({ library, onSaved, onCancel }: Props) {
           type="email"
           value={email}
           onChange={(event) => setEmail(event.target.value)}
+          maxLength={LIMITS.library.email}
           placeholder="Opcional"
         />
       </label>
       <label>
         Sitio web
-        <input value={website} onChange={(event) => setWebsite(event.target.value)} placeholder="Opcional" />
+        <input
+          value={website}
+          onChange={(event) => setWebsite(event.target.value)}
+          maxLength={LIMITS.library.website}
+          placeholder="Opcional"
+        />
       </label>
 
       <div className="actions">

@@ -5,6 +5,7 @@ import { useToast } from "../../context/ToastContext";
 import { useSession } from "../../context/SessionContext";
 import { describeError } from "../../lib/errors";
 import { isValidIsbn13 } from "../../lib/isbn";
+import { LIMITS } from "../../lib/limits";
 import { ErrorBanner } from "../ErrorBanner";
 import type {
   Book,
@@ -206,7 +207,7 @@ export function PhysicalBooksAdmin() {
             value={newIsbn}
             onChange={(event) => setNewIsbn(event.target.value)}
             inputMode="numeric"
-            maxLength={13}
+            maxLength={LIMITS.book.isbn}
             required
           />
         </label>
@@ -242,6 +243,7 @@ export function PhysicalBooksAdmin() {
           <input
             value={isbnFilter}
             onChange={(event) => setIsbnFilter(event.target.value)}
+            maxLength={LIMITS.book.isbn}
             placeholder="Todos"
           />
         </label>

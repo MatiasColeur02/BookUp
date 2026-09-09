@@ -4,6 +4,10 @@ const DEFAULT_MESSAGES: Partial<Record<number, string>> = {
   401: "Tu sesión venció. Iniciá sesión de nuevo.",
   403: "No tenés permiso para hacer esto.",
   404: "No se encontró lo que buscabas.",
+  // El cuerpo del request pasó el techo de la API (`MAX_REQUEST_BYTES`).
+  413: "Lo que enviaste es demasiado grande.",
+  // Rate limit: la API frena los intentos de login y las altas de cuenta por IP.
+  429: "Demasiados intentos. Esperá unos minutos y volvé a probar.",
 };
 
 /**

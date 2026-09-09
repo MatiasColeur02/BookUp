@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from .. import cache
@@ -19,7 +19,8 @@ require_staff = require_roles(UserRole.librarian, UserRole.sysadmin)
 # disponibilidad, que es la vista pública de este mismo stock.
 @router.get("", response_model=list[schemas.PhysicalBookOut])
 def list_physical_books(
-    isbn: str | None = None,
+    # El ISBN va a un `WHERE`: se acota al ancho de la columna (String(13)).
+    isbn: str | None = Query(None, max_length=13),
     library_id: int | None = None,
     status: PhysicalBookStatus | None = None,
     db: Session = Depends(get_db),

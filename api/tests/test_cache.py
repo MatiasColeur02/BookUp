@@ -9,7 +9,7 @@ from app.persistence.models import Author, Book, Genre, Library, PhysicalBook, U
 
 
 class FakeRedis:
-    """Los cuatro comandos que usa `app.cache`, sin TTL real.
+    """Los comandos que usan `app.cache` y `app.ratelimit`, sin TTL real.
 
     Lo que se verifica acá es la invalidación por generaciones y el fallback ante un
     Redis caído, no la expiración — de eso se ocupa el propio Redis.
@@ -40,19 +40,32 @@ class FakeRedis:
 
 
 class FakePipeline:
+    """`incr` y `expire`: el cache usa el primero para invalidar y el rate limiter los dos."""
+
     def __init__(self, client: FakeRedis):
         self.client = client
-        self.keys: list[str] = []
+        self.ops: list[tuple] = []
 
     def incr(self, key: str) -> "FakePipeline":
-        self.keys.append(key)
+        self.ops.append(("incr", key))
         return self
 
-    def execute(self) -> None:
+    def expire(self, key: str, ttl: int) -> "FakePipeline":
+        self.ops.append(("expire", key, ttl))
+        return self
+
+    def execute(self) -> list:
         self.client._check()
-        for key in self.keys:
-            self.client.store[key] = str(int(self.client.store.get(key, "0")) + 1)
-        self.keys.clear()
+        results = []
+        for op in self.ops:
+            if op[0] == "incr":
+                value = str(int(self.client.store.get(op[1], "0")) + 1)
+                self.client.store[op[1]] = value
+                results.append(int(value))
+            else:
+                results.append(True)
+        self.ops.clear()
+        return results
 
 
 @pytest.fixture()

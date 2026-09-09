@@ -16,6 +16,8 @@ interface Props {
   /** Explica la regla de unicidad del recurso, que no es la misma para los dos. */
   hint: string;
   singular: string;
+  /** Tope del nombre en la API: `Author.name` es String(200) y `Genre.name` String(100). */
+  maxNameLength: number;
   list: () => Promise<NamedResource[]>;
   create: (name: string) => Promise<NamedResource>;
   update: (id: number, name: string) => Promise<NamedResource>;
@@ -35,6 +37,7 @@ export function NameResourceAdmin({
   title,
   hint,
   singular,
+  maxNameLength,
   list,
   create,
   update,
@@ -126,7 +129,12 @@ export function NameResourceAdmin({
       <form className="create-form" onSubmit={handleCreate}>
         <label className="field field-inline">
           Nombre
-          <input value={newName} onChange={(event) => setNewName(event.target.value)} required />
+          <input
+            value={newName}
+            onChange={(event) => setNewName(event.target.value)}
+            maxLength={maxNameLength}
+            required
+          />
         </label>
         <button type="submit" className="btn btn-primary" disabled={submitting || !newName.trim()}>
           {submitting ? "Creando..." : `Crear ${singular}`}
@@ -161,6 +169,7 @@ export function NameResourceAdmin({
                         className="field-control field-control-sm"
                         value={editingName}
                         onChange={(event) => setEditingName(event.target.value)}
+                        maxLength={maxNameLength}
                         autoFocus
                       />
                     ) : (

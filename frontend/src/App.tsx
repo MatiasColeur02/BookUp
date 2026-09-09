@@ -66,14 +66,14 @@ export default function App() {
           <NavLink to="/" className={navClass} end>
             Catálogo
           </NavLink>
-          <NavLink to="/sedes" className={navClass}>
-            Sedes
-          </NavLink>
           {user && (
             <NavLink to="/mis-reservas" className={navClass}>
               Mis reservas
             </NavLink>
           )}
+          <NavLink to="/sedes" className={navClass}>
+            Sedes
+          </NavLink>
           {canSeePanel && (
             <NavLink to="/panel" className={navClass}>
               Panel bibliotecario

@@ -18,6 +18,19 @@ class Settings(BaseSettings):
     # bloquear el request. Ver el breaker en `app/cache.py`.
     redis_timeout_seconds: float = 0.5
 
+    # Rate limiting de los endpoints públicos (`app/ratelimit.py`), sobre el mismo
+    # Redis que el cache. Sin `redis_url` queda apagado, igual que el cache. Un límite
+    # en 0 apaga ese contador puntual.
+    rate_limit_window_seconds: int = 300
+    rate_limit_login_per_ip: int = 20
+    rate_limit_login_per_email: int = 10
+    rate_limit_signup_per_ip: int = 5
+
+    # Techo del cuerpo de un request (`app/main.py`). El único archivo grande que
+    # maneja la API son las portadas, y esas van directo a S3 sin pasar por acá: lo que
+    # entra por este camino es JSON, y 1 MB es holgado para el más grande.
+    max_request_bytes: int = 1024 * 1024
+
     # Portadas de libros en almacenamiento de objetos (S3 en AWS, MinIO en local).
     # Sin `s3_bucket` la feature queda apagada: los endpoints de portada dan 503 y el
     # resto de la API anda igual. Así corren los tests. Ver `app/storage.py`.

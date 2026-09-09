@@ -26,6 +26,33 @@ app.add_middleware(
 )
 
 
+@app.middleware("http")
+async def limit_request_size(request: Request, call_next):
+    """Rechaza con 413 un cuerpo más grande que `MAX_REQUEST_BYTES`.
+
+    Ni FastAPI ni uvicorn traen un tope propio, así que sin esto un POST de 1 GB se
+    bufferea entero en memoria antes de que Pydantic pueda rechazarlo por longitud: el
+    proceso se queda sin RAM validando algo que igual iba a dar 422.
+
+    Se mira el `Content-Length` y no el cuerpo: cortar antes de leerlo es justamente el
+    punto. Un cliente que no manda el header (`Transfer-Encoding: chunked`) esquiva este
+    control; el tope duro de ese caso lo pone el proxy de adelante (API Gateway corta en
+    10 MB, y el ALB tiene su propio límite).
+    """
+    declared = request.headers.get("content-length")
+    if declared is not None and declared.isdigit() and int(declared) > settings.max_request_bytes:
+        return JSONResponse(
+            status_code=413,
+            content={
+                "detail": (
+                    f"El cuerpo del request no puede superar "
+                    f"{settings.max_request_bytes // 1024} KB."
+                )
+            },
+        )
+    return await call_next(request)
+
+
 @app.exception_handler(NotFoundError)
 def handle_not_found(request: Request, exc: NotFoundError) -> JSONResponse:
     return JSONResponse(status_code=404, content={"detail": str(exc)})
