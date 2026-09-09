@@ -5,10 +5,12 @@ interface Props {
   /** Nombre accesible del diálogo; el título visible lo pone el contenido. */
   title: string;
   onClose: () => void;
+  /** Clase extra en el fondo. `modal-over` lo dibuja encima de otro modal abierto. */
+  className?: string;
   children: ReactNode;
 }
 
-export function Modal({ title, onClose, children }: Props) {
+export function Modal({ title, onClose, className, children }: Props) {
   const dialogRef = useRef<HTMLDivElement>(null);
   // El `onClose` del padre suele ser una arrow nueva en cada render: si entrara como
   // dependencia del efecto, el foco se robaría de vuelta al diálogo en cada tecla.
@@ -36,7 +38,7 @@ export function Modal({ title, onClose, children }: Props) {
   // recorte el diálogo.
   return createPortal(
     <div
-      className="modal-backdrop"
+      className={`modal-backdrop${className ? ` ${className}` : ""}`}
       // `mousedown` y no `click`: si el gesto empezó adentro (seleccionar texto) y
       // terminó afuera, el diálogo no se tiene que cerrar.
       onMouseDown={(event) => {

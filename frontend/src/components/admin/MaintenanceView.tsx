@@ -1,12 +1,23 @@
 import { useState } from "react";
 import { api } from "../../api";
+import { useConfirm } from "../../context/ConfirmContext";
 import { useToast } from "../../context/ToastContext";
 
 export function MaintenanceView() {
+  const confirm = useConfirm();
   const toast = useToast();
   const [running, setRunning] = useState(false);
 
   const handleExpire = async () => {
+    const confirmed = await confirm({
+      tone: "danger",
+      title: "Vencer reservas no retiradas",
+      message:
+        "Cierra todas las reservas abiertas que ya vencieron y nadie retiró, en todas las sedes, y devuelve esos ejemplares a «disponible». Es idempotente, pero las reservas cerradas no se reabren.",
+      confirmLabel: "Vencer reservas",
+    });
+    if (!confirmed) return;
+
     setRunning(true);
     try {
       const { expired } = await api.reservations.expire();

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { useConfirm } from "../../context/ConfirmContext";
 import { useToast } from "../../context/ToastContext";
 import { describeError } from "../../lib/errors";
 import { ErrorBanner } from "../ErrorBanner";
@@ -40,6 +41,7 @@ export function NameResourceAdmin({
   duplicateMessage,
   inUseMessage,
 }: Props) {
+  const confirm = useConfirm();
   const toast = useToast();
   const [items, setItems] = useState<NamedResource[]>([]);
   const [loading, setLoading] = useState(true);
@@ -93,7 +95,14 @@ export function NameResourceAdmin({
   };
 
   const handleRemove = async (item: NamedResource) => {
-    if (!window.confirm(`¿Eliminar ${singular} «${item.name}»?`)) return;
+    const confirmed = await confirm({
+      tone: "danger",
+      title: `Eliminar ${singular}`,
+      message: inUseMessage,
+      details: [{ label: "Nombre", value: item.name }],
+      confirmLabel: "Eliminar",
+    });
+    if (!confirmed) return;
     setError(null);
     try {
       await remove(item.id);

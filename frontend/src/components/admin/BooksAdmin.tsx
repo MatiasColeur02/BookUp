@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../../api";
+import { useConfirm } from "../../context/ConfirmContext";
 import { useToast } from "../../context/ToastContext";
 import { describeError } from "../../lib/errors";
 import type { Author, Book, Genre } from "../../types";
@@ -12,6 +13,7 @@ import { TableSkeleton } from "../Skeleton";
 type FormState = { mode: "hidden" } | { mode: "create" } | { mode: "edit"; book: Book };
 
 export function BooksAdmin() {
+  const confirm = useConfirm();
   const toast = useToast();
   const [books, setBooks] = useState<Book[]>([]);
   const [authors, setAuthors] = useState<Author[]>([]);
@@ -49,7 +51,18 @@ export function BooksAdmin() {
   };
 
   const handleRemove = async (book: Book) => {
-    if (!window.confirm(`¿Eliminar «${book.title}» del catálogo?`)) return;
+    const confirmed = await confirm({
+      tone: "danger",
+      title: "Eliminar del catálogo",
+      message:
+        "El libro sale del catálogo de toda la red. Si tiene ejemplares en alguna sede, la API lo va a rechazar.",
+      details: [
+        { label: "Libro", value: book.title },
+        { label: "ISBN", value: book.isbn },
+      ],
+      confirmLabel: "Eliminar libro",
+    });
+    if (!confirmed) return;
     setError(null);
     try {
       await api.books.remove(book.isbn);

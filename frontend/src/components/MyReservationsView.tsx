@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../api";
+import { useConfirm } from "../context/ConfirmContext";
 import { useToast } from "../context/ToastContext";
 import { useCopyDetails } from "../hooks/useCopyDetails";
 import { describeError } from "../lib/errors";
@@ -10,6 +11,7 @@ import { ErrorBanner } from "./ErrorBanner";
 import { TableSkeleton } from "./Skeleton";
 
 export function MyReservationsView() {
+  const confirm = useConfirm();
   const toast = useToast();
   const [filter, setFilter] = useState<OpenFilter>("open");
   const [reservations, setReservations] = useState<Reservation[]>([]);
@@ -38,6 +40,21 @@ export function MyReservationsView() {
   }, [load]);
 
   const handleCancel = async (reservation: Reservation) => {
+    const { book, library } = lookupCopy(reservation.physical_book_id);
+    const confirmed = await confirm({
+      tone: "danger",
+      title: "Cancelar reserva",
+      message: "El ejemplar vuelve a estar disponible para otra persona. No se puede deshacer.",
+      details: [
+        { label: "Libro", value: book?.title ?? `Ejemplar #${reservation.physical_book_id}` },
+        { label: "Sede", value: library?.name ?? "—" },
+        { label: "Vence", value: new Date(reservation.expires_at).toLocaleDateString() },
+      ],
+      confirmLabel: "Cancelar reserva",
+      cancelLabel: "Volver",
+    });
+    if (!confirmed) return;
+
     setError(null);
     setCancellingId(reservation.id);
     try {

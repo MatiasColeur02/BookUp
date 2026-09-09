@@ -167,6 +167,7 @@
   --z-sticky: 20;
   --z-backdrop: 50;
   --z-modal: 51;
+  --z-confirm: 55;
   --z-toast: 60;
 
   /* ---- Layout */
@@ -403,6 +404,19 @@ main {
 }
 
 .btn-danger:focus-visible {
+  box-shadow: var(--ring-danger);
+}
+
+.btn-danger-solid {
+  background: var(--danger);
+  color: var(--text-on-accent);
+}
+
+.btn-danger-solid:hover:not(:disabled) {
+  filter: brightness(0.94);
+}
+
+.btn-danger-solid:focus-visible {
   box-shadow: var(--ring-danger);
 }
 
@@ -881,6 +895,16 @@ td:last-child:has(.row-actions) {
   }
 }
 
+/* Confirmar algo desde adentro de otro modal: el diálogo va arriba de todo. */
+.modal-over {
+  z-index: var(--z-confirm);
+}
+
+.modal-over .modal {
+  z-index: calc(var(--z-confirm) + 1);
+  width: min(460px, 100%);
+}
+
 .modal-close {
   position: absolute;
   top: var(--space-3);
@@ -905,6 +929,96 @@ td:last-child:has(.row-actions) {
     max-height: 92vh;
     border-radius: var(--radius-lg) var(--radius-lg) 0 0;
   }
+}
+
+/* ------------------------------------------------ Diálogo de confirmación */
+
+.confirm {
+  gap: var(--space-4);
+}
+
+.confirm-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.confirm-head h3 {
+  margin: 0;
+  padding-right: var(--space-8);
+}
+
+.confirm-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-full);
+  font-size: var(--text-md);
+  font-weight: 700;
+}
+
+.confirm-icon svg {
+  width: 17px;
+  height: 17px;
+}
+
+.confirm-positive .confirm-icon {
+  background: var(--success-soft);
+  color: var(--success);
+}
+
+.confirm-danger .confirm-icon {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.confirm-message {
+  margin: 0;
+  color: var(--text-muted);
+  line-height: var(--leading-normal);
+}
+
+/* La ficha de lo que se está por tocar, con el tono de la acción. */
+.confirm-details {
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-md);
+  border-left: 3px solid var(--neutral);
+  background: var(--bg-subtle);
+}
+
+.confirm-positive .confirm-details {
+  border-left-color: var(--success);
+  background: var(--success-soft);
+}
+
+.confirm-danger .confirm-details {
+  border-left-color: var(--danger);
+  background: var(--danger-soft);
+}
+
+.confirm-details dt {
+  font-size: var(--text-2xs);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-wide);
+  color: var(--text-muted);
+  margin-bottom: var(--space-1);
+}
+
+.confirm-details dd {
+  margin: 0;
+  font-size: var(--text-base);
+  color: var(--text);
+}
+
+/* Dentro del modal la ficha no repite el fondo de la tarjeta. */
+.confirm .detail-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: var(--space-3) var(--space-4);
+  margin: 0;
 }
 
 /* ----------------------------------------------------------------- Toasts */

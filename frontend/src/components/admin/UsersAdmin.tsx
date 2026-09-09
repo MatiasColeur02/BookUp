@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../../api";
+import { useConfirm } from "../../context/ConfirmContext";
 import { useToast } from "../../context/ToastContext";
 import { useSession } from "../../context/SessionContext";
 import { roleLabel } from "../../lib/roles";
@@ -11,6 +12,7 @@ import { TableSkeleton } from "../Skeleton";
 type FormState = { mode: "hidden" } | { mode: "create" } | { mode: "edit"; user: User };
 
 export function UsersAdmin() {
+  const confirm = useConfirm();
   const { user: me, refresh } = useSession();
   const toast = useToast();
 
@@ -46,7 +48,18 @@ export function UsersAdmin() {
   };
 
   const handleRemove = async (user: User) => {
-    if (!window.confirm(`¿Eliminar al usuario «${user.name}»?`)) return;
+    const confirmed = await confirm({
+      tone: "danger",
+      title: "Eliminar usuario",
+      message:
+        "Se borra la cuenta de forma permanente. Sus reservas cerradas quedan en el historial de la sede.",
+      details: [
+        { label: "Usuario", value: user.name },
+        { label: "Email", value: user.email },
+      ],
+      confirmLabel: "Eliminar usuario",
+    });
+    if (!confirmed) return;
     setError(null);
     try {
       await api.users.remove(user.id);

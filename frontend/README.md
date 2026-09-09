@@ -56,6 +56,8 @@ src/
   lib/                    session (localStorage), errors, roles, isbn, reservations
   components/             pantallas y piezas de UI
   components/Toast.tsx    presentación de los toasts (lo único que sabe cómo se ven)
+  context/ConfirmContext  confirmaciones: useConfirm() → Promise<boolean>
+  components/ConfirmDialog.tsx  presentación del diálogo de confirmación
   components/admin/       gestión de catálogo, ejemplares (librarian/sysadmin)
 ```
 
@@ -81,6 +83,33 @@ La regla de dónde reporta cada cosa, para no duplicar el mismo mensaje en dos l
 Consecuencia práctica: un formulario (alta/edición de libro, sede, usuario, perfil)
 confirma por toast y falla inline; una acción de fila (borrar, cancelar, marcar
 retirada) hace las dos cosas por toast.
+
+### Antes de la acción: confirmaciones
+
+Lo de arriba es lo que se ve **después**. Lo que se ve **antes** es `useConfirm()`, que
+reemplazó a `window.confirm` (no seguía ningún diseño y no dejaba mostrar el detalle de
+lo que se estaba por hacer). Devuelve una promesa, así que la guarda sigue siendo una
+línea:
+
+```ts
+const confirm = useConfirm();
+if (!(await confirm({ tone: "danger", title: "Eliminar sede", details: [...] }))) return;
+```
+
+Qué pide confirmación y con qué tono:
+
+| Tono | Acciones |
+|---|---|
+| **Verde** (`positive`) | Confirmar una reserva; registrar retiro y devolución en la sede |
+| **Rojo** (`danger`) | Cancelar una reserva (usuario y bibliotecario); eliminar libro, autor, género, sede, usuario, ejemplar o la propia cuenta; marcar un ejemplar como perdido; vencer reservas desde Mantenimiento |
+
+No piden confirmación las acciones reversibles o de bajo riesgo: extender un vencimiento,
+guardar un formulario, cambiar un filtro o el tema.
+
+El diálogo siempre muestra **qué** se está por tocar (libro, sede, usuario, vencimiento)
+en una ficha con el color del tono: confirmar a ciegas no sirve de nada. El estado vive en
+`context/ConfirmContext.tsx` y el aspecto en `components/ConfirmDialog.tsx`, igual que con
+los toasts.
 
 **Cómo se usa** — `useToast()` en cualquier componente:
 

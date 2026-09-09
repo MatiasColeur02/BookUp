@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import { api } from "../api";
+import { useConfirm } from "../context/ConfirmContext";
 import { useToast } from "../context/ToastContext";
 import { MonitorIcon, MoonIcon, SunIcon } from "./icons";
 import type { ThemePreference } from "../lib/theme";
@@ -22,6 +23,7 @@ const THEME_OPTIONS: { value: ThemePreference; label: string; Icon: typeof SunIc
 ];
 
 export function ProfileView() {
+  const confirm = useConfirm();
   const toast = useToast();
   const { preference, setPreference } = useTheme();
   const { user, refresh, logout, isSysadmin } = useSession();
@@ -110,9 +112,14 @@ export function ProfileView() {
   };
 
   const handleDelete = async () => {
-    const confirmed = window.confirm(
-      "¿Eliminar tu cuenta? Se cierra la sesión y no se puede deshacer."
-    );
+    const confirmed = await confirm({
+      tone: "danger",
+      title: "Eliminar mi cuenta",
+      message:
+        "Se cierra la sesión y no se puede deshacer. Tus reservas cerradas quedan en el historial de la sede.",
+      details: [{ label: "Cuenta", value: user.email }],
+      confirmLabel: "Eliminar mi cuenta",
+    });
     if (!confirmed) return;
 
     setError(null);

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../api";
 import { useSession } from "../context/SessionContext";
+import { useConfirm } from "../context/ConfirmContext";
 import { useToast } from "../context/ToastContext";
 import { useCopyDetails } from "../hooks/useCopyDetails";
 import { describeError } from "../lib/errors";
@@ -14,6 +15,7 @@ import { TableSkeleton } from "./Skeleton";
 const ALL_LIBRARIES = "all";
 
 export function LibrarianPanel() {
+  const confirm = useConfirm();
   const { isSysadmin, myLibraryId } = useSession();
   const toast = useToast();
 
@@ -92,29 +94,74 @@ export function LibrarianPanel() {
     }
   };
 
-  const markPickedUp = (reservation: Reservation) =>
-    runAction(
+  /** Ficha de la reserva para el diálogo: confirmar a ciegas no sirve de nada. */
+  const detailsOf = (reservation: Reservation) => {
+    const { book, library } = lookupCopy(reservation.physical_book_id);
+    return [
+      { label: "Libro", value: book?.title ?? `Ejemplar #${reservation.physical_book_id}` },
+      { label: "Sede", value: library?.name ?? "—" },
+      ...(userNames[reservation.user_id]
+        ? [{ label: "Usuario", value: userNames[reservation.user_id] }]
+        : []),
+      { label: "Vence", value: new Date(reservation.expires_at).toLocaleDateString() },
+    ];
+  };
+
+  const markPickedUp = async (reservation: Reservation) => {
+    const confirmed = await confirm({
+      tone: "positive",
+      title: "Registrar el retiro",
+      message: "El ejemplar pasa a estar prestado a esta persona.",
+      details: detailsOf(reservation),
+      confirmLabel: "Marcar retirada",
+    });
+    if (!confirmed) return;
+
+    return runAction(
       reservation.id,
       () => api.reservations.markPickedUp(reservation.id),
       "Retiro registrado: el ejemplar quedó prestado.",
       "No se puede marcar el retiro: la reserva ya está cerrada o el ejemplar ya se había retirado."
     );
+  };
 
-  const markReturned = (reservation: Reservation) =>
-    runAction(
+  const markReturned = async (reservation: Reservation) => {
+    const confirmed = await confirm({
+      tone: "positive",
+      title: "Registrar la devolución",
+      message: "El ejemplar vuelve al estante y queda disponible para otra persona.",
+      details: detailsOf(reservation),
+      confirmLabel: "Registrar devolución",
+    });
+    if (!confirmed) return;
+
+    return runAction(
       reservation.id,
       () => api.reservations.markReturned(reservation.id),
       "Devolución registrada: el ejemplar volvió a estar disponible.",
       "No se puede registrar la devolución: la reserva ya está cerrada o el ejemplar nunca se retiró (en ese caso corresponde cancelarla)."
     );
+  };
 
-  const cancel = (reservation: Reservation) =>
-    runAction(
+  const cancel = async (reservation: Reservation) => {
+    const confirmed = await confirm({
+      tone: "danger",
+      title: "Cancelar la reserva",
+      message:
+        "La reserva se cierra y el ejemplar vuelve a estar disponible. No se puede deshacer.",
+      details: detailsOf(reservation),
+      confirmLabel: "Cancelar reserva",
+      cancelLabel: "Volver",
+    });
+    if (!confirmed) return;
+
+    return runAction(
       reservation.id,
       () => api.reservations.cancel(reservation.id),
       "Reserva cancelada: el ejemplar volvió a estar disponible.",
       "No se puede cancelar: la reserva ya está cerrada o el ejemplar ya fue retirado (en ese caso corresponde registrar la devolución)."
     );
+  };
 
   const extend = (reservation: Reservation, date: string) =>
     runAction(

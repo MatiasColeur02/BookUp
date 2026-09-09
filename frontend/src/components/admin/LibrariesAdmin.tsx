@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../../api";
+import { useConfirm } from "../../context/ConfirmContext";
 import { useToast } from "../../context/ToastContext";
 import { useSession } from "../../context/SessionContext";
 import type { Library } from "../../types";
@@ -9,6 +10,7 @@ import { LibraryForm } from "./LibraryForm";
 type FormState = { mode: "hidden" } | { mode: "create" } | { mode: "edit"; library: Library };
 
 export function LibrariesAdmin() {
+  const confirm = useConfirm();
   const { isSysadmin, myLibraryId } = useSession();
   const toast = useToast();
 
@@ -38,7 +40,17 @@ export function LibrariesAdmin() {
   };
 
   const handleRemove = async (library: Library) => {
-    if (!window.confirm(`¿Eliminar la sede «${library.name}»?`)) return;
+    const confirmed = await confirm({
+      tone: "danger",
+      title: "Eliminar sede",
+      message: "La sede desaparece de la red. Si todavía tiene ejemplares, la API lo va a rechazar.",
+      details: [
+        { label: "Sede", value: library.name },
+        { label: "Ciudad", value: `${library.city}, ${library.state}` },
+      ],
+      confirmLabel: "Eliminar sede",
+    });
+    if (!confirmed) return;
     setError(null);
     try {
       await api.libraries.remove(library.id);

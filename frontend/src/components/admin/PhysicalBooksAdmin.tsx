@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { api } from "../../api";
+import { useConfirm } from "../../context/ConfirmContext";
 import { useToast } from "../../context/ToastContext";
 import { useSession } from "../../context/SessionContext";
 import { describeError } from "../../lib/errors";
@@ -31,6 +32,7 @@ const STATUS_CLASSES: Record<PhysicalBookStatus, string> = {
 };
 
 export function PhysicalBooksAdmin() {
+  const confirm = useConfirm();
   const toast = useToast();
   const { isSysadmin, myLibraryId } = useSession();
 
@@ -119,10 +121,20 @@ export function PhysicalBooksAdmin() {
   };
 
   const changeStatus = async (copy: PhysicalBook, status: ManualPhysicalBookStatus) => {
-    if (status === "lost" && (copy.status === "reserved" || copy.status === "loaned")) {
-      const confirmed = window.confirm(
-        "Este ejemplar está reservado o prestado. Marcarlo perdido cierra sola la reserva abierta. ¿Seguir?"
-      );
+    if (status === "lost") {
+      const open = copy.status === "reserved" || copy.status === "loaned";
+      const confirmed = await confirm({
+        tone: "danger",
+        title: "Marcar como extraviado",
+        message: open
+          ? "Este ejemplar está reservado o prestado: marcarlo perdido cierra sola la reserva abierta."
+          : "El ejemplar sale de circulación. Podés devolverlo a «disponible» más adelante.",
+        details: [
+          { label: "Ejemplar", value: `#${copy.id}` },
+          { label: "ISBN", value: copy.isbn },
+        ],
+        confirmLabel: "Marcar perdido",
+      });
       if (!confirmed) return;
     }
 
@@ -146,7 +158,18 @@ export function PhysicalBooksAdmin() {
   };
 
   const handleRemove = async (copy: PhysicalBook) => {
-    if (!window.confirm(`¿Dar de baja el ejemplar #${copy.id}?`)) return;
+    const confirmed = await confirm({
+      tone: "danger",
+      title: "Dar de baja el ejemplar",
+      message:
+        "Se borra de la base. Si tuvo reservas, aunque estén cerradas, la API lo va a rechazar: en ese caso marcalo «perdido».",
+      details: [
+        { label: "Ejemplar", value: `#${copy.id}` },
+        { label: "ISBN", value: copy.isbn },
+      ],
+      confirmLabel: "Dar de baja",
+    });
+    if (!confirmed) return;
     setError(null);
     setBusyId(copy.id);
     try {

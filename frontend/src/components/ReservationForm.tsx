@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from "react";
 import type { LibraryAvailability } from "../types";
+import { CheckIcon } from "./icons";
 
 /** Ventana por defecto para retirar el ejemplar. */
 const RESERVATION_WINDOW_DAYS = 7;
@@ -21,12 +22,20 @@ function endOfDay(value: string): Date {
 
 interface Props {
   option: LibraryAvailability;
+  bookTitle: string;
   submitting?: boolean;
   onSubmit: (expiresAt: string) => void;
   onCancel: () => void;
 }
 
-export function ReservationForm({ option, submitting, onSubmit, onCancel }: Props) {
+/**
+ * Elegir el vencimiento y confirmar la reserva.
+ *
+ * Este formulario **es** el paso de confirmación: muestra el resumen de lo que se va a
+ * reservar con la misma forma que `ConfirmDialog` y confirma en verde. No se le encima
+ * otro diálogo porque serían dos pasos para una sola acción, con la misma información.
+ */
+export function ReservationForm({ option, bookTitle, submitting, onSubmit, onCancel }: Props) {
   const [date, setDate] = useState(() => toDateInput(addDays(RESERVATION_WINDOW_DAYS)));
   const [error, setError] = useState<string | null>(null);
 
@@ -43,11 +52,32 @@ export function ReservationForm({ option, submitting, onSubmit, onCancel }: Prop
   };
 
   return (
-    <form className="card card-subtle form" onSubmit={handleSubmit}>
-      <h3>Reservar en {option.library.name}</h3>
-      <p className="field-hint">
-        Ejemplar <span className="badge badge-neutral">#{option.physical_book_id}</span> · {option.library.city}
-      </p>
+    <form className="card card-subtle form confirm confirm-positive" onSubmit={handleSubmit}>
+      <div className="confirm-head">
+        <span className="confirm-icon" aria-hidden="true">
+          <CheckIcon />
+        </span>
+        <h3>Confirmar reserva</h3>
+      </div>
+
+      <dl className="detail-grid confirm-details">
+        <div>
+          <dt>Libro</dt>
+          <dd>{bookTitle}</dd>
+        </div>
+        <div>
+          <dt>Sede</dt>
+          <dd>
+            {option.library.name} · {option.library.city}
+          </dd>
+        </div>
+        <div>
+          <dt>Ejemplar</dt>
+          <dd>
+            <span className="badge badge-neutral">#{option.physical_book_id}</span>
+          </dd>
+        </div>
+      </dl>
 
       {error && <p className="callout callout-danger">{error}</p>}
 
@@ -66,10 +96,16 @@ export function ReservationForm({ option, submitting, onSubmit, onCancel }: Prop
       </label>
 
       <div className="actions">
-        <button type="button" className="btn btn-secondary" onClick={onCancel} disabled={submitting}>
-          Cancelar
+        <button
+          type="button"
+          className="btn btn-secondary"
+          onClick={onCancel}
+          disabled={submitting}
+        >
+          Volver
         </button>
-        <button type="submit" className="btn btn-primary" disabled={submitting}>
+        <button type="submit" className="btn btn-success" disabled={submitting}>
+          <CheckIcon />
           {submitting ? "Reservando..." : "Confirmar reserva"}
         </button>
       </div>

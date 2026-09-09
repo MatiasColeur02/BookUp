@@ -569,6 +569,20 @@ cambia el aspecto:
   (`max-width: 560px`) el modal se ancla abajo y ocupa el ancho completo, con las esquinas
   inferiores a 0 — el gesto de cerrar queda al alcance del pulgar.
 
+### 6.8b `.confirm` — diálogo de confirmación
+
+Se monta sobre `.modal` con la clase `modal-over` en el fondo, que lo eleva a
+`--z-confirm` (55): hay acciones que se confirman desde adentro de otro modal, como
+cancelar una reserva desde el panel del bibliotecario.
+
+- Dos tonos: `.confirm-positive` (verde, algo que suma) y `.confirm-danger` (rojo, algo
+  que se pierde). El tono pinta el ícono redondo de la cabecera y el borde y fondo de la
+  ficha de detalle.
+- El botón de confirmar es `.btn-success` o `.btn-danger-solid` — la variante sólida
+  existe para esto: en una confirmación, el botón que borra tiene que pesar; el
+  `.btn-danger` de contorno queda para las acciones de fila.
+- El diálogo siempre lleva la ficha de lo que se está por tocar (`.confirm-details`).
+
 ### 6.9 `.toast`
 
 Se conserva todo el comportamiento (posición abajo a la derecha, 5 s, pausa al hover, portal,
@@ -820,4 +834,4 @@ Recorrer con las dos paletas (claro y oscuro) y en dos anchos (375px y 1440px):
 | `.panel-filters` | → `.page-header` (7.2) |
 | `.librarian-name` | **Borrar**: sin uso |
 | `.row-actions`, `.actions` | Se quedan |
-| — | **Nuevas**: `.btn*`, `.field*`, `.card*`, `.segmented*`, `.callout*`, `.skeleton`, `.page-header`, `.visually-hidden`, `.theme-toggle` |
+| — | **Nuevas**: `.btn*`, `.field*`, `.card*`, `.segmented*`, `.callout*`, `.skeleton`, `.page-header`, `.visually-hidden`, `.theme-toggle`, `.confirm*` (diálogo de confirmación, verde/rojo), `.filter-*` y `.active-filters` (filtros del catálogo) |

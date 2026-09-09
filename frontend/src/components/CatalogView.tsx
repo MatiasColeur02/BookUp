@@ -293,6 +293,7 @@ export function CatalogView() {
             {reservingOption && (
               <ReservationForm
                 option={reservingOption}
+                bookTitle={availability?.book.title ?? selectedBook?.title ?? "este libro"}
                 submitting={submitting}
                 onCancel={closeReservationForm}
                 onSubmit={handleReserve}
