@@ -9,10 +9,10 @@ import { MaintenanceView } from "./components/admin/MaintenanceView";
 import { PhysicalBooksAdmin } from "./components/admin/PhysicalBooksAdmin";
 import { UsersAdmin } from "./components/admin/UsersAdmin";
 import { CatalogView } from "./components/CatalogView";
-import { BookIcon } from "./components/icons";
 import { LibrarianPanel } from "./components/LibrarianPanel";
 import { LibrariesView } from "./components/LibrariesView";
 import { LoginForm } from "./components/LoginForm";
+import { Logo } from "./components/Logo";
 import { MyReservationsView } from "./components/MyReservationsView";
 import { ProfileView } from "./components/ProfileView";
 import { RegisterForm } from "./components/RegisterForm";
@@ -63,9 +63,7 @@ export default function App() {
     <div className="app">
       <header className="app-header">
         <div className="brand">
-          <span className="brand-mark">
-            <BookIcon />
-          </span>
+          <Logo className="brand-mark" />
           <div>
             <h1>BookUp</h1>
             <p className="tagline">Catálogo y reservas de la red de bibliotecas</p>
