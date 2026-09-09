@@ -1,7 +1,8 @@
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
-from .. import cache
+from .. import cache, storage
+from ..config import settings
 from ..persistence.database import get_db
 from ..persistence.models import User, UserRole
 from ..services import catalog_service
@@ -26,7 +27,8 @@ def list_books(
 ):
     def load() -> schemas.BookPage:
         books, total = catalog_service.list_books(db, limit=limit, offset=offset)
-        return schemas.BookPage(items=books, total=total, limit=limit, offset=offset)
+        items = [schemas.BookOut.from_book(book) for book in books]
+        return schemas.BookPage(items=items, total=total, limit=limit, offset=offset)
 
     # La página va en la clave: cada (limit, offset) es una entrada distinta, y todas
     # caen juntas con el `INCR` del namespace cuando se toca el catálogo.
@@ -47,7 +49,7 @@ def create_book(
 ):
     book = catalog_service.create_book(db, **payload.model_dump())
     cache.invalidate(*_WRITE_NAMESPACES)
-    return book
+    return schemas.BookOut.from_book(book)
 
 
 # Declared before `/{isbn}` so FastAPI does not match "search" as an ISBN.
@@ -60,7 +62,9 @@ def search_books(q: str = Query(..., min_length=1), db: Session = Depends(get_db
         f"books:search:{cache.digest(q)}",
         ttl=cache.TTL_SEARCH,
         model=list[schemas.BookOut],
-        loader=lambda: catalog_service.search_books(db, q),
+        loader=lambda: [
+            schemas.BookOut.from_book(book) for book in catalog_service.search_books(db, q)
+        ],
     )
 
 
@@ -71,7 +75,7 @@ def get_book(isbn: str, db: Session = Depends(get_db)):
         f"books:{isbn}",
         ttl=cache.TTL_CATALOG,
         model=schemas.BookOut,
-        loader=lambda: catalog_service.get_book(db, isbn),
+        loader=lambda: schemas.BookOut.from_book(catalog_service.get_book(db, isbn)),
     )
 
 
@@ -84,7 +88,7 @@ def update_book(
 ):
     book = catalog_service.update_book(db, isbn, **payload.model_dump(exclude_unset=True))
     cache.invalidate(*_WRITE_NAMESPACES)
-    return book
+    return schemas.BookOut.from_book(book)
 
 
 @router.delete("/{isbn}", status_code=204)
@@ -93,8 +97,95 @@ def delete_book(
     db: Session = Depends(get_db),
     _: User = Depends(require_staff),
 ):
+    # La key se lee antes: después del delete la fila ya no está.
+    cover_key = catalog_service.get_book(db, isbn).cover_key
     catalog_service.delete_book(db, isbn)
+    storage.delete(cover_key)
     cache.invalidate(*_WRITE_NAMESPACES)
+
+
+def _require_storage() -> None:
+    """503 y no 500: sin bucket configurado la feature está apagada, no rota."""
+    if not storage.is_enabled():
+        raise HTTPException(
+            status_code=503,
+            detail="El almacenamiento de portadas no está configurado (falta S3_BUCKET).",
+        )
+
+
+@router.post("/{isbn}/cover-upload", response_model=schemas.CoverUploadOut)
+def request_cover_upload(
+    isbn: str,
+    payload: schemas.CoverUploadRequest,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_staff),
+):
+    """Firma una URL para que el browser haga el `PUT` del archivo directo a S3.
+
+    El archivo no pasa por la API: en la arquitectura target eso evita ocupar una tarea
+    de ECS (o el payload de API Gateway, con su tope de 10 MB) para mover una imagen.
+    """
+    _require_storage()
+    # 404 antes de firmar nada: no tiene sentido subir la portada de un libro que no está.
+    catalog_service.get_book(db, isbn)
+
+    if payload.content_type not in storage.ALLOWED_CONTENT_TYPES:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Formato no soportado. Se aceptan: {', '.join(storage.ALLOWED_CONTENT_TYPES)}.",
+        )
+    if payload.size > settings.cover_max_bytes:
+        raise HTTPException(
+            status_code=422,
+            detail=f"La portada no puede superar {settings.cover_max_bytes // (1024 * 1024)} MB.",
+        )
+
+    key = storage.build_key(isbn, payload.content_type)
+    return schemas.CoverUploadOut(
+        upload_url=storage.presign_upload(key, payload.content_type),
+        key=key,
+        content_type=payload.content_type,
+        expires_in=settings.s3_presign_expire_seconds,
+    )
+
+
+@router.put("/{isbn}/cover", response_model=schemas.BookOut)
+def attach_cover(
+    isbn: str,
+    payload: schemas.CoverAttach,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_staff),
+):
+    """Confirma la key subida y la guarda en la fila del libro."""
+    _require_storage()
+
+    # La key la propone el cliente, así que se valida dos veces: que sea del prefijo de
+    # este libro (no se puede apuntar la portada a un objeto ajeno) y que exista de
+    # verdad — si el PUT del browser falló, la fila quedaría con una imagen rota.
+    if not storage.owns_key(isbn, payload.key):
+        raise HTTPException(status_code=422, detail="La key no corresponde a este libro.")
+    if not storage.exists(payload.key):
+        raise HTTPException(
+            status_code=422, detail="La portada no está en el bucket: reintentá la subida."
+        )
+
+    book, previous_key = catalog_service.set_cover(db, isbn, payload.key)
+    if previous_key and previous_key != payload.key:
+        storage.delete(previous_key)
+    cache.invalidate(*_WRITE_NAMESPACES)
+    return schemas.BookOut.from_book(book)
+
+
+@router.delete("/{isbn}/cover", response_model=schemas.BookOut)
+def remove_cover(
+    isbn: str,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_staff),
+):
+    book, previous_key = catalog_service.set_cover(db, isbn, None)
+    storage.delete(previous_key)
+    cache.invalidate(*_WRITE_NAMESPACES)
+    return schemas.BookOut.from_book(book)
 
 
 @router.get("/{isbn}/availability", response_model=schemas.BookAvailability)
@@ -109,7 +200,7 @@ def get_availability(isbn: str, db: Session = Depends(get_db)):
             )
             for library, physical_books in rows
         ]
-        return schemas.BookAvailability(book=book, libraries=libraries)
+        return schemas.BookAvailability(book=schemas.BookOut.from_book(book), libraries=libraries)
 
     # El stock cruzado de toda la red es la pantalla más visitada y la que más joins
     # cuesta, pero también la que más rápido queda vieja: TTL corto, e invalidación

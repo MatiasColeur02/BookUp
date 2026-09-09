@@ -1,4 +1,5 @@
 import type { Book } from "../types";
+import { BookCover } from "./BookCover";
 import { BookIcon } from "./icons";
 
 interface Props {
@@ -20,10 +21,11 @@ export function BookResults({ books, selectedIsbn, onSelect, emptyMessage }: Pro
   }
 
   return (
-    <ul className="book-list">
+    <ul className="book-grid">
       {books.map((book) => (
         <li key={book.isbn} className={book.isbn === selectedIsbn ? "selected" : ""}>
           <button onClick={() => onSelect(book)}>
+            <BookCover book={book} />
             <strong>{book.title}</strong>
             <span>{book.authors.map((author) => author.name).join(", ") || "Autor desconocido"}</span>
           </button>

@@ -1,4 +1,5 @@
 import type { BookAvailability } from "../types";
+import { BookCover } from "./BookCover";
 import { PinIcon } from "./icons";
 
 interface Props {
@@ -12,10 +13,19 @@ export function BookAvailabilityView({ availability, onReserve }: Props) {
   return (
     <div className="availability">
       <span className="eyebrow">Ficha del libro</span>
-      <h2>{book.title}</h2>
-      <p className="author">{book.authors.map((author) => author.name).join(", ") || "Autor desconocido"}</p>
-      {book.synopsis && <p className="synopsis">{book.synopsis}</p>}
-      <p className="isbn">ISBN {book.isbn}</p>
+      <div className="availability-header">
+        <div className="availability-cover">
+          <BookCover book={book} loading="eager" />
+        </div>
+        <div>
+          <h2>{book.title}</h2>
+          <p className="author">
+            {book.authors.map((author) => author.name).join(", ") || "Autor desconocido"}
+          </p>
+          {book.synopsis && <p className="synopsis">{book.synopsis}</p>}
+          <p className="isbn">ISBN {book.isbn}</p>
+        </div>
+      </div>
 
       <h3>Disponibilidad por biblioteca</h3>
       {libraries.length === 0 ? (

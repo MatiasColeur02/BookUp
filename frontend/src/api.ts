@@ -7,6 +7,7 @@ import type {
   BookAvailability,
   BookCreate,
   BookPage,
+  CoverUpload,
   BookUpdate,
   ExpiredReservations,
   Genre,
@@ -193,6 +194,36 @@ export const api = {
 
     remove: (isbn: string) =>
       request<void>(`/books/${encodeURIComponent(isbn)}`, { method: "DELETE" }),
+
+    /**
+     * Sube una portada. Son tres pasos y el archivo **no pasa por la API**: se pide una
+     * URL firmada, el browser hace el PUT directo al bucket y recién ahí se confirma la
+     * key. Si el PUT falla, la base no se toca y el libro se queda sin portada.
+     */
+    uploadCover: async (isbn: string, file: File): Promise<Book> => {
+      const upload = await request<CoverUpload>(
+        `/books/${encodeURIComponent(isbn)}/cover-upload`,
+        { method: "POST", body: { content_type: file.type, size: file.size } }
+      );
+
+      const response = await fetch(upload.upload_url, {
+        method: "PUT",
+        // El content-type va firmado dentro de la URL: si no coincide, S3 rechaza el PUT.
+        headers: { "Content-Type": upload.content_type },
+        body: file,
+      });
+      if (!response.ok) {
+        throw new Error(`No se pudo subir la imagen al bucket (HTTP ${response.status}).`);
+      }
+
+      return request<Book>(`/books/${encodeURIComponent(isbn)}/cover`, {
+        method: "PUT",
+        body: { key: upload.key },
+      });
+    },
+
+    removeCover: (isbn: string) =>
+      request<Book>(`/books/${encodeURIComponent(isbn)}/cover`, { method: "DELETE" }),
   },
 
   authors: {

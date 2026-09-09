@@ -186,7 +186,7 @@ export function CatalogView() {
     <div className="catalog">
       <SearchBar onSearch={handleSearch} onClear={handleClearSearch} loading={loading} />
       <ErrorBanner error={error} />
-      <div className="catalog-layout">
+      <div className={`catalog-layout${selectedIsbn === null ? "" : " has-detail"}`}>
         <div className="catalog-results">
           <div className="catalog-results-header">
             <h2>{searching ? "Resultados" : "Catálogo"}</h2>
@@ -214,6 +214,7 @@ export function CatalogView() {
             </>
           )}
         </div>
+        {selectedIsbn !== null && (
         <div className="catalog-detail">
           {confirmationMessage && <p className="success">{confirmationMessage}</p>}
           {loadingAvailability && <p className="muted">Consultando disponibilidad...</p>}
@@ -229,6 +230,7 @@ export function CatalogView() {
             />
           )}
         </div>
+        )}
       </div>
     </div>
   );

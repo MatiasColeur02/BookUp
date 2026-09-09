@@ -112,6 +112,20 @@ def update_book(
     return book
 
 
+def set_cover(db: Session, isbn: str, cover_key: str | None) -> tuple[Book, str | None]:
+    """Apunta la portada del libro a una key nueva y devuelve la anterior.
+
+    La key vieja vuelve para que el controller borre el objeto huérfano del bucket: el
+    service no sabe que S3 existe, igual que no sabe de HTTP ni del cache.
+    """
+    book = get_book(db, isbn)
+    previous_key = book.cover_key
+    book.cover_key = cover_key
+    db.commit()
+    db.refresh(book)
+    return book, previous_key
+
+
 def delete_book(db: Session, isbn: str) -> None:
     repo = BookRepository(db)
     book = repo.get(isbn)

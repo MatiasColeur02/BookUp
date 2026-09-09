@@ -2,6 +2,7 @@ from datetime import datetime, timezone
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
+from .. import storage
 from ..persistence.models import PhysicalBookStatus, UserRole
 
 
@@ -80,6 +81,21 @@ class BookOut(BookBase):
     model_config = ConfigDict(from_attributes=True)
     authors: list[AuthorOut] = []
     genres: list[GenreOut] = []
+    # URL de lectura de la portada, derivada de `Book.cover_key` (la key nunca se
+    # expone). Es un campo normal y no un `computed_field` porque el payload viaja por
+    # el cache: al revalidar el JSON cacheado no hay `cover_key` del que recalcularla.
+    cover_url: str | None = None
+
+    @classmethod
+    def from_book(cls, book) -> "BookOut":
+        """Construye el esquema resolviendo la portada.
+
+        Todo endpoint que devuelva libros tiene que pasar por acá: validar la entidad
+        ORM directamente deja `cover_url` en `None`.
+        """
+        out = cls.model_validate(book)
+        out.cover_url = storage.public_url(book.cover_key)
+        return out
 
 
 class BookPage(BaseModel):
@@ -99,6 +115,29 @@ class BookCreate(BookBase):
     @classmethod
     def check_isbn(cls, value: str) -> str:
         return _validate_isbn13(value)
+
+
+class CoverUploadRequest(BaseModel):
+    """Pedido de URL firmada para subir una portada."""
+
+    content_type: str
+    size: int = Field(gt=0)
+
+
+class CoverUploadOut(BaseModel):
+    """Lo que el browser necesita para el `PUT` directo a S3 y la confirmación posterior."""
+
+    upload_url: str
+    key: str
+    # El `PUT` tiene que mandar exactamente este content-type: va firmado en la URL.
+    content_type: str
+    expires_in: int
+
+
+class CoverAttach(BaseModel):
+    """Confirmación: la key que el browser terminó de subir."""
+
+    key: str
 
 
 class BookUpdate(BaseModel):

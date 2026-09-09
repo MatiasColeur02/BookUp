@@ -59,6 +59,16 @@ export interface Book {
   synopsis: string | null;
   authors: Author[];
   genres: Genre[];
+  /** URL de lectura de la portada. `null` si el libro no tiene o si S3 está apagado. */
+  cover_url: string | null;
+}
+
+/** Respuesta de `POST /books/{isbn}/cover-upload`: lo que hace falta para el PUT a S3. */
+export interface CoverUpload {
+  upload_url: string;
+  key: string;
+  content_type: string;
+  expires_in: number;
 }
 
 /** Una página de `GET /books`. `total` es el catálogo entero, no la página. */

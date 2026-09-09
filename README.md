@@ -14,6 +14,7 @@ luego desplegarse sobre servicios gestionados de AWS.
   controllers)
 - **Base de datos**: PostgreSQL 16, migraciones con Alembic
 - **Cache**: Redis 7 (ElastiCache for Redis en AWS)
+- **Portadas**: almacenamiento de objetos S3-compatible (MinIO en local, S3 en AWS)
 - **Frontend**: React 18 + TypeScript + Vite
 - **Local dev**: Docker Compose
 
@@ -25,6 +26,7 @@ api/
     main.py               # app FastAPI, CORS, registro de excepciones/rutas
     config.py               # settings (DATABASE_URL, REDIS_URL, CORS, etc.)
     cache.py                 # cache de lecturas sobre Redis
+    storage.py                # portadas de libros sobre S3 (URLs firmadas)
     persistence/              # capa de datos: no sabe nada de HTTP
       database.py               # engine, sesión, Base
       models.py                  # entidades ORM: User, Library, Book, Author,
@@ -68,9 +70,10 @@ Requiere Docker y Docker Compose.
 docker compose up --build
 ```
 
-Esto levanta Postgres y Redis, corre las migraciones de Alembic, expone la API en
-`http://localhost:8000` (docs interactivas en `http://localhost:8000/docs`)
-y el frontend en `http://localhost:5173`.
+Esto levanta Postgres, Redis y MinIO (con el bucket de portadas ya creado), corre
+las migraciones de Alembic, expone la API en `http://localhost:8000` (docs interactivas
+en `http://localhost:8000/docs`) y el frontend en `http://localhost:5173`. La consola de
+MinIO queda en `http://localhost:9001` (`bookup` / `bookup123`).
 
 Para cargar datos de ejemplo (bibliotecas, libros, ejemplares y usuarios):
 
@@ -153,6 +156,9 @@ Salvo el catálogo, las sedes (lectura) y el auto-registro, todo pide un JWT en
 | GET    | `/books/{isbn}`                    | Detalle de un libro                             | público |
 | PATCH  | `/books/{isbn}`                    | Actualización parcial de un libro               | librarian o sysadmin |
 | DELETE | `/books/{isbn}`                    | Baja de un libro (409 si tiene ejemplares)      | librarian o sysadmin |
+| POST   | `/books/{isbn}/cover-upload`       | URL firmada para subir la portada a S3          | librarian o sysadmin |
+| PUT    | `/books/{isbn}/cover`              | Confirmar la portada subida                     | librarian o sysadmin |
+| DELETE | `/books/{isbn}/cover`              | Quitar la portada (borra el objeto del bucket)  | librarian o sysadmin |
 | GET    | `/books/{isbn}/availability`       | Disponibilidad por biblioteca (stock cruzado)   | público |
 | GET    | `/authors`, `/authors/{id}`        | Autores del catálogo                            | público |
 | POST/PATCH/DELETE | `/authors[/{id}]`       | ABM de autores (409 al borrar si tiene libros)  | librarian o sysadmin |
@@ -214,6 +220,46 @@ base, y un breaker lo apaga 10 s para que un nodo caído no le sume timeouts a c
 request. Sin `REDIS_URL` queda directamente apagado — así corren los tests, y así se
 puede levantar la API sin Redis. `GET /health` reporta `cache: ok | down | disabled`.
 
+## Portadas de libros
+
+Las portadas viven en un bucket S3 (MinIO en local, `S3_BUCKET` en AWS). **La imagen
+nunca pasa por la API**: el cliente pide una URL firmada, hace el `PUT` directo al
+bucket y recién después confirma la key.
+
+```
+browser → API   POST /books/{isbn}/cover-upload  { content_type, size }
+API    → browser  { upload_url, key, ... }        ← URL firmada, 15 min
+browser → S3     PUT <upload_url>                 ← el archivo, sin pasar por la API
+browser → API    PUT /books/{isbn}/cover { key }
+API    → S3      HEAD <key>                       ← ¿se subió de verdad?
+API    → DB      books.cover_key = key
+```
+
+En la arquitectura target eso evita que subir 5 MB ocupe una tarea de ECS, y esquiva el
+tope de 10 MB de payload de API Gateway.
+
+En la base se guarda la **key** (`covers/<isbn>/<uuid>.jpg`), no la URL: la URL pública
+la arma `app/storage.py` al serializar, así que mudar de bucket, de región o poner
+CloudFront adelante (`S3_PUBLIC_BASE_URL`) no obliga a reescribir filas. La key lleva un
+uuid para que al reemplazar una portada cambie la URL y ni el browser ni el CDN sirvan
+la imagen vieja desde su cache.
+
+Detalles que no son obvios:
+
+- **Se valida dos veces al confirmar**: que la key sea del prefijo de ese libro (nadie
+  apunta la portada a un objeto ajeno) y que el objeto exista (`HEAD`), porque si el
+  `PUT` del browser falló la fila quedaría con una imagen rota.
+- **Dos endpoints de S3 en local**: SigV4 firma el `Host`, así que la URL que va al
+  browser se firma contra `S3_PUBLIC_ENDPOINT_URL` (`http://localhost:9000`) y las
+  operaciones del servidor usan `S3_ENDPOINT_URL` (`http://storage:9000`, la red de
+  compose). En AWS las dos quedan vacías y boto3 usa los endpoints de S3.
+- **Sin `S3_BUCKET` la feature queda apagada**: los endpoints de portada dan 503 y el
+  resto de la API funciona igual — así corre la suite de tests. `GET /health` reporta
+  `storage: ok | down | disabled`.
+- **Borrar es best-effort**: si falla el borrado en S3, la fila ya no apunta a esa key y
+  el objeto queda huérfano para que lo limpie una lifecycle rule del bucket. La fuente
+  de verdad es la base, no el bucket.
+
 ## Frontend
 
 SPA con React Router y sesión propia (JWT en `localStorage`). Cada pantalla se
@@ -245,6 +291,9 @@ descriptos en la propuesta:
   para consultar stock del resto de la red sin afectar el nodo de escritura).
 - **Cache**: ElastiCache for Redis en subnets privadas. El código ya está: solo
   cambia `REDIS_URL` del contenedor local al endpoint del cluster.
+- **Portadas**: S3 + CloudFront. El código ya está: se borran `S3_ENDPOINT_URL` y
+  `S3_PUBLIC_ENDPOINT_URL` (que apuntan a MinIO), `S3_BUCKET` pasa a ser el bucket real
+  y las credenciales salen del rol de la tarea en vez del `.env`.
 - **Búsqueda**: el `ILIKE` de `/books/search` (en `BookRepository`) es un
   placeholder; en producción el índice lo sirve OpenSearch, alimentado desde
   Postgres.

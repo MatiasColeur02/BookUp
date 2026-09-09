@@ -36,6 +36,42 @@ services:
       timeout: 3s
       retries: 5
 
+  # Stand-in local de S3 para las portadas de libros, igual que `cache` lo es de
+  # ElastiCache. MinIO habla el mismo protocolo, así que en AWS solo cambian las
+  # variables de entorno: se borran los endpoints y el bucket pasa a ser el real.
+  storage:
+    image: minio/minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: bookup
+      MINIO_ROOT_PASSWORD: bookup123
+      # El browser sube la portada con un PUT firmado desde otro origen.
+      MINIO_API_CORS_ALLOW_ORIGIN: "http://localhost:5173"
+    ports:
+      - "9000:9000"   # API S3
+      - "9001:9001"   # consola web
+    volumes:
+      - bookup_storage_data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # One-shot: crea el bucket y lo deja de lectura pública (las portadas se sirven
+  # directo, como saldrían por CloudFront). La escritura sigue pidiendo firma.
+  storage-init:
+    image: minio/mc
+    depends_on:
+      storage:
+        condition: service_healthy
+    entrypoint: >
+      sh -c "
+      mc alias set local http://storage:9000 bookup bookup123 &&
+      mc mb --ignore-existing local/bookup-covers &&
+      mc anonymous set download local/bookup-covers
+      "
+
   api:
     build: ./api
     environment:
@@ -44,12 +80,23 @@ services:
       JWT_SECRET: dev-secret-change-me
       JWT_ALGORITHM: HS256
       JWT_EXPIRE_MINUTES: 60
+      S3_BUCKET: bookup-covers
+      S3_REGION: us-east-1
+      # Endpoint interno (red de compose) para head/delete...
+      S3_ENDPOINT_URL: http://storage:9000
+      # ...y el que ve el browser: SigV4 firma el Host, así que la URL firmada tiene
+      # que apuntar a donde el browser realmente puede hacer el PUT.
+      S3_PUBLIC_ENDPOINT_URL: http://localhost:9000
+      AWS_ACCESS_KEY_ID: bookup
+      AWS_SECRET_ACCESS_KEY: bookup123
     ports:
       - "8000:8000"
     depends_on:
       db:
         condition: service_healthy
       cache:
+        condition: service_healthy
+      storage:
         condition: service_healthy
     volumes:
       - ./api:/app
@@ -70,3 +117,4 @@ services:
 
 volumes:
   bookup_db_data:
+  bookup_storage_data:

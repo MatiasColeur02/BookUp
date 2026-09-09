@@ -193,13 +193,18 @@ button {
 
 .catalog-layout {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1.5fr);
+  /* Sin ficha abierta, las portadas se llevan todo el ancho. */
+  grid-template-columns: minmax(0, 1fr);
   gap: 1.25rem;
   align-items: start;
 }
 
+.catalog-layout.has-detail {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr);
+}
+
 @media (max-width: 760px) {
-  .catalog-layout {
+  .catalog-layout.has-detail {
     grid-template-columns: 1fr;
   }
   .app-header {
@@ -210,49 +215,168 @@ button {
 
 /* ---------- Book list ---------- */
 
-.book-list {
+.book-grid {
   list-style: none;
   margin: 0;
   padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
+  display: grid;
+  /* Las columnas las decide el ancho disponible: con la ficha abierta entran menos. */
+  grid-template-columns: repeat(auto-fill, minmax(146px, 1fr));
+  gap: 1.1rem 1rem;
 }
 
-.book-list button {
+.book-grid button {
   width: 100%;
+  height: 100%;
   text-align: left;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-left: 4px solid var(--border);
-  border-radius: 10px;
-  padding: 0.7rem 0.9rem;
+  background: none;
+  border: none;
+  padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 0.15rem;
+  gap: 0.45rem;
   cursor: pointer;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.1s ease;
+  color: inherit;
 }
 
-.book-list button:hover {
-  box-shadow: var(--shadow-sm);
-  transform: translateY(-1px);
-}
-
-.book-list button strong {
+.book-grid strong {
   font-family: var(--font-display);
   font-weight: 600;
+  font-size: 0.95rem;
+  line-height: 1.25;
 }
 
-.book-list li.selected button {
-  border-color: var(--accent);
-  border-left-color: var(--accent);
-  background: var(--accent-soft);
-}
-
-.book-list button span {
+.book-grid button > span {
   color: var(--muted);
-  font-size: 0.88rem;
+  font-size: 0.82rem;
+  line-height: 1.3;
+}
+
+/* La portada: proporción fija de libro para que la grilla no baile con imágenes
+   de distinto tamaño. */
+.book-cover {
+  display: block;
+  width: 100%;
+  aspect-ratio: 2 / 3;
+  object-fit: cover;
+  border-radius: 8px;
+  background: var(--surface-muted);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-sm);
+  transition: transform 0.12s ease, box-shadow 0.15s ease;
+}
+
+.book-grid button:hover .book-cover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+}
+
+.book-grid li.selected .book-cover {
+  border-color: var(--accent);
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.book-grid li.selected strong {
+  color: var(--accent);
+}
+
+/* Reemplazo tipográfico cuando el libro no tiene portada cargada: lleva el título
+   porque una grilla de íconos iguales no deja distinguir un libro de otro. */
+.book-cover-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.9rem;
+  text-align: center;
+  color: var(--muted);
+  background: linear-gradient(160deg, var(--surface) 0%, var(--surface-muted) 100%);
+}
+
+.book-cover-empty svg {
+  width: 22px;
+  height: 22px;
+  opacity: 0.45;
+}
+
+.book-cover-empty span {
+  font-family: var(--font-display);
+  font-size: 0.85rem;
+  line-height: 1.25;
+  /* Títulos largos no pueden desbordar la portada. */
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* Ficha del libro: portada al lado de los datos. */
+.availability-header {
+  display: flex;
+  gap: 1rem;
+  align-items: flex-start;
+}
+
+.availability-cover {
+  flex: 0 0 110px;
+}
+
+@media (max-width: 480px) {
+  .availability-header {
+    flex-direction: column;
+  }
+  .availability-cover {
+    flex-basis: auto;
+    width: 120px;
+  }
+}
+
+/* Campo de portada del formulario de gestión. */
+.cover-field-label {
+  display: block;
+  font-size: 0.85rem;
+  color: var(--muted);
+  font-weight: 500;
+  margin-bottom: 0.3rem;
+}
+
+.cover-field-row {
+  display: flex;
+  gap: 0.9rem;
+  align-items: flex-start;
+}
+
+.cover-preview {
+  flex: 0 0 90px;
+}
+
+.cover-preview img,
+.cover-preview .cover-preview-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 90px;
+  aspect-ratio: 2 / 3;
+  object-fit: cover;
+  border-radius: 8px;
+  border: 1px dashed var(--border);
+  background: var(--surface-muted);
+  color: var(--muted);
+  font-size: 0.75rem;
+  text-align: center;
+}
+
+.cover-field-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  align-items: flex-start;
+}
+
+.cover-field-controls input[type="file"] {
+  font-size: 0.85rem;
 }
 
 .catalog-results {

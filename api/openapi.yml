@@ -264,6 +264,113 @@ paths:
         "409":
           $ref: "#/components/responses/Conflict"
 
+  /books/{isbn}/cover-upload:
+    post:
+      tags: [catalog]
+      summary: Firmar la subida de una portada
+      description: >
+        Requiere `librarian` o `sysadmin`. Devuelve una URL firmada para que el cliente
+        haga `PUT` del archivo **directo al bucket**: la imagen no pasa por la API.
+        Después hay que confirmar la key con `PUT /books/{isbn}/cover`.
+        Da 503 si el almacenamiento de portadas no está configurado.
+      operationId: requestCoverUpload
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: isbn
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CoverUploadRequest"
+      responses:
+        "200":
+          description: URL firmada
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CoverUploadOut"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+        "503":
+          description: El almacenamiento de portadas no está configurado
+
+  /books/{isbn}/cover:
+    put:
+      tags: [catalog]
+      summary: Confirmar la portada subida
+      description: >
+        Requiere `librarian` o `sysadmin`. Valida que la key sea del prefijo de este
+        libro y que el objeto exista en el bucket antes de guardarla; si el libro ya
+        tenía portada, la anterior se borra. Da 503 si el almacenamiento no está
+        configurado.
+      operationId: attachCover
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: isbn
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CoverAttach"
+      responses:
+        "200":
+          description: Libro con la portada ya asociada
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BookOut"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+        "503":
+          description: El almacenamiento de portadas no está configurado
+    delete:
+      tags: [catalog]
+      summary: Quitar la portada de un libro
+      description: Requiere `librarian` o `sysadmin`. Borra el objeto del bucket.
+      operationId: removeCover
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: isbn
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Libro sin portada
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BookOut"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
   /books/{isbn}/availability:
     get:
       tags: [catalog]
@@ -1469,6 +1576,50 @@ components:
               items:
                 $ref: "#/components/schemas/GenreOut"
               default: []
+            cover_url:
+              type: string
+              nullable: true
+              description: >
+                URL de lectura de la portada, derivada de la key guardada en la base.
+                `null` si el libro no tiene portada o si el almacenamiento está apagado.
+              example: https://cdn.bookup.example/covers/9780307474728/9bdc0148.jpg
+
+    CoverUploadRequest:
+      type: object
+      required: [content_type, size]
+      properties:
+        content_type:
+          type: string
+          enum: [image/jpeg, image/png, image/webp]
+        size:
+          type: integer
+          minimum: 1
+          description: Tamaño del archivo en bytes; el techo lo fija `COVER_MAX_BYTES`.
+
+    CoverUploadOut:
+      type: object
+      required: [upload_url, key, content_type, expires_in]
+      properties:
+        upload_url:
+          type: string
+          description: URL firmada para hacer `PUT` del archivo directo a S3.
+        key:
+          type: string
+          example: covers/9780307474728/9bdc0148c2ea4befa7697627a4a4f77b.png
+        content_type:
+          type: string
+          description: El `PUT` tiene que mandar exactamente este content-type; va firmado.
+        expires_in:
+          type: integer
+          description: Validez de la URL firmada, en segundos.
+
+    CoverAttach:
+      type: object
+      required: [key]
+      properties:
+        key:
+          type: string
+          description: La key que el browser terminó de subir.
 
     BookPage:
       type: object

@@ -106,6 +106,10 @@ class Book(Base):
     language: Mapped[str] = mapped_column(String(50), nullable=False)
     pages: Mapped[int | None] = mapped_column(Integer)
     synopsis: Mapped[str | None] = mapped_column(Text)
+    # Key del objeto en S3 (`covers/<isbn>/<uuid>.jpg`), no la URL: la URL pública se
+    # arma al serializar, así cambiar de bucket o poner CloudFront adelante no obliga a
+    # reescribir filas. Ver `app/storage.py`.
+    cover_key: Mapped[str | None] = mapped_column(String(255))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
