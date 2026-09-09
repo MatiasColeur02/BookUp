@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { api } from "../api";
 import { useSession } from "../context/SessionContext";
@@ -14,6 +14,7 @@ import {
   type CatalogFilterState,
 } from "./CatalogFilters";
 import { ActiveFilters } from "./ActiveFilters";
+import { Pagination } from "./Pagination";
 import { useCatalogFilterOptions } from "../hooks/useCatalogFilterOptions";
 import { ReservationForm } from "./ReservationForm";
 import { SearchBar } from "./SearchBar";
@@ -33,6 +34,25 @@ export function CatalogView() {
   const [searchParams, setSearchParams] = useSearchParams();
   const selectedIsbn = searchParams.get("isbn");
   const reservingId = Number(searchParams.get("reservar")) || null;
+  // La página también: así «atrás» vuelve a la página anterior en vez de salir del
+  // catálogo, y cerrar la ficha de un libro no te deja de nuevo en la primera.
+  const page = Math.max(1, Number(searchParams.get("page")) || 1);
+
+  /**
+   * Reescribe los params conservando la página. Todo lo que toca la URL pasa por acá:
+   * un `setSearchParams({ isbn })` suelto borraría el `page` sin querer.
+   */
+  const setParams = useCallback(
+    (next: { isbn?: string; reservar?: number; page?: number }) => {
+      const params: Record<string, string> = {};
+      const nextPage = next.page ?? page;
+      if (nextPage > 1) params.page = String(nextPage);
+      if (next.isbn) params.isbn = next.isbn;
+      if (next.reservar) params.reservar = String(next.reservar);
+      setSearchParams(params);
+    },
+    [page, setSearchParams]
+  );
 
   // Buscar y filtrar son la misma consulta: `GET /books` acepta texto y filtros juntos
   // y devuelve una página. Por eso hay una sola lista, no una de catálogo y otra de
@@ -40,13 +60,13 @@ export function CatalogView() {
   const [books, setBooks] = useState<Book[]>([]);
   const [total, setTotal] = useState(0);
   const [loadingCatalog, setLoadingCatalog] = useState(true);
-  const [loadingMore, setLoadingMore] = useState(false);
   // `queryInput` es lo tipeado; `activeQuery` es lo que se está filtrando. Se separan
   // porque la búsqueda se dispara al enviar, no en cada tecla.
   const [queryInput, setQueryInput] = useState("");
   const [activeQuery, setActiveQuery] = useState("");
   const [filters, setFilters] = useState<CatalogFilterState>(EMPTY_FILTERS);
   const filterOptions = useCatalogFilterOptions();
+  const resultsRef = useRef<HTMLDivElement>(null);
   const [availability, setAvailability] = useState<BookAvailability | null>(
     null,
   );
@@ -92,17 +112,18 @@ export function CatalogView() {
     [activeQuery, filters]
   );
 
-  // Primera página: al entrar, y de nuevo cada vez que cambia el texto o un filtro.
+  // Una página a la vez: cambia al entrar, al cambiar el texto o un filtro, y al
+  // cambiar de página.
   useEffect(() => {
     let cancelled = false;
     setLoadingCatalog(true);
     setError(null);
     api.books
-      .list({ ...buildQuery(), limit: PAGE_SIZE, offset: 0 })
-      .then((page) => {
+      .list({ ...buildQuery(), limit: PAGE_SIZE, offset: (page - 1) * PAGE_SIZE })
+      .then((result) => {
         if (cancelled) return;
-        setBooks(page.items);
-        setTotal(page.total);
+        setBooks(result.items);
+        setTotal(result.total);
       })
       .catch((err) => {
         if (!cancelled) setError(describeError(err));
@@ -113,34 +134,35 @@ export function CatalogView() {
     return () => {
       cancelled = true;
     };
-  }, [buildQuery]);
+  }, [buildQuery, page]);
 
-  const handleLoadMore = async () => {
-    setLoadingMore(true);
-    setError(null);
-    try {
-      // El offset sale de lo que ya está en pantalla, con los mismos filtros.
-      const page = await api.books.list({ ...buildQuery(), limit: PAGE_SIZE, offset: books.length });
-      setBooks((current) => [...current, ...page.items]);
-      setTotal(page.total);
-    } catch (err) {
-      setError(describeError(err));
-    } finally {
-      setLoadingMore(false);
-    }
+  const handlePageChange = (next: number) => {
+    setParams({ page: next });
+    // Los controles están arriba y abajo: si se cambió desde los de abajo, hay que
+    // volver al principio de la lista o la página nueva arranca a mitad de scroll.
+    resultsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
 
-  // Buscar y limpiar solo tocan el estado: la consulta la dispara el efecto de arriba.
-  const handleSearch = (query: string) => setActiveQuery(query);
+  // Buscar y filtrar vuelven a la página 1: la 4 de un resultado no existe en el otro.
+  const handleSearch = (query: string) => {
+    setActiveQuery(query);
+    setParams({ page: 1 });
+  };
 
   const handleClearSearch = () => {
     setQueryInput("");
     setActiveQuery("");
+    setParams({ page: 1 });
+  };
+
+  const handleFiltersChange = (next: CatalogFilterState) => {
+    setFilters(next);
+    setParams({ page: 1 });
   };
 
   const handleSelect = (book: Book) => {
     setError(null);
-    setSearchParams({ isbn: book.isbn });
+    setParams({ isbn: book.isbn });
   };
 
   const handleStartReservation = (physicalBookId: number) => {
@@ -156,16 +178,16 @@ export function CatalogView() {
       return;
     }
 
-    setSearchParams({ isbn: selectedIsbn, reservar: String(physicalBookId) });
+    setParams({ isbn: selectedIsbn, reservar: physicalBookId });
   };
 
   const closeDetail = () => {
-    setSearchParams({});
+    setParams({});
     setError(null);
   };
 
   const closeReservationForm = () => {
-    if (selectedIsbn !== null) setSearchParams({ isbn: selectedIsbn });
+    if (selectedIsbn !== null) setParams({ isbn: selectedIsbn });
   };
 
   const handleReserve = async (expiresAt: string) => {
@@ -178,7 +200,7 @@ export function CatalogView() {
         expires_at: expiresAt,
       });
       toast.success("Reserva creada. Podés seguirla desde «Mis reservas».");
-      setSearchParams({ isbn: selectedIsbn });
+      setParams({ isbn: selectedIsbn });
       // El ejemplar pasó a `reserved`: la disponibilidad que se está mostrando quedó vieja.
       await loadAvailability(selectedIsbn);
     } catch (err) {
@@ -193,10 +215,16 @@ export function CatalogView() {
   };
 
   const filtering = activeQuery !== "" || countFilters(filters) > 0;
-  const canLoadMore = books.length < total;
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const listCaption = filtering
     ? `${total} ${total === 1 ? "resultado" : "resultados"}`
-    : `${books.length} de ${total}`;
+    : `${total} ${total === 1 ? "libro" : "libros"}`;
+
+  // Si un filtro dejó menos páginas que la que estabas mirando, la URL apunta a una
+  // página vacía: se la corrige sola en vez de mostrar la grilla en blanco.
+  useEffect(() => {
+    if (!loadingCatalog && page > totalPages) setParams({ page: totalPages });
+  }, [loadingCatalog, page, totalPages, setParams]);
 
   const selectedBook = books.find((book) => book.isbn === selectedIsbn) ?? null;
 
@@ -222,11 +250,11 @@ export function CatalogView() {
             Buscá entre {total} libros de toda la red por título, autor, ISBN o sinopsis.
           </p>
         )}
-        <CatalogFilters filters={filters} options={filterOptions} onChange={setFilters} />
+        <CatalogFilters filters={filters} options={filterOptions} onChange={handleFiltersChange} />
       </div>
       {/* Con el modal abierto el error se muestra adentro, no tapado detrás del fondo. */}
       <ErrorBanner error={selectedIsbn === null ? error : null} />
-      <div className="catalog-results">
+      <div className="catalog-results" ref={resultsRef}>
         <div className="catalog-results-header">
           <h2>{filtering ? "Resultados" : "Catálogo"}</h2>
           <span className="badge badge-neutral">{listCaption}</span>
@@ -235,7 +263,7 @@ export function CatalogView() {
             filters={filters}
             options={filterOptions}
             onRemoveQuery={handleClearSearch}
-            onChange={setFilters}
+            onChange={handleFiltersChange}
           />
         </div>
         {loadingCatalog ? (
@@ -252,19 +280,7 @@ export function CatalogView() {
                   : "Todavía no hay libros en el catálogo."
               }
             />
-            {canLoadMore && (
-              <div className="load-more-wrap">
-                <button
-                  className="btn btn-secondary"
-                  onClick={handleLoadMore}
-                  disabled={loadingMore}
-                >
-                  {loadingMore
-                    ? "Cargando..."
-                    : `Cargar más — ${total - books.length} restantes`}
-                </button>
-              </div>
-            )}
+            <Pagination page={page} totalPages={totalPages} onChange={handlePageChange} />
           </>
         )}
       </div>

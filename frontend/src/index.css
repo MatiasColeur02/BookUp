@@ -1765,10 +1765,64 @@ td:last-child:has(.row-actions) {
   gap: var(--space-2);
 }
 
-.load-more-wrap {
+/* Paginación: misma familia visual que el segmentado y los chips de filtro
+   —píldoras, activo en `accent-soft`—, arriba y abajo de la grilla. */
+.pagination {
   display: flex;
+  align-items: center;
   justify-content: center;
-  padding-top: var(--space-2);
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.pagination-pages {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.pagination-page {
+  min-width: 32px;
+  height: 32px;
+  padding: 0 var(--space-2);
+  border: 1px solid transparent;
+  border-radius: var(--radius-full);
+  background: none;
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  font-weight: 550;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  transition: background-color var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out);
+}
+
+.pagination-page:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+/* La página actual es estado seleccionado, así que sí lleva acento. */
+.pagination-page.active {
+  background: var(--accent-soft);
+  border-color: var(--accent-border);
+  color: var(--accent);
+}
+
+.pagination-gap {
+  padding: 0 var(--space-1);
+  color: var(--text-faint);
+  font-size: var(--text-sm);
+  user-select: none;
+}
+
+/* Las flechas son botones cuadrados: el carácter solo no llena el alto. */
+.pagination .btn-icon {
+  font-size: var(--text-lg);
+  line-height: 1;
 }
 
 .empty-state {

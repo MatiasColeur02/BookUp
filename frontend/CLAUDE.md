@@ -664,8 +664,11 @@ Es la pantalla que más gana con el rediseño y la que primero se ve.
   y en la grilla. El contraste texto/fondo está verificado sobre los 360 tonos en los dos
   temas: el peor caso da 5.88:1, por encima de AA.
 - **Carga**: skeletons en vez de "Cargando catálogo…" (6.10).
-- **"Cargar más"**: `.btn-secondary` centrado, con el remanente en el texto ("Cargar más — 59
-  restantes").
+- **Paginación numerada** (`Pagination`) al pie de la grilla, con vuelta al principio de
+  la lista al cambiar de página. Ventana con puntos
+  suspensivos (`‹ 1 … 8 9 10 … 24 ›`) para que el control no crezca de ancho, la página
+  actual en `accent-soft` como el resto de los estados seleccionados, y la página en la
+  URL (`?page=3`) junto al `isbn` de la ficha. Reemplazó al botón "Cargar más".
 
 ### 7.4 Ficha del libro (modal: `BookAvailabilityView`)
 
