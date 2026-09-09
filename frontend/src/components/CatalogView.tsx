@@ -9,6 +9,7 @@ import { BookResults } from "./BookResults";
 import { ReservationForm } from "./ReservationForm";
 import { SearchBar } from "./SearchBar";
 import { ErrorBanner } from "./ErrorBanner";
+import { Modal } from "./Modal";
 
 const PAGE_SIZE = 12;
 
@@ -143,6 +144,12 @@ export function CatalogView() {
     setSearchParams({ isbn: selectedIsbn, reservar: String(physicalBookId) });
   };
 
+  const closeDetail = () => {
+    setSearchParams({});
+    setError(null);
+    setConfirmationMessage(null);
+  };
+
   const closeReservationForm = () => {
     if (selectedIsbn !== null) setSearchParams({ isbn: selectedIsbn });
   };
@@ -177,6 +184,8 @@ export function CatalogView() {
     ? `${shownBooks.length} ${shownBooks.length === 1 ? "resultado" : "resultados"} para «${activeQuery}»`
     : `${catalog.length} de ${catalogTotal}`;
 
+  const selectedBook = shownBooks.find((book) => book.isbn === selectedIsbn) ?? null;
+
   const reservingOption =
     reservingId === null
       ? null
@@ -185,8 +194,9 @@ export function CatalogView() {
   return (
     <div className="catalog">
       <SearchBar onSearch={handleSearch} onClear={handleClearSearch} loading={loading} />
-      <ErrorBanner error={error} />
-      <div className={`catalog-layout${selectedIsbn === null ? "" : " has-detail"}`}>
+      {/* Con el modal abierto el error se muestra adentro, no tapado detrás del fondo. */}
+      <ErrorBanner error={selectedIsbn === null ? error : null} />
+      <div className="catalog-layout">
         <div className="catalog-results">
           <div className="catalog-results-header">
             <h2>{searching ? "Resultados" : "Catálogo"}</h2>
@@ -214,24 +224,33 @@ export function CatalogView() {
             </>
           )}
         </div>
-        {selectedIsbn !== null && (
-        <div className="catalog-detail">
-          {confirmationMessage && <p className="success">{confirmationMessage}</p>}
-          {loadingAvailability && <p className="muted">Consultando disponibilidad...</p>}
-          {availability && (
-            <BookAvailabilityView availability={availability} onReserve={handleStartReservation} />
-          )}
-          {reservingOption && (
-            <ReservationForm
-              option={reservingOption}
-              submitting={submitting}
-              onCancel={closeReservationForm}
-              onSubmit={handleReserve}
-            />
-          )}
-        </div>
-        )}
       </div>
+
+      {/* La ficha del libro es un modal: el título sale de la disponibilidad ya
+          cargada, y mientras viaja se usa el que veníamos mostrando en la grilla. */}
+      {selectedIsbn !== null && (
+        <Modal
+          title={availability?.book.title ?? selectedBook?.title ?? "Ficha del libro"}
+          onClose={closeDetail}
+        >
+          <div className="catalog-detail">
+            {confirmationMessage && <p className="success">{confirmationMessage}</p>}
+            <ErrorBanner error={error} />
+            {loadingAvailability && <p className="muted">Consultando disponibilidad...</p>}
+            {availability && (
+              <BookAvailabilityView availability={availability} onReserve={handleStartReservation} />
+            )}
+            {reservingOption && (
+              <ReservationForm
+                option={reservingOption}
+                submitting={submitting}
+                onCancel={closeReservationForm}
+                onSubmit={handleReserve}
+              />
+            )}
+          </div>
+        </Modal>
+      )}
     </div>
   );
 }

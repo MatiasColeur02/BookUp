@@ -75,6 +75,29 @@ cache, igual que no saben de HTTP.
   10 s. Sin `REDIS_URL` el cache queda apagado; así corre la suite de tests, que usa un
   `FakeRedis` propio en `tests/test_cache.py`.
 
+### Portadas (S3)
+
+`app/storage.py` maneja las portadas de libros sobre almacenamiento de objetos (S3 en
+AWS, MinIO en `docker-compose`). Vive en `controllers` por la misma razón que el cache:
+`services` y `persistence` no saben que existe.
+
+- **La imagen no pasa por la API**: `POST /books/{isbn}/cover-upload` devuelve una URL
+  firmada, el browser hace el `PUT` directo al bucket y `PUT /books/{isbn}/cover`
+  confirma la key. El service solo escribe la columna (`catalog_service.set_cover`) y
+  devuelve la key anterior para que el controller borre el objeto huérfano.
+- **En la base va la key, no la URL** (`Book.cover_key`): la URL pública la arma
+  `storage.public_url` al serializar. Por eso *todo* endpoint que devuelva libros tiene
+  que construir el esquema con `BookOut.from_book(book)`: validar la entidad ORM directo
+  deja `cover_url` en `None`.
+- `cover_url` es un campo normal y no un `computed_field` a propósito: el payload viaja
+  por el cache, y al revalidar el JSON cacheado no hay `cover_key` del que recalcularla.
+- **Dos endpoints**: SigV4 firma el `Host`, así que lo que se firma para el browser usa
+  `S3_PUBLIC_ENDPOINT_URL` y lo que hace el servidor (`head`/`delete`) usa
+  `S3_ENDPOINT_URL`. En AWS ambas quedan vacías.
+- **Fail-safe**: sin `S3_BUCKET` la feature queda apagada (503 en los endpoints de
+  portada, el resto de la API igual); los borrados son best-effort y no pueden voltear
+  una request. Así corre la suite, que stubea `presign_upload`/`exists`/`delete`.
+
 ### Modelo de datos
 
 `app/persistence/models.py` implementa el diseño normalizado descripto en `data_base.md` (diccionario de datos con las decisiones de normalización tomadas sobre el esquema conceptual original). Puntos que no son obvios leyendo un solo archivo:

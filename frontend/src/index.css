@@ -234,20 +234,13 @@ button {
 
 .catalog-layout {
   display: grid;
-  /* Sin ficha abierta, las portadas se llevan todo el ancho. */
+  /* La ficha del libro es un modal, así que las portadas se llevan todo el ancho. */
   grid-template-columns: minmax(0, 1fr);
   gap: 1.25rem;
   align-items: start;
 }
 
-.catalog-layout.has-detail {
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr);
-}
-
 @media (max-width: 760px) {
-  .catalog-layout.has-detail {
-    grid-template-columns: 1fr;
-  }
   .app-header {
     justify-content: center;
     text-align: center;
@@ -521,14 +514,24 @@ button {
   outline: none;
 }
 
-/* Adentro del diálogo el marco lo pone `.modal`: el form no lleva el suyo. */
-.modal .form-card {
+/* Adentro del diálogo el marco lo pone `.modal`: el contenido no lleva el suyo. */
+.modal .form-card,
+.modal .catalog-detail {
   border: none;
   border-radius: 14px;
   padding: 1.4rem 1.5rem;
 }
 
-.modal .form-card h3 {
+/* La ficha del libro ya está dentro de una tarjeta: no anida otra. */
+.modal .catalog-detail .availability {
+  border: none;
+  border-radius: 0;
+  padding: 0;
+  background: none;
+}
+
+.modal .form-card h3,
+.modal .catalog-detail .eyebrow {
   /* Deja lugar al botón de cerrar. */
   padding-right: 2rem;
 }
