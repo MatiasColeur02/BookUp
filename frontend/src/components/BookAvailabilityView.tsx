@@ -22,14 +22,29 @@ export function BookAvailabilityView({ availability, onReserve }: Props) {
           <p className="author">
             {book.authors.map((author) => author.name).join(", ") || "Autor desconocido"}
           </p>
-          {book.synopsis && <p className="synopsis">{book.synopsis}</p>}
-          <p className="isbn">ISBN {book.isbn}</p>
+          {book.genres.length > 0 && (
+            <ul className="book-genres">
+              {book.genres.map((genre) => (
+                <li key={genre.id}>
+                  <span className="badge">{genre.name}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+          {/* Metadatos terciarios: en una línea al pie, no como párrafos sueltos. */}
+          <p className="book-meta">
+            <span className="badge badge-neutral">ISBN {book.isbn}</span>
+            <span>{book.language.toUpperCase()}</span>
+            {book.pages !== null && <span>· {book.pages} páginas</span>}
+          </p>
         </div>
       </div>
 
+      {book.synopsis && <p className="synopsis">{book.synopsis}</p>}
+
       <h3>Disponibilidad por biblioteca</h3>
       {libraries.length === 0 ? (
-        <p className="empty">No hay ejemplares disponibles en ninguna sede en este momento.</p>
+        <p className="callout">No hay ejemplares disponibles en ninguna sede en este momento.</p>
       ) : (
         <ul className="library-list">
           {libraries.map(({ library, available_copies, physical_book_id }) => (
@@ -39,12 +54,14 @@ export function BookAvailabilityView({ availability, onReserve }: Props) {
                 <span>
                   <PinIcon className="inline-icon" />
                   {library.city}
-                  <span className="badge">
+                  <span className="badge badge-success">
                     {available_copies} disponible{available_copies === 1 ? "" : "s"}
                   </span>
                 </span>
               </div>
-              <button onClick={() => onReserve(physical_book_id)}>Reservar</button>
+              <button className="btn btn-primary btn-sm" onClick={() => onReserve(physical_book_id)}>
+                Reservar
+              </button>
             </li>
           ))}
         </ul>

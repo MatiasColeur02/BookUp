@@ -35,10 +35,10 @@ function SessionMenu() {
 
   return (
     <div className="session">
-      <Link to="/login" className="session-link">
+      <Link to="/login" className="btn btn-ghost">
         Ingresar
       </Link>
-      <Link to="/registro" className="session-link primary">
+      <Link to="/registro" className="btn btn-primary">
         Crear cuenta
       </Link>
     </div>
@@ -52,14 +52,17 @@ export default function App() {
   return (
     <div className="app">
       <header className="app-header">
-        <div className="brand">
-          <Logo className="brand-mark" />
-          <div>
-            <h1>BookUp</h1>
-            <p className="tagline">Catálogo y reservas de la red de bibliotecas</p>
-          </div>
+        <div className="app-header-top">
+          <Link to="/" className="brand">
+            <Logo className="brand-mark" />
+            <div>
+              <h1>BookUp</h1>
+              <p className="tagline">Catálogo y reservas de la red de bibliotecas</p>
+            </div>
+          </Link>
+          <SessionMenu />
         </div>
-        <nav className="tabs">
+        <nav className="segmented" aria-label="Secciones">
           <NavLink to="/" className={navClass} end>
             Catálogo
           </NavLink>
@@ -87,7 +90,6 @@ export default function App() {
             </NavLink>
           )}
         </nav>
-        <SessionMenu />
       </header>
       <ApiStatus />
       <main>

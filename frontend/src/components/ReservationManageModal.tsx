@@ -42,7 +42,7 @@ export function ReservationManageModal({
 
   return (
     <Modal title={`Gestionar la reserva de «${bookTitle}»`} onClose={onClose}>
-      <div className="form-card manage-reservation">
+      <div className="card stack manage-reservation">
         <h3>Gestionar reserva</h3>
 
         <dl className="detail-grid">
@@ -86,7 +86,7 @@ export function ReservationManageModal({
           </p>
         ) : reservation.picked_up ? (
           <div className="manage-actions">
-            <button className="confirm-button" onClick={onReturn} disabled={submitting}>
+            <button className="btn btn-success btn-sm" onClick={onReturn} disabled={submitting}>
               <CheckIcon />
               Registrar devolución
             </button>
@@ -100,15 +100,15 @@ export function ReservationManageModal({
           />
         ) : (
           <div className="manage-actions">
-            <button className="confirm-button" onClick={onPickup} disabled={submitting}>
+            <button className="btn btn-success btn-sm" onClick={onPickup} disabled={submitting}>
               <CheckIcon />
               Marcar retirada
             </button>
-            <button className="row-button" onClick={() => setExtending(true)} disabled={submitting}>
+            <button className="btn btn-secondary btn-sm" onClick={() => setExtending(true)} disabled={submitting}>
               Extender vencimiento
             </button>
             <button
-              className="row-button danger"
+              className="btn btn-danger btn-sm"
               onClick={onCancelReservation}
               disabled={submitting}
             >
@@ -145,7 +145,7 @@ function ExtendForm({ currentExpiresAt, submitting, onSubmit, onCancel }: Extend
 
   return (
     <form className="extend-form" onSubmit={handleSubmit}>
-      <label className="inline-select">
+      <label className="field field-inline">
         Nuevo vencimiento
         <input
           type="date"
@@ -155,13 +155,13 @@ function ExtendForm({ currentExpiresAt, submitting, onSubmit, onCancel }: Extend
           required
         />
       </label>
-      <button type="submit" className="confirm-button" disabled={submitting}>
+      <button type="submit" className="btn btn-success btn-sm" disabled={submitting}>
         {submitting ? "Guardando..." : "Guardar"}
       </button>
-      <button type="button" className="row-button" onClick={onCancel} disabled={submitting}>
+      <button type="button" className="btn btn-secondary btn-sm" onClick={onCancel} disabled={submitting}>
         Volver
       </button>
-      {error && <span className="error">{error}</span>}
+      {error && <span className="callout callout-danger">{error}</span>}
     </form>
   );
 }

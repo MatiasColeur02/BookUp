@@ -37,7 +37,7 @@ export function ApiStatus() {
   if (reachable) return null;
 
   return (
-    <p className="api-status" role="status">
+    <p className="callout callout-warning" role="status">
       No hay conexión con la API. Lo que veas puede estar incompleto o desactualizado.
     </p>
   );

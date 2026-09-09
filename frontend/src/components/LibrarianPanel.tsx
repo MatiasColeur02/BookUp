@@ -4,11 +4,12 @@ import { useSession } from "../context/SessionContext";
 import { useToast } from "../context/ToastContext";
 import { useCopyDetails } from "../hooks/useCopyDetails";
 import { describeError } from "../lib/errors";
-import { isOpen, isOpenParam, OPEN_FILTERS, type OpenFilter } from "../lib/reservations";
+import { isOpen, isOpenParam, isOverdue, OPEN_FILTERS, type OpenFilter } from "../lib/reservations";
 import type { Library, Reservation } from "../types";
 import { ReservationManageModal } from "./ReservationManageModal";
 import { ReservationStatusBadge } from "./ReservationStatusBadge";
 import { ErrorBanner } from "./ErrorBanner";
+import { TableSkeleton } from "./Skeleton";
 
 const ALL_LIBRARIES = "all";
 
@@ -129,11 +130,11 @@ export function LibrarianPanel() {
   const managed = reservations.find((reservation) => reservation.id === managingId) ?? null;
 
   return (
-    <div className="librarian-panel">
+    <div className="stack">
       <h2>Panel bibliotecario</h2>
 
-      <div className="panel-filters">
-        <div className="filters">
+      <div className="panel-toolbar">
+        <div className="segmented segmented-sm">
           {OPEN_FILTERS.map(({ value, label }) => (
             <button
               key={value}
@@ -147,7 +148,7 @@ export function LibrarianPanel() {
         </div>
 
         {isSysadmin && (
-          <label className="inline-select">
+          <label className="field field-inline">
             Sede
             <select value={libraryFilter} onChange={(event) => setLibraryFilter(event.target.value)}>
               <option value={ALL_LIBRARIES}>Todas</option>
@@ -165,7 +166,7 @@ export function LibrarianPanel() {
       <ErrorBanner error={error} />
 
       {loading ? (
-        <p className="muted">Cargando reservas...</p>
+        <TableSkeleton />
       ) : reservations.length === 0 ? (
         <p className="empty">No hay reservas para mostrar.</p>
       ) : (
@@ -189,12 +190,14 @@ export function LibrarianPanel() {
                 return (
                   <tr key={reservation.id}>
                     <td>
-                      {book?.title ?? <span className="badge">#{reservation.physical_book_id}</span>}
+                      {book?.title ?? <span className="badge badge-neutral">#{reservation.physical_book_id}</span>}
                     </td>
                     {showLibraryColumn && <td>{library?.name ?? "—"}</td>}
                     {showUserColumn && <td>{userNames[reservation.user_id] ?? "—"}</td>}
                     <td>{new Date(reservation.reserved_at).toLocaleDateString()}</td>
-                    <td>{new Date(reservation.expires_at).toLocaleDateString()}</td>
+                    <td className={isOverdue(reservation) ? "overdue" : undefined}>
+                      {new Date(reservation.expires_at).toLocaleDateString()}
+                    </td>
                     <td>
                       <ReservationStatusBadge reservation={reservation} />
                     </td>
@@ -203,7 +206,7 @@ export function LibrarianPanel() {
                       {isOpen(reservation) && (
                         <div className="row-actions">
                           <button
-                            className="row-button"
+                            className="btn btn-secondary btn-sm"
                             onClick={() => setManagingId(reservation.id)}
                           >
                             Gestionar

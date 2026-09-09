@@ -69,7 +69,7 @@ function ToastItem({ toast, onDismiss }: ItemProps) {
       <p className="toast-message">{toast.message}</p>
       <button
         type="button"
-        className="toast-close"
+        className="btn btn-ghost btn-icon toast-close"
         onClick={() => onDismiss(toast.id)}
         aria-label="Cerrar notificación"
       >

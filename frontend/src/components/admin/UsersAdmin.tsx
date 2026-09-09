@@ -6,6 +6,7 @@ import { roleLabel } from "../../lib/roles";
 import type { Library, User } from "../../types";
 import { ErrorBanner } from "../ErrorBanner";
 import { UserForm } from "./UserForm";
+import { TableSkeleton } from "../Skeleton";
 
 type FormState = { mode: "hidden" } | { mode: "create" } | { mode: "edit"; user: User };
 
@@ -60,11 +61,11 @@ export function UsersAdmin() {
     id === null ? "—" : libraries.find((library) => library.id === id)?.name ?? `#${id}`;
 
   return (
-    <section className="librarian-panel">
-      <div className="panel-filters">
+    <section className="stack">
+      <div className="page-header">
         <h2>Usuarios</h2>
         {form.mode === "hidden" && (
-          <button className="confirm-button" onClick={() => setForm({ mode: "create" })}>
+          <button className="btn btn-primary" onClick={() => setForm({ mode: "create" })}>
             Alta de personal
           </button>
         )}
@@ -87,7 +88,7 @@ export function UsersAdmin() {
       )}
 
       {loading ? (
-        <p className="muted">Cargando usuarios...</p>
+        <TableSkeleton />
       ) : (
         <div className="table-wrap">
           <table>
@@ -105,22 +106,22 @@ export function UsersAdmin() {
               {users.map((user) => (
                 <tr key={user.id}>
                   <td>
-                    <span className="badge">#{user.id}</span>
+                    <span className="badge badge-neutral">#{user.id}</span>
                   </td>
                   <td>{user.name}</td>
                   <td>{user.email}</td>
                   <td>
-                    <span className="role-chip">{roleLabel(user.role)}</span>
+                    <span className="badge badge-neutral">{roleLabel(user.role)}</span>
                   </td>
                   <td>{libraryName(user.library_id)}</td>
                   <td>
                     <div className="row-actions">
-                      <button className="row-button" onClick={() => setForm({ mode: "edit", user })}>
+                      <button className="btn btn-secondary btn-sm" onClick={() => setForm({ mode: "edit", user })}>
                         Editar
                       </button>
                       {/* Borrarse a uno mismo cierra la sesión: se hace desde el perfil. */}
                       {user.id !== me?.id && (
-                        <button className="row-button danger" onClick={() => handleRemove(user)}>
+                        <button className="btn btn-danger btn-sm" onClick={() => handleRemove(user)}>
                           Eliminar
                         </button>
                       )}

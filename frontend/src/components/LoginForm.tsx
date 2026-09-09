@@ -40,7 +40,7 @@ export function LoginForm() {
 
   return (
     <div className="auth-view">
-      <form className="form-card" onSubmit={handleSubmit}>
+      <form className="card form" onSubmit={handleSubmit}>
         <h2>Ingresar</h2>
         {/* La API responde 401 tanto si el email no existe como si la password es
             incorrecta, a propósito: no filtrar cuál de las dos fue. */}
@@ -66,7 +66,7 @@ export function LoginForm() {
           />
         </label>
         <div className="actions">
-          <button type="submit" disabled={submitting}>
+          <button type="submit" className="btn btn-primary btn-lg" disabled={submitting}>
             {submitting ? "Ingresando..." : "Ingresar"}
           </button>
         </div>

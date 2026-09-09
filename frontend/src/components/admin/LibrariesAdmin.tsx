@@ -56,7 +56,7 @@ export function LibrariesAdmin() {
     const mine = libraries.find((library) => library.id === myLibraryId);
 
     return (
-      <section className="librarian-panel">
+      <section className="stack">
         <h2>Mi sede</h2>
         <ErrorBanner error={error} />
         {loading ? (
@@ -71,11 +71,11 @@ export function LibrariesAdmin() {
   }
 
   return (
-    <section className="librarian-panel">
-      <div className="panel-filters">
+    <section className="stack">
+      <div className="page-header">
         <h2>Sedes</h2>
         {form.mode === "hidden" && (
-          <button className="confirm-button" onClick={() => setForm({ mode: "create" })}>
+          <button className="btn btn-primary" onClick={() => setForm({ mode: "create" })}>
             Nueva sede
           </button>
         )}
@@ -112,7 +112,7 @@ export function LibrariesAdmin() {
               {libraries.map((library) => (
                 <tr key={library.id}>
                   <td>
-                    <span className="badge">#{library.id}</span>
+                    <span className="badge badge-neutral">#{library.id}</span>
                   </td>
                   <td>{library.name}</td>
                   <td>
@@ -121,10 +121,10 @@ export function LibrariesAdmin() {
                   <td>{library.phone ?? library.email ?? "—"}</td>
                   <td>
                     <div className="row-actions">
-                      <button className="row-button" onClick={() => setForm({ mode: "edit", library })}>
+                      <button className="btn btn-secondary btn-sm" onClick={() => setForm({ mode: "edit", library })}>
                         Editar
                       </button>
-                      <button className="row-button danger" onClick={() => handleRemove(library)}>
+                      <button className="btn btn-danger btn-sm" onClick={() => handleRemove(library)}>
                         Eliminar
                       </button>
                     </div>

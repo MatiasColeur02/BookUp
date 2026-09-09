@@ -44,7 +44,7 @@ export function RegisterForm() {
 
   return (
     <div className="auth-view">
-      <form className="form-card" onSubmit={handleSubmit}>
+      <form className="card form" onSubmit={handleSubmit}>
         <h2>Crear cuenta</h2>
         <ErrorBanner error={error} overrides={{ 409: "Ese email ya está registrado." }} />
         <label>
@@ -74,7 +74,7 @@ export function RegisterForm() {
           <span className="field-hint">Al menos 8 caracteres.</span>
         </label>
         <div className="actions">
-          <button type="submit" disabled={submitting}>
+          <button type="submit" className="btn btn-primary btn-lg" disabled={submitting}>
             {submitting ? "Creando..." : "Crear cuenta"}
           </button>
         </div>

@@ -49,7 +49,7 @@ export function LibraryForm({ library, onSaved, onCancel }: Props) {
   };
 
   return (
-    <form className="form-card" onSubmit={handleSubmit}>
+    <form className="card form" onSubmit={handleSubmit}>
       <h3>{editing ? `Editar «${library.name}»` : "Nueva sede"}</h3>
 
       <ErrorBanner error={error} />
@@ -98,11 +98,11 @@ export function LibraryForm({ library, onSaved, onCancel }: Props) {
 
       <div className="actions">
         {onCancel && (
-          <button type="button" onClick={onCancel} disabled={submitting}>
+          <button type="button" className="btn btn-secondary" onClick={onCancel} disabled={submitting}>
             Cancelar
           </button>
         )}
-        <button type="submit" disabled={submitting}>
+        <button type="submit" className="btn btn-primary" disabled={submitting}>
           {submitting ? "Guardando..." : editing ? "Guardar cambios" : "Crear sede"}
         </button>
       </div>

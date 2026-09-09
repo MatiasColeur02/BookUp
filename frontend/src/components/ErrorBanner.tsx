@@ -21,7 +21,7 @@ export function ErrorBanner({ error, overrides }: Props) {
   const fields = error instanceof ApiError && error.status === 422 ? error.fields : [];
 
   return (
-    <div className="error" role="alert">
+    <div className="callout callout-danger" role="alert">
       {fields.length > 0 ? (
         <>
           <p>Revisá los datos enviados:</p>

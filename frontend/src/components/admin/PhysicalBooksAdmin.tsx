@@ -12,6 +12,7 @@ import type {
   PhysicalBook,
   PhysicalBookStatus,
 } from "../../types";
+import { TableSkeleton } from "../Skeleton";
 
 const ANY = "all";
 
@@ -23,10 +24,10 @@ const STATUS_LABELS: Record<PhysicalBookStatus, string> = {
 };
 
 const STATUS_CLASSES: Record<PhysicalBookStatus, string> = {
-  available: "status-confirmed",
-  reserved: "status-pending",
-  loaned: "status-fulfilled",
-  lost: "status-cancelled",
+  available: "badge-success",
+  reserved: "badge-warning",
+  loaned: "badge-neutral",
+  lost: "badge-danger",
 };
 
 export function PhysicalBooksAdmin() {
@@ -162,7 +163,7 @@ export function PhysicalBooksAdmin() {
   };
 
   return (
-    <section className="librarian-panel">
+    <section className="stack">
       <h2>Ejemplares</h2>
       <p className="hint">
         El ejemplar físico es lo que se reserva. Solo se puede pasar a mano a «disponible» o
@@ -172,8 +173,8 @@ export function PhysicalBooksAdmin() {
 
       <ErrorBanner error={error} />
 
-      <form className="extend-form" onSubmit={handleCreate}>
-        <label className="inline-select">
+      <form className="create-form" onSubmit={handleCreate}>
+        <label className="field field-inline">
           ISBN
           <input
             value={newIsbn}
@@ -184,7 +185,7 @@ export function PhysicalBooksAdmin() {
           />
         </label>
         {isSysadmin ? (
-          <label className="inline-select">
+          <label className="field field-inline">
             Sede
             <select
               value={newLibraryId}
@@ -204,13 +205,13 @@ export function PhysicalBooksAdmin() {
             Se da de alta en tu sede: {myLibraryId ? libraryFor(myLibraryId) : "sin sede asignada"}
           </span>
         )}
-        <button type="submit" className="confirm-button" disabled={creating}>
+        <button type="submit" className="btn btn-primary" disabled={creating}>
           {creating ? "Creando..." : "Alta de ejemplar"}
         </button>
       </form>
 
-      <div className="panel-filters">
-        <label className="inline-select">
+      <div className="panel-toolbar">
+        <label className="field field-inline">
           ISBN
           <input
             value={isbnFilter}
@@ -219,7 +220,7 @@ export function PhysicalBooksAdmin() {
           />
         </label>
         {isSysadmin && (
-          <label className="inline-select">
+          <label className="field field-inline">
             Sede
             <select value={libraryFilter} onChange={(event) => setLibraryFilter(event.target.value)}>
               <option value={ANY}>Todas</option>
@@ -231,7 +232,7 @@ export function PhysicalBooksAdmin() {
             </select>
           </label>
         )}
-        <label className="inline-select">
+        <label className="field field-inline">
           Estado
           <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
             <option value={ANY}>Todos</option>
@@ -245,7 +246,7 @@ export function PhysicalBooksAdmin() {
       </div>
 
       {loading ? (
-        <p className="muted">Cargando ejemplares...</p>
+        <TableSkeleton />
       ) : copies.length === 0 ? (
         <p className="empty">No hay ejemplares para estos filtros.</p>
       ) : (
@@ -264,12 +265,12 @@ export function PhysicalBooksAdmin() {
               {copies.map((copy) => (
                 <tr key={copy.id}>
                   <td>
-                    <span className="badge">#{copy.id}</span>
+                    <span className="badge badge-neutral">#{copy.id}</span>
                   </td>
                   <td>{titleFor(copy.isbn)}</td>
                   <td>{libraryFor(copy.library_id)}</td>
                   <td>
-                    <span className={`status-badge ${STATUS_CLASSES[copy.status]}`}>
+                    <span className={`badge ${STATUS_CLASSES[copy.status]}`}>
                       {STATUS_LABELS[copy.status]}
                     </span>
                   </td>
@@ -277,7 +278,7 @@ export function PhysicalBooksAdmin() {
                     <div className="row-actions">
                       {copy.status === "lost" ? (
                         <button
-                          className="row-button"
+                          className="btn btn-secondary btn-sm"
                           onClick={() => changeStatus(copy, "available")}
                           disabled={busyId === copy.id}
                         >
@@ -285,7 +286,7 @@ export function PhysicalBooksAdmin() {
                         </button>
                       ) : (
                         <button
-                          className="row-button"
+                          className="btn btn-secondary btn-sm"
                           onClick={() => changeStatus(copy, "lost")}
                           disabled={busyId === copy.id}
                         >
@@ -293,7 +294,7 @@ export function PhysicalBooksAdmin() {
                         </button>
                       )}
                       <button
-                        className="row-button danger"
+                        className="btn btn-danger btn-sm"
                         onClick={() => handleRemove(copy)}
                         disabled={busyId === copy.id}
                       >

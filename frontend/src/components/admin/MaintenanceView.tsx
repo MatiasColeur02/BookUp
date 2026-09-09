@@ -25,10 +25,10 @@ export function MaintenanceView() {
   };
 
   return (
-    <section className="librarian-panel">
+    <section className="stack">
       <h2>Mantenimiento</h2>
 
-      <div className="form-card">
+      <div className="card form">
         <h3>Vencer reservas no retiradas</h3>
         <p className="hint">
           Cierra las reservas abiertas cuyo vencimiento ya pasó y que nadie retiró, y devuelve esos
@@ -37,7 +37,7 @@ export function MaintenanceView() {
           cron (EventBridge en la arquitectura target).
         </p>
         <div className="actions">
-          <button type="button" onClick={handleExpire} disabled={running}>
+          <button type="button" className="btn btn-primary" onClick={handleExpire} disabled={running}>
             {running ? "Procesando..." : "Vencer reservas"}
           </button>
         </div>

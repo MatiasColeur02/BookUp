@@ -7,6 +7,7 @@ import type { Author, Book, Genre } from "../../types";
 import { BookForm } from "./BookForm";
 import { ErrorBanner } from "../ErrorBanner";
 import { Modal } from "../Modal";
+import { TableSkeleton } from "../Skeleton";
 
 type FormState = { mode: "hidden" } | { mode: "create" } | { mode: "edit"; book: Book };
 
@@ -62,10 +63,10 @@ export function BooksAdmin() {
   };
 
   return (
-    <section className="librarian-panel">
-      <div className="panel-filters">
+    <section className="stack">
+      <div className="page-header">
         <h2>Libros</h2>
-        <button className="confirm-button" onClick={() => setForm({ mode: "create" })}>
+        <button className="btn btn-primary" onClick={() => setForm({ mode: "create" })}>
           Nuevo libro
         </button>
       </div>
@@ -89,7 +90,7 @@ export function BooksAdmin() {
       )}
 
       {loading ? (
-        <p className="muted">Cargando catálogo...</p>
+        <TableSkeleton />
       ) : books.length === 0 ? (
         <p className="empty">
           El catálogo está vacío. Cargá <Link to="/gestion/autores">autores</Link> y{" "}
@@ -111,17 +112,17 @@ export function BooksAdmin() {
               {books.map((book) => (
                 <tr key={book.isbn}>
                   <td>
-                    <span className="badge">{book.isbn}</span>
+                    <span className="badge badge-neutral">{book.isbn}</span>
                   </td>
                   <td>{book.title}</td>
                   <td>{book.authors.map((author) => author.name).join(", ") || "—"}</td>
                   <td>{book.genres.map((genre) => genre.name).join(", ") || "—"}</td>
                   <td>
                     <div className="row-actions">
-                      <button className="row-button" onClick={() => setForm({ mode: "edit", book })}>
+                      <button className="btn btn-secondary btn-sm" onClick={() => setForm({ mode: "edit", book })}>
                         Editar
                       </button>
-                      <button className="row-button danger" onClick={() => handleRemove(book)}>
+                      <button className="btn btn-danger btn-sm" onClick={() => handleRemove(book)}>
                         Eliminar
                       </button>
                     </div>

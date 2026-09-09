@@ -32,11 +32,11 @@ export function SearchBar({ onSearch, onClear, loading }: Props) {
         placeholder="Buscar por título, autor, ISBN o sinopsis..."
       />
       {value !== "" && (
-        <button type="button" className="search-bar-clear" onClick={handleClear}>
+        <button type="button" className="btn btn-ghost btn-sm" onClick={handleClear}>
           Limpiar
         </button>
       )}
-      <button type="submit" disabled={loading}>
+      <button type="submit" className="btn btn-primary" disabled={loading}>
         {loading ? "Buscando..." : "Buscar"}
       </button>
     </form>

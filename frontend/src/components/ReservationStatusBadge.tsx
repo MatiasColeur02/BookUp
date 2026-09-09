@@ -9,11 +9,11 @@ interface StateInfo {
 }
 
 const STATES: Record<ReservationState, StateInfo> = {
-  reserved: { label: "Reservada", className: "status-pending" },
-  expired: { label: "Vencida", className: "status-cancelled" },
-  picked_up: { label: "Retirada", className: "status-confirmed" },
-  returned: { label: "Devuelta", className: "status-fulfilled" },
-  cancelled: { label: "Cancelada", className: "status-cancelled" },
+  reserved: { label: "Reservada", className: "badge-warning" },
+  expired: { label: "Vencida", className: "badge-danger" },
+  picked_up: { label: "Retirada", className: "badge-success" },
+  returned: { label: "Devuelta", className: "badge-neutral" },
+  cancelled: { label: "Cancelada", className: "badge-danger" },
 };
 
 /**
@@ -39,5 +39,5 @@ export function canBeCancelled(reservation: Reservation): boolean {
 
 export function ReservationStatusBadge({ reservation }: { reservation: Reservation }) {
   const { label, className } = STATES[reservationState(reservation)];
-  return <span className={`status-badge ${className}`}>{label}</span>;
+  return <span className={`badge ${className}`}>{label}</span>;
 }

@@ -43,13 +43,13 @@ export function ReservationForm({ option, submitting, onSubmit, onCancel }: Prop
   };
 
   return (
-    <form className="reservation-form" onSubmit={handleSubmit}>
+    <form className="card card-subtle form" onSubmit={handleSubmit}>
       <h3>Reservar en {option.library.name}</h3>
       <p className="field-hint">
-        Ejemplar <span className="badge">#{option.physical_book_id}</span> · {option.library.city}
+        Ejemplar <span className="badge badge-neutral">#{option.physical_book_id}</span> · {option.library.city}
       </p>
 
-      {error && <p className="error">{error}</p>}
+      {error && <p className="callout callout-danger">{error}</p>}
 
       <label>
         Retirar antes del
@@ -66,10 +66,10 @@ export function ReservationForm({ option, submitting, onSubmit, onCancel }: Prop
       </label>
 
       <div className="actions">
-        <button type="button" onClick={onCancel} disabled={submitting}>
+        <button type="button" className="btn btn-secondary" onClick={onCancel} disabled={submitting}>
           Cancelar
         </button>
-        <button type="submit" disabled={submitting}>
+        <button type="submit" className="btn btn-primary" disabled={submitting}>
           {submitting ? "Reservando..." : "Confirmar reserva"}
         </button>
       </div>

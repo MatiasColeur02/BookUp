@@ -131,7 +131,7 @@ export function BookForm({ book, authors, genres, onSaved, onCancel }: Props) {
   const shownCover = coverPreview ?? (removeCover ? null : book?.cover_url ?? null);
 
   return (
-    <form className="form-card" onSubmit={handleSubmit}>
+    <form className="card form" onSubmit={handleSubmit}>
       <h3>{editing ? `Editar «${book.title}»` : "Nuevo libro"}</h3>
 
       <ErrorBanner
@@ -207,7 +207,7 @@ export function BookForm({ book, authors, genres, onSaved, onCancel }: Props) {
             {shownCover && (
               <button
                 type="button"
-                className="row-button danger"
+                className="btn btn-danger btn-sm"
                 onClick={() => {
                   setCoverFile(null);
                   // Solo hay algo que borrar en el servidor si el libro ya tenía portada.
@@ -243,10 +243,10 @@ export function BookForm({ book, authors, genres, onSaved, onCancel }: Props) {
       />
 
       <div className="actions">
-        <button type="button" onClick={onCancel} disabled={submitting}>
+        <button type="button" className="btn btn-secondary" onClick={onCancel} disabled={submitting}>
           Cancelar
         </button>
-        <button type="submit" disabled={submitting}>
+        <button type="submit" className="btn btn-primary" disabled={submitting}>
           {submitting ? "Guardando..." : editing ? "Guardar cambios" : "Crear libro"}
         </button>
       </div>

@@ -51,7 +51,7 @@ export function Modal({ title, onClose, children }: Props) {
         tabIndex={-1}
         ref={dialogRef}
       >
-        <button type="button" className="modal-close" onClick={onClose} aria-label="Cerrar">
+        <button type="button" className="btn btn-ghost btn-icon modal-close" onClick={onClose} aria-label="Cerrar">
           ×
         </button>
         {children}

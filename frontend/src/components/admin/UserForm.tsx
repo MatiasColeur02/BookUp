@@ -70,7 +70,7 @@ export function UserForm({ user, libraries, onSaved, onCancel }: Props) {
   };
 
   return (
-    <form className="form-card" onSubmit={handleSubmit}>
+    <form className="card form" onSubmit={handleSubmit}>
       <h3>{editing ? `Editar «${user.name}»` : "Alta de personal"}</h3>
 
       <ErrorBanner
@@ -148,10 +148,10 @@ export function UserForm({ user, libraries, onSaved, onCancel }: Props) {
       </label>
 
       <div className="actions">
-        <button type="button" onClick={onCancel} disabled={submitting}>
+        <button type="button" className="btn btn-secondary" onClick={onCancel} disabled={submitting}>
           Cancelar
         </button>
-        <button type="submit" disabled={submitting}>
+        <button type="submit" className="btn btn-primary" disabled={submitting}>
           {submitting ? "Guardando..." : editing ? "Guardar cambios" : "Crear usuario"}
         </button>
       </div>

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { useToast } from "../../context/ToastContext";
 import { describeError } from "../../lib/errors";
 import { ErrorBanner } from "../ErrorBanner";
+import { TableSkeleton } from "../Skeleton";
 
 export interface NamedResource {
   id: number;
@@ -104,24 +105,24 @@ export function NameResourceAdmin({
   };
 
   return (
-    <section className="librarian-panel">
+    <section className="stack">
       <h2>{title}</h2>
       <p className="hint">{hint}</p>
 
       <ErrorBanner error={error} />
 
-      <form className="extend-form" onSubmit={handleCreate}>
-        <label className="inline-select">
+      <form className="create-form" onSubmit={handleCreate}>
+        <label className="field field-inline">
           Nombre
           <input value={newName} onChange={(event) => setNewName(event.target.value)} required />
         </label>
-        <button type="submit" className="confirm-button" disabled={submitting || !newName.trim()}>
+        <button type="submit" className="btn btn-primary" disabled={submitting || !newName.trim()}>
           {submitting ? "Creando..." : `Crear ${singular}`}
         </button>
       </form>
 
       {loading ? (
-        <p className="muted">Cargando...</p>
+        <TableSkeleton />
       ) : items.length === 0 ? (
         <p className="empty">Todavía no hay nada cargado.</p>
       ) : (
@@ -138,12 +139,12 @@ export function NameResourceAdmin({
               {items.map((item) => (
                 <tr key={item.id}>
                   <td>
-                    <span className="badge">#{item.id}</span>
+                    <span className="badge badge-neutral">#{item.id}</span>
                   </td>
                   <td>
                     {editingId === item.id ? (
                       <input
-                        className="inline-input"
+                        className="field-control field-control-sm"
                         value={editingName}
                         onChange={(event) => setEditingName(event.target.value)}
                         autoFocus
@@ -157,20 +158,20 @@ export function NameResourceAdmin({
                       {editingId === item.id ? (
                         <>
                           <button
-                            className="confirm-button"
+                            className="btn btn-success btn-sm"
                             onClick={() => handleRename(item.id)}
                             disabled={!editingName.trim()}
                           >
                             Guardar
                           </button>
-                          <button className="row-button" onClick={() => setEditingId(null)}>
+                          <button className="btn btn-secondary btn-sm" onClick={() => setEditingId(null)}>
                             Cancelar
                           </button>
                         </>
                       ) : (
                         <>
                           <button
-                            className="row-button"
+                            className="btn btn-secondary btn-sm"
                             onClick={() => {
                               setEditingId(item.id);
                               setEditingName(item.name);
@@ -178,7 +179,7 @@ export function NameResourceAdmin({
                           >
                             Renombrar
                           </button>
-                          <button className="row-button danger" onClick={() => handleRemove(item)}>
+                          <button className="btn btn-danger btn-sm" onClick={() => handleRemove(item)}>
                             Eliminar
                           </button>
                         </>

@@ -3,10 +3,11 @@ import { api } from "../api";
 import { useToast } from "../context/ToastContext";
 import { useCopyDetails } from "../hooks/useCopyDetails";
 import { describeError } from "../lib/errors";
-import { isOpenParam, OPEN_FILTERS, type OpenFilter } from "../lib/reservations";
+import { isOpenParam, isOverdue, OPEN_FILTERS, type OpenFilter } from "../lib/reservations";
 import type { Reservation } from "../types";
 import { canBeCancelled, ReservationStatusBadge } from "./ReservationStatusBadge";
 import { ErrorBanner } from "./ErrorBanner";
+import { TableSkeleton } from "./Skeleton";
 
 export function MyReservationsView() {
   const toast = useToast();
@@ -53,26 +54,28 @@ export function MyReservationsView() {
   };
 
   return (
-    <div className="librarian-panel">
+    <div className="stack">
       <h2>Mis reservas</h2>
 
-      <div className="filters">
-        {OPEN_FILTERS.map(({ value, label }) => (
-          <button
-            key={value}
-            type="button"
-            className={filter === value ? "active" : ""}
-            onClick={() => setFilter(value)}
-          >
-            {label}
-          </button>
-        ))}
+      <div className="panel-toolbar">
+        <div className="segmented segmented-sm">
+          {OPEN_FILTERS.map(({ value, label }) => (
+            <button
+              key={value}
+              type="button"
+              className={filter === value ? "active" : ""}
+              onClick={() => setFilter(value)}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
       </div>
 
       <ErrorBanner error={error} />
 
       {loading ? (
-        <p className="muted">Cargando reservas...</p>
+        <TableSkeleton />
       ) : reservations.length === 0 ? (
         <p className="empty">No hay reservas para mostrar.</p>
       ) : (
@@ -93,17 +96,19 @@ export function MyReservationsView() {
                 const { book, library } = lookupCopy(reservation.physical_book_id);
                 return (
                   <tr key={reservation.id}>
-                    <td>{book?.title ?? <span className="badge">#{reservation.physical_book_id}</span>}</td>
+                    <td>{book?.title ?? <span className="badge badge-neutral">#{reservation.physical_book_id}</span>}</td>
                     <td>{library?.name ?? "—"}</td>
                     <td>{new Date(reservation.reserved_at).toLocaleDateString()}</td>
-                    <td>{new Date(reservation.expires_at).toLocaleDateString()}</td>
+                    <td className={isOverdue(reservation) ? "overdue" : undefined}>
+                      {new Date(reservation.expires_at).toLocaleDateString()}
+                    </td>
                     <td>
                       <ReservationStatusBadge reservation={reservation} />
                     </td>
                     <td>
                       {canBeCancelled(reservation) && (
                         <button
-                          className="row-button danger"
+                          className="btn btn-danger btn-sm"
                           onClick={() => handleCancel(reservation)}
                           disabled={cancellingId === reservation.id}
                         >

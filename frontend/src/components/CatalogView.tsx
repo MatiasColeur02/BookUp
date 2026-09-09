@@ -6,7 +6,7 @@ import { useToast } from "../context/ToastContext";
 import { describeError } from "../lib/errors";
 import type { Book, BookAvailability } from "../types";
 import { BookAvailabilityView } from "./BookAvailabilityView";
-import { BookResults } from "./BookResults";
+import { BookResults, BookResultsSkeleton } from "./BookResults";
 import { ReservationForm } from "./ReservationForm";
 import { SearchBar } from "./SearchBar";
 import { ErrorBanner } from "./ErrorBanner";
@@ -35,7 +35,9 @@ export function CatalogView() {
   // `null` = no hay búsqueda activa, se muestra el catálogo.
   const [searchResults, setSearchResults] = useState<Book[] | null>(null);
   const [activeQuery, setActiveQuery] = useState("");
-  const [availability, setAvailability] = useState<BookAvailability | null>(null);
+  const [availability, setAvailability] = useState<BookAvailability | null>(
+    null,
+  );
   const [loading, setLoading] = useState(false);
   const [loadingAvailability, setLoadingAvailability] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -93,7 +95,10 @@ export function CatalogView() {
     setLoadingMore(true);
     setError(null);
     try {
-      const page = await api.books.list({ limit: PAGE_SIZE, offset: catalog.length });
+      const page = await api.books.list({
+        limit: PAGE_SIZE,
+        offset: catalog.length,
+      });
       setCatalog((current) => [...current, ...page.items]);
       setCatalogTotal(page.total);
     } catch (err) {
@@ -135,7 +140,9 @@ export function CatalogView() {
     if (!user) {
       // Sin sesión no se puede reservar: el dueño sale del token. Guardamos el ejemplar
       // elegido en la URL de vuelta para retomar la reserva después del login.
-      navigate("/login", { state: { from: { pathname: location.pathname, search } } });
+      navigate("/login", {
+        state: { from: { pathname: location.pathname, search } },
+      });
       return;
     }
 
@@ -156,7 +163,10 @@ export function CatalogView() {
     setSubmitting(true);
     setError(null);
     try {
-      await api.reservations.create({ physical_book_id: reservingId, expires_at: expiresAt });
+      await api.reservations.create({
+        physical_book_id: reservingId,
+        expires_at: expiresAt,
+      });
       toast.success("Reserva creada. Podés seguirla desde «Mis reservas».");
       setSearchParams({ isbn: selectedIsbn });
       // El ejemplar pasó a `reserved`: la disponibilidad que se está mostrando quedó vieja.
@@ -179,61 +189,89 @@ export function CatalogView() {
     ? `${shownBooks.length} ${shownBooks.length === 1 ? "resultado" : "resultados"} para «${activeQuery}»`
     : `${catalog.length} de ${catalogTotal}`;
 
-  const selectedBook = shownBooks.find((book) => book.isbn === selectedIsbn) ?? null;
+  const selectedBook =
+    shownBooks.find((book) => book.isbn === selectedIsbn) ?? null;
 
   const reservingOption =
     reservingId === null
       ? null
-      : availability?.libraries.find((option) => option.physical_book_id === reservingId) ?? null;
+      : (availability?.libraries.find(
+          (option) => option.physical_book_id === reservingId,
+        ) ?? null);
 
   return (
     <div className="catalog">
-      <SearchBar onSearch={handleSearch} onClear={handleClearSearch} loading={loading} />
+      <div className="catalog-search">
+        <SearchBar
+          onSearch={handleSearch}
+          onClear={handleClearSearch}
+          loading={loading}
+        />
+        {catalogTotal > 0 && (
+          <p className="search-hint">
+            Buscá entre {catalogTotal} libros de toda la red por título, autor,
+            ISBN o sinopsis.
+          </p>
+        )}
+      </div>
       {/* Con el modal abierto el error se muestra adentro, no tapado detrás del fondo. */}
       <ErrorBanner error={selectedIsbn === null ? error : null} />
-      <div className="catalog-layout">
-        <div className="catalog-results">
-          <div className="catalog-results-header">
-            <h2>{searching ? "Resultados" : "Catálogo"}</h2>
-            <span className="muted">{listCaption}</span>
-          </div>
-          {loadingCatalog && !searching ? (
-            <p className="muted">Cargando catálogo...</p>
-          ) : (
-            <>
-              <BookResults
-                books={shownBooks}
-                selectedIsbn={selectedIsbn ?? undefined}
-                onSelect={handleSelect}
-                emptyMessage={
-                  searching
-                    ? `No encontramos libros para «${activeQuery}». Probá con otro título, autor o ISBN.`
-                    : "Todavía no hay libros en el catálogo."
-                }
-              />
-              {canLoadMore && (
-                <button className="load-more" onClick={handleLoadMore} disabled={loadingMore}>
-                  {loadingMore ? "Cargando..." : "Cargar más"}
-                </button>
-              )}
-            </>
-          )}
+      <div className="catalog-results">
+        <div className="catalog-results-header">
+          <h2>{searching ? "Resultados" : "Catálogo"}</h2>
+          <span className="badge badge-neutral">{listCaption}</span>
         </div>
+        {loadingCatalog && !searching ? (
+          <BookResultsSkeleton />
+        ) : (
+          <>
+            <BookResults
+              books={shownBooks}
+              selectedIsbn={selectedIsbn ?? undefined}
+              onSelect={handleSelect}
+              emptyMessage={
+                searching
+                  ? `No encontramos libros para «${activeQuery}». Probá con otro título, autor o ISBN.`
+                  : "Todavía no hay libros en el catálogo."
+              }
+            />
+            {canLoadMore && (
+              <div className="load-more-wrap">
+                <button
+                  className="btn btn-secondary"
+                  onClick={handleLoadMore}
+                  disabled={loadingMore}
+                >
+                  {loadingMore
+                    ? "Cargando..."
+                    : `Cargar más — ${catalogTotal - catalog.length} restantes`}
+                </button>
+              </div>
+            )}
+          </>
+        )}
       </div>
 
       {/* La ficha del libro es un modal: el título sale de la disponibilidad ya
           cargada, y mientras viaja se usa el que veníamos mostrando en la grilla. */}
       {selectedIsbn !== null && (
         <Modal
-          title={availability?.book.title ?? selectedBook?.title ?? "Ficha del libro"}
+          title={
+            availability?.book.title ?? selectedBook?.title ?? "Ficha del libro"
+          }
           onClose={closeDetail}
         >
-          <div className="catalog-detail">
+          <div className="card catalog-detail">
             {/* Los errores de acción salen por toast; acá solo si la ficha no cargó. */}
             <ErrorBanner error={error} />
-            {loadingAvailability && <p className="muted">Consultando disponibilidad...</p>}
+            {loadingAvailability && (
+              <p className="muted">Consultando disponibilidad...</p>
+            )}
             {availability && (
-              <BookAvailabilityView availability={availability} onReserve={handleStartReservation} />
+              <BookAvailabilityView
+                availability={availability}
+                onReserve={handleStartReservation}
+              />
             )}
             {reservingOption && (
               <ReservationForm

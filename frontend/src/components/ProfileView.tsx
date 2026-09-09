@@ -2,7 +2,10 @@ import { useEffect, useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import { api } from "../api";
 import { useToast } from "../context/ToastContext";
+import { MonitorIcon, MoonIcon, SunIcon } from "./icons";
+import type { ThemePreference } from "../lib/theme";
 import { useSession } from "../context/SessionContext";
+import { useTheme } from "../context/ThemeContext";
 import { ErrorBanner } from "./ErrorBanner";
 import { roleLabel } from "../lib/roles";
 import type { Library, UserUpdate } from "../types";
@@ -12,8 +15,15 @@ const LANGUAGES = [
   { code: "en", label: "Inglés" },
 ];
 
+const THEME_OPTIONS: { value: ThemePreference; label: string; Icon: typeof SunIcon }[] = [
+  { value: "light", label: "Claro", Icon: SunIcon },
+  { value: "system", label: "Auto", Icon: MonitorIcon },
+  { value: "dark", label: "Oscuro", Icon: MoonIcon },
+];
+
 export function ProfileView() {
   const toast = useToast();
+  const { preference, setPreference } = useTheme();
   const { user, refresh, logout, isSysadmin } = useSession();
   const navigate = useNavigate();
   const [name, setName] = useState("");
@@ -118,7 +128,7 @@ export function ProfileView() {
 
   return (
     <div className="profile-view">
-      <form className="form-card" onSubmit={handleSubmit}>
+      <form className="card form" onSubmit={handleSubmit}>
         <h2>Mi perfil</h2>
         <p className="hint">
           {user.email} · {roleLabel(user.role)}
@@ -126,14 +136,14 @@ export function ProfileView() {
 
         {/* Alcance de lo que administra. Un customer no administra nada: no se muestra. */}
         {libraryId !== null ? (
-          <p className="scope-note">
+          <p className="callout callout-accent">
             {isSysadmin ? "Sysadmin asignado a" : "Bibliotecario a cargo de"}{" "}
             <strong>{library?.name ?? `la sede #${libraryId}`}</strong>
             {library && ` · ${library.city}, ${library.state}`}
           </p>
         ) : (
           isSysadmin && (
-            <p className="scope-note">
+            <p className="callout callout-accent">
               Administrás <strong>todas las sedes</strong> de la red.
             </p>
           )
@@ -173,10 +183,10 @@ export function ProfileView() {
               />
             </label>
             <div className="actions">
-              <button type="button" className="row-button" onClick={handleLogout}>
+              <button type="button" className="btn btn-ghost" onClick={handleLogout}>
                 Cerrar sesión
               </button>
-              <button type="submit" disabled={submitting}>
+              <button type="submit" className="btn btn-primary" disabled={submitting}>
                 {submitting ? "Guardando..." : "Guardar cambios"}
               </button>
             </div>
@@ -184,14 +194,36 @@ export function ProfileView() {
         )}
       </form>
 
-      <div className="form-card danger-zone">
+      <section className="card form">
+        <h3>Apariencia</h3>
+        <p className="hint">
+          «Auto» sigue el tema del sistema. La preferencia se guarda en este dispositivo.
+        </p>
+        <div className="theme-options" role="radiogroup" aria-label="Tema de la interfaz">
+          {THEME_OPTIONS.map(({ value, label, Icon }) => (
+            <button
+              key={value}
+              type="button"
+              role="radio"
+              aria-checked={preference === value}
+              className="btn btn-secondary"
+              onClick={() => setPreference(value)}
+            >
+              <Icon />
+              {label}
+            </button>
+          ))}
+        </div>
+      </section>
+
+      <div className="card form card-danger danger-zone">
         <h3>Eliminar mi cuenta</h3>
         <p className="hint">
           Se borra tu usuario de forma permanente. Tus reservas cerradas quedan en el historial de
           la sede.
         </p>
         <div className="actions">
-          <button type="button" className="danger-button" onClick={handleDelete}>
+          <button type="button" className="btn btn-danger" onClick={handleDelete}>
             Eliminar mi cuenta
           </button>
         </div>

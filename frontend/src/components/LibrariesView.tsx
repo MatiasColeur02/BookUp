@@ -30,7 +30,7 @@ export function LibrariesView() {
       ) : (
         <ul className="library-cards">
           {libraries.map((library) => (
-            <li key={library.id} className="form-card">
+            <li key={library.id} className="card">
               <h3>{library.name}</h3>
               <p className="library-address">
                 <PinIcon className="inline-icon" />
