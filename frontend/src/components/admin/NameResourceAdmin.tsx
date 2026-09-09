@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { useConfirm } from "../../context/ConfirmContext";
+import { useSession } from "../../context/SessionContext";
 import { useToast } from "../../context/ToastContext";
 import { describeError } from "../../lib/errors";
 import { ErrorBanner } from "../ErrorBanner";
@@ -43,6 +44,8 @@ export function NameResourceAdmin({
 }: Props) {
   const confirm = useConfirm();
   const toast = useToast();
+  // El id es la clave interna del recurso: solo le sirve a un sysadmin.
+  const { isSysadmin } = useSession();
   const [items, setItems] = useState<NamedResource[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -139,7 +142,7 @@ export function NameResourceAdmin({
           <table>
             <thead>
               <tr>
-                <th>Id</th>
+                {isSysadmin && <th>Id</th>}
                 <th>Nombre</th>
                 <th />
               </tr>
@@ -147,9 +150,11 @@ export function NameResourceAdmin({
             <tbody>
               {items.map((item) => (
                 <tr key={item.id}>
-                  <td>
-                    <span className="badge badge-neutral">#{item.id}</span>
-                  </td>
+                  {isSysadmin && (
+                    <td>
+                      <span className="badge badge-neutral">#{item.id}</span>
+                    </td>
+                  )}
                   <td>
                     {editingId === item.id ? (
                       <input

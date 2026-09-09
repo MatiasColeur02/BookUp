@@ -89,6 +89,15 @@ export function PhysicalBooksAdmin() {
   const titleFor = (isbn: string) => books.find((book) => book.isbn === isbn)?.title ?? isbn;
   const libraryFor = (id: number) => libraries.find((library) => library.id === id)?.name ?? `#${id}`;
 
+  // La ficha del diálogo nombra el ejemplar por su libro y su sede; el id, que es la
+  // clave interna, solo se lista para un sysadmin.
+  const copyDetails = (copy: PhysicalBook) => [
+    { label: "Libro", value: titleFor(copy.isbn) },
+    { label: "ISBN", value: copy.isbn },
+    { label: "Sede", value: libraryFor(copy.library_id) },
+    ...(isSysadmin ? [{ label: "Ejemplar", value: `#${copy.id}` }] : []),
+  ];
+
   const handleCreate = async (event: FormEvent) => {
     event.preventDefault();
     const libraryId = isSysadmin ? Number(newLibraryId) : myLibraryId;
@@ -106,7 +115,7 @@ export function PhysicalBooksAdmin() {
     setError(null);
     try {
       const created = await api.physicalBooks.create({ isbn: newIsbn, library_id: libraryId });
-      toast.success(`Ejemplar #${created.id} dado de alta.`);
+      toast.success(`Ejemplar de «${titleFor(created.isbn)}» dado de alta.`);
       setNewIsbn("");
       await load();
     } catch (err) {
@@ -129,10 +138,7 @@ export function PhysicalBooksAdmin() {
         message: open
           ? "Este ejemplar está reservado o prestado: marcarlo perdido cierra sola la reserva abierta."
           : "El ejemplar sale de circulación. Podés devolverlo a «disponible» más adelante.",
-        details: [
-          { label: "Ejemplar", value: `#${copy.id}` },
-          { label: "ISBN", value: copy.isbn },
-        ],
+        details: copyDetails(copy),
         confirmLabel: "Marcar perdido",
       });
       if (!confirmed) return;
@@ -144,8 +150,8 @@ export function PhysicalBooksAdmin() {
       await api.physicalBooks.updateStatus(copy.id, { status });
       toast.success(
         status === "lost"
-          ? `Ejemplar #${copy.id} marcado como extraviado.`
-          : `Ejemplar #${copy.id} volvió a estar disponible.`
+          ? `Un ejemplar de «${titleFor(copy.isbn)}» quedó marcado como extraviado.`
+          : `Un ejemplar de «${titleFor(copy.isbn)}» volvió a estar disponible.`
       );
       await load();
     } catch (err) {
@@ -163,10 +169,7 @@ export function PhysicalBooksAdmin() {
       title: "Dar de baja el ejemplar",
       message:
         "Se borra de la base. Si tuvo reservas, aunque estén cerradas, la API lo va a rechazar: en ese caso marcalo «perdido».",
-      details: [
-        { label: "Ejemplar", value: `#${copy.id}` },
-        { label: "ISBN", value: copy.isbn },
-      ],
+      details: copyDetails(copy),
       confirmLabel: "Dar de baja",
     });
     if (!confirmed) return;
@@ -174,7 +177,7 @@ export function PhysicalBooksAdmin() {
     setBusyId(copy.id);
     try {
       await api.physicalBooks.remove(copy.id);
-      toast.success(`Ejemplar #${copy.id} dado de baja.`);
+      toast.success(`Se dio de baja un ejemplar de «${titleFor(copy.isbn)}».`);
       await load();
     } catch (err) {
       toast.error(err, {
@@ -277,7 +280,7 @@ export function PhysicalBooksAdmin() {
           <table>
             <thead>
               <tr>
-                <th>Id</th>
+                {isSysadmin && <th>Id</th>}
                 <th>Libro</th>
                 <th>Sede</th>
                 <th>Estado</th>
@@ -287,9 +290,11 @@ export function PhysicalBooksAdmin() {
             <tbody>
               {copies.map((copy) => (
                 <tr key={copy.id}>
-                  <td>
-                    <span className="badge badge-neutral">#{copy.id}</span>
-                  </td>
+                  {isSysadmin && (
+                    <td>
+                      <span className="badge badge-neutral">#{copy.id}</span>
+                    </td>
+                  )}
                   <td>{titleFor(copy.isbn)}</td>
                   <td>{libraryFor(copy.library_id)}</td>
                   <td>
