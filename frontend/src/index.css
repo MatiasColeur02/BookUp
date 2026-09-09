@@ -2190,6 +2190,12 @@ td:last-child:has(.row-actions) {
   margin: 0;
 }
 
+/* Empuja el botón al pie: con tarjetas de alto distinto, todas lo alinean abajo. */
+.library-card-actions {
+  margin-top: auto;
+  padding-top: var(--space-2);
+}
+
 .library-address {
   display: flex;
   align-items: center;

@@ -5,6 +5,7 @@ import { useToast } from "../../context/ToastContext";
 import { useSession } from "../../context/SessionContext";
 import type { Library } from "../../types";
 import { ErrorBanner } from "../ErrorBanner";
+import { Modal } from "../Modal";
 import { LibraryForm } from "./LibraryForm";
 
 type FormState = { mode: "hidden" } | { mode: "create" } | { mode: "edit"; library: Library };
@@ -96,12 +97,17 @@ export function LibrariesAdmin() {
       <ErrorBanner error={error} />
 
       {form.mode !== "hidden" && (
-        <LibraryForm
-          key={form.mode === "edit" ? form.library.id : "nueva"}
-          library={form.mode === "edit" ? form.library : undefined}
-          onSaved={handleSaved}
-          onCancel={() => setForm({ mode: "hidden" })}
-        />
+        <Modal
+          title={form.mode === "edit" ? `Editar «${form.library.name}»` : "Nueva sede"}
+          onClose={() => setForm({ mode: "hidden" })}
+        >
+          <LibraryForm
+            key={form.mode === "edit" ? form.library.id : "nueva"}
+            library={form.mode === "edit" ? form.library : undefined}
+            onSaved={handleSaved}
+            onCancel={() => setForm({ mode: "hidden" })}
+          />
+        </Modal>
       )}
 
       {loading ? (

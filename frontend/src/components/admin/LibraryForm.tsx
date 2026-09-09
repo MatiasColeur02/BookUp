@@ -50,8 +50,6 @@ export function LibraryForm({ library, onSaved, onCancel }: Props) {
 
   return (
     <form className="card form" onSubmit={handleSubmit}>
-      <h3>{editing ? `Editar «${library.name}»` : "Nueva sede"}</h3>
-
       <ErrorBanner error={error} />
 
       <label>
