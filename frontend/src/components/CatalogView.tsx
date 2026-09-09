@@ -300,20 +300,25 @@ export function CatalogView() {
             {loadingAvailability && (
               <p className="muted">Consultando disponibilidad...</p>
             )}
-            {availability && (
-              <BookAvailabilityView
-                availability={availability}
-                onReserve={handleStartReservation}
-              />
-            )}
-            {reservingOption && (
+            {/* Reservar **reemplaza** la ficha, no se agrega abajo: con muchas sedes
+                disponibles el formulario quedaba fuera de la pantalla y no se veía el
+                botón de confirmar. La flecha vuelve a la lista de sedes. */}
+            {reservingOption ? (
               <ReservationForm
                 option={reservingOption}
                 bookTitle={availability?.book.title ?? selectedBook?.title ?? "este libro"}
                 submitting={submitting}
-                onCancel={closeReservationForm}
+                onBack={closeReservationForm}
+                onCancel={closeDetail}
                 onSubmit={handleReserve}
               />
+            ) : (
+              availability && (
+                <BookAvailabilityView
+                  availability={availability}
+                  onReserve={handleStartReservation}
+                />
+              )
             )}
           </div>
         </Modal>

@@ -25,6 +25,9 @@ interface Props {
   bookTitle: string;
   submitting?: boolean;
   onSubmit: (expiresAt: string) => void;
+  /** Vuelve a la lista de sedes, sin cerrar la ficha del libro. */
+  onBack: () => void;
+  /** Cierra la ficha entera: se abandona la reserva. */
   onCancel: () => void;
 }
 
@@ -34,8 +37,18 @@ interface Props {
  * Este formulario **es** el paso de confirmación: muestra el resumen de lo que se va a
  * reservar con la misma forma que `ConfirmDialog` y confirma en verde. No se le encima
  * otro diálogo porque serían dos pasos para una sola acción, con la misma información.
+ *
+ * Ocupa la ficha entera en lugar de agregarse debajo de la lista de sedes: cuando un
+ * libro está en muchas sedes, el botón de confirmar quedaba fuera de la pantalla.
  */
-export function ReservationForm({ option, bookTitle, submitting, onSubmit, onCancel }: Props) {
+export function ReservationForm({
+  option,
+  bookTitle,
+  submitting,
+  onSubmit,
+  onBack,
+  onCancel,
+}: Props) {
   const [date, setDate] = useState(() => toDateInput(addDays(RESERVATION_WINDOW_DAYS)));
   const [error, setError] = useState<string | null>(null);
 
@@ -52,7 +65,11 @@ export function ReservationForm({ option, bookTitle, submitting, onSubmit, onCan
   };
 
   return (
-    <form className="card card-subtle form confirm confirm-positive" onSubmit={handleSubmit}>
+    <form className="form confirm confirm-positive" onSubmit={handleSubmit}>
+      <button type="button" className="btn btn-ghost btn-sm back-link" onClick={onBack}>
+        ‹ Volver a las sedes
+      </button>
+
       <div className="confirm-head">
         <span className="confirm-icon" aria-hidden="true">
           <CheckIcon />
@@ -102,7 +119,7 @@ export function ReservationForm({ option, bookTitle, submitting, onSubmit, onCan
           onClick={onCancel}
           disabled={submitting}
         >
-          Volver
+          Cancelar
         </button>
         <button type="submit" className="btn btn-success" disabled={submitting}>
           <CheckIcon />

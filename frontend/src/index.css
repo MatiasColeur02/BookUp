@@ -937,6 +937,14 @@ td:last-child:has(.row-actions) {
   gap: var(--space-4);
 }
 
+/* Volver al paso anterior dentro del mismo modal. Alineado a la izquierda y con el
+   chevron pegado al texto, para que se lea como "atrás" y no como una acción más. */
+.back-link {
+  align-self: flex-start;
+  margin-left: calc(var(--space-3) * -1);
+  gap: var(--space-1);
+}
+
 .confirm-head {
   display: flex;
   align-items: center;
