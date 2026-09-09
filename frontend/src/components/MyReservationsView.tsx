@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../api";
+import { useToast } from "../context/ToastContext";
 import { useCopyDetails } from "../hooks/useCopyDetails";
 import { describeError } from "../lib/errors";
 import { isOpenParam, OPEN_FILTERS, type OpenFilter } from "../lib/reservations";
@@ -8,6 +9,7 @@ import { canBeCancelled, ReservationStatusBadge } from "./ReservationStatusBadge
 import { ErrorBanner } from "./ErrorBanner";
 
 export function MyReservationsView() {
+  const toast = useToast();
   const [filter, setFilter] = useState<OpenFilter>("open");
   const [reservations, setReservations] = useState<Reservation[]>([]);
   const [loading, setLoading] = useState(true);
@@ -39,13 +41,12 @@ export function MyReservationsView() {
     setCancellingId(reservation.id);
     try {
       await api.reservations.cancel(reservation.id);
+      toast.success("Reserva cancelada.");
       await load();
     } catch (err) {
-      setError(
-        describeError(err, {
-          409: "Esta reserva ya no se puede cancelar: o está cerrada, o ya retiraste el ejemplar (en ese caso hay que devolverlo en la sede).",
-        })
-      );
+      toast.error(err, {
+        409: "Esta reserva ya no se puede cancelar: o está cerrada, o ya retiraste el ejemplar (en ese caso hay que devolverlo en la sede).",
+      });
     } finally {
       setCancellingId(null);
     }

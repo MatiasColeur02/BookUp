@@ -2,7 +2,6 @@ import { useState, type FormEvent } from "react";
 import type { Reservation } from "../types";
 import { isOpen } from "../lib/reservations";
 import { CheckIcon } from "./icons";
-import { ErrorBanner } from "./ErrorBanner";
 import { Modal } from "./Modal";
 import { ReservationStatusBadge } from "./ReservationStatusBadge";
 
@@ -19,7 +18,6 @@ interface Props {
   /** Solo lo sabe un `sysadmin`: la API no expone los usuarios al personal de sede. */
   userName: string | null;
   submitting: boolean;
-  error: string | null;
   onPickup: () => void;
   onReturn: () => void;
   onCancelReservation: () => void;
@@ -33,7 +31,6 @@ export function ReservationManageModal({
   libraryName,
   userName,
   submitting,
-  error,
   onPickup,
   onReturn,
   onCancelReservation,
@@ -80,8 +77,6 @@ export function ReservationManageModal({
             </dd>
           </div>
         </dl>
-
-        <ErrorBanner error={error} />
 
         {/* Solo las acciones que la API va a aceptar en este estado: el resto daría 409.
             Retirar, extender y cancelar valen antes del retiro; después, solo devolver. */}

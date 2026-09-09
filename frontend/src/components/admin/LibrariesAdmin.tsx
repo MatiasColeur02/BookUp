@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../../api";
+import { useToast } from "../../context/ToastContext";
 import { useSession } from "../../context/SessionContext";
-import { describeError } from "../../lib/errors";
 import type { Library } from "../../types";
 import { ErrorBanner } from "../ErrorBanner";
 import { LibraryForm } from "./LibraryForm";
@@ -10,6 +10,7 @@ type FormState = { mode: "hidden" } | { mode: "create" } | { mode: "edit"; libra
 
 export function LibrariesAdmin() {
   const { isSysadmin, myLibraryId } = useSession();
+  const toast = useToast();
 
   const [libraries, setLibraries] = useState<Library[]>([]);
   const [loading, setLoading] = useState(true);
@@ -41,13 +42,12 @@ export function LibrariesAdmin() {
     setError(null);
     try {
       await api.libraries.remove(library.id);
+      toast.success(`La sede «${library.name}» se eliminó.`);
       await load();
     } catch (err) {
-      setError(
-        describeError(err, {
-          409: "No se puede eliminar: la sede todavía tiene ejemplares. Dalos de baja desde «Ejemplares» primero.",
-        })
-      );
+      toast.error(err, {
+        409: "No se puede eliminar: la sede todavía tiene ejemplares. Dalos de baja desde «Ejemplares» primero.",
+      });
     }
   };
 

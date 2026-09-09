@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../../api";
+import { useToast } from "../../context/ToastContext";
 import { describeError } from "../../lib/errors";
 import type { Author, Book, Genre } from "../../types";
 import { BookForm } from "./BookForm";
@@ -10,6 +11,7 @@ import { Modal } from "../Modal";
 type FormState = { mode: "hidden" } | { mode: "create" } | { mode: "edit"; book: Book };
 
 export function BooksAdmin() {
+  const toast = useToast();
   const [books, setBooks] = useState<Book[]>([]);
   const [authors, setAuthors] = useState<Author[]>([]);
   const [genres, setGenres] = useState<Genre[]>([]);
@@ -50,13 +52,12 @@ export function BooksAdmin() {
     setError(null);
     try {
       await api.books.remove(book.isbn);
+      toast.success(`«${book.title}» se eliminó del catálogo.`);
       await load();
     } catch (err) {
-      setError(
-        describeError(err, {
-          409: "No se puede eliminar: el libro todavía tiene ejemplares en alguna sede. Dalos de baja desde «Ejemplares» primero.",
-        })
-      );
+      toast.error(err, {
+        409: "No se puede eliminar: el libro todavía tiene ejemplares en alguna sede. Dalos de baja desde «Ejemplares» primero.",
+      });
     }
   };
 

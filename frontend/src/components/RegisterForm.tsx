@@ -2,6 +2,7 @@ import { useState, type FormEvent } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { api } from "../api";
 import { useSession } from "../context/SessionContext";
+import { useToast } from "../context/ToastContext";
 import { ErrorBanner } from "./ErrorBanner";
 
 interface LocationState {
@@ -9,6 +10,7 @@ interface LocationState {
 }
 
 export function RegisterForm() {
+  const toast = useToast();
   const { login } = useSession();
   const navigate = useNavigate();
   const location = useLocation();
@@ -29,6 +31,7 @@ export function RegisterForm() {
       // El alta no devuelve token: hay que loguearse igual, así que lo hacemos acá
       // para no pedirle la password dos veces.
       await login(email, password);
+      toast.success("Cuenta creada. Ya estás con la sesión iniciada.");
       // Si venía de "Reservar" sin sesión, vuelve al ejemplar que había elegido.
       const origin = (location.state as LocationState | null)?.from;
       navigate(origin ? `${origin.pathname}${origin.search ?? ""}` : "/", { replace: true });

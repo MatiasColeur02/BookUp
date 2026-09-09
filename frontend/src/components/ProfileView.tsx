@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import { api } from "../api";
+import { useToast } from "../context/ToastContext";
 import { useSession } from "../context/SessionContext";
 import { ErrorBanner } from "./ErrorBanner";
 import { roleLabel } from "../lib/roles";
@@ -12,6 +13,7 @@ const LANGUAGES = [
 ];
 
 export function ProfileView() {
+  const toast = useToast();
   const { user, refresh, logout, isSysadmin } = useSession();
   const navigate = useNavigate();
   const [name, setName] = useState("");
@@ -20,7 +22,6 @@ export function ProfileView() {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<unknown>(null);
-  const [saved, setSaved] = useState(false);
   // La sede a cargo: solo la tiene un librarian (y un sysadmin si se le asignó una).
   const [library, setLibrary] = useState<Library | null>(null);
 
@@ -74,7 +75,6 @@ export function ProfileView() {
     event.preventDefault();
     setSubmitting(true);
     setError(null);
-    setSaved(false);
     try {
       // Solo los campos que el usuario puede tocar sobre sí mismo: mandar `role` o
       // `library_id` siendo `customer` devuelve 403, así que ni se exponen acá.
@@ -84,7 +84,7 @@ export function ProfileView() {
       await api.users.update(user.id, payload);
       await refresh();
       setPassword("");
-      setSaved(true);
+      toast.success("Perfil actualizado.");
     } catch (err) {
       setError(err);
     } finally {
@@ -94,6 +94,7 @@ export function ProfileView() {
 
   const handleLogout = () => {
     logout();
+    toast.info("Cerraste sesión.");
     // Sin sesión, `/perfil` rebota a `/login` (RequireRole): mejor salir al catálogo.
     navigate("/", { replace: true });
   };
@@ -108,9 +109,10 @@ export function ProfileView() {
     try {
       await api.users.remove(user.id);
       logout();
+      toast.success("Tu cuenta fue eliminada.");
       navigate("/", { replace: true });
     } catch (err) {
-      setError(err);
+      toast.error(err);
     }
   };
 
@@ -137,8 +139,9 @@ export function ProfileView() {
           )
         )}
 
+        {/* Errores del formulario (incluido el 422 por campo): el resultado de las
+            acciones sale por toast. */}
         <ErrorBanner error={error} />
-        {saved && <p className="success">Perfil actualizado.</p>}
 
         {loading ? (
           <p className="muted">Cargando perfil...</p>

@@ -489,6 +489,140 @@ button {
   opacity: 0.5;
 }
 
+/* ---------- Toasts ----------
+   Todo el aspecto de las notificaciones vive acá y en `components/Toast.tsx`: las
+   pantallas solo llaman `useToast()`, así que rediseñarlos no las toca. */
+
+.toast-viewport {
+  position: fixed;
+  right: 1.25rem;
+  bottom: 1.25rem;
+  /* Por encima del modal (z-index 50): un error de una acción del modal se tiene que
+     ver aunque el diálogo siga abierto. */
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  width: min(380px, calc(100vw - 2.5rem));
+  /* El contenedor no puede comerse los clicks de la pantalla; cada toast sí los recibe. */
+  pointer-events: none;
+}
+
+.toast {
+  pointer-events: auto;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.65rem;
+  padding: 0.8rem 0.9rem;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--neutral);
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: var(--shadow-md);
+  animation: toast-in 0.18s ease-out;
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .toast {
+    animation: none;
+  }
+}
+
+.toast-message {
+  margin: 0;
+  flex: 1;
+  font-size: 0.9rem;
+  line-height: 1.35;
+}
+
+.toast-icon {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  margin-top: 0.05rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.toast-icon svg {
+  width: 13px;
+  height: 13px;
+}
+
+.toast-close {
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-size: 1.1rem;
+  line-height: 1;
+  padding: 0.1rem 0.2rem;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.toast-close:hover {
+  color: var(--text);
+}
+
+/* Una variante = un color de borde y de ícono. Agregar una es agregar este bloque. */
+.toast-success {
+  border-left-color: var(--success);
+}
+.toast-success .toast-icon {
+  background: var(--success-soft);
+  color: var(--success);
+}
+
+.toast-error {
+  border-left-color: var(--danger);
+}
+.toast-error .toast-icon {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.toast-warning {
+  border-left-color: var(--warning);
+}
+.toast-warning .toast-icon {
+  background: var(--warning-soft);
+  color: var(--warning);
+}
+
+.toast-info {
+  border-left-color: var(--neutral);
+}
+.toast-info .toast-icon {
+  background: var(--neutral-soft);
+  color: var(--neutral);
+}
+
+@media (max-width: 560px) {
+  .toast-viewport {
+    left: 0.75rem;
+    right: 0.75rem;
+    bottom: 0.75rem;
+    width: auto;
+  }
+}
+
 /* ---------- Modal ---------- */
 
 .modal-backdrop {

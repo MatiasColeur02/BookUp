@@ -1,5 +1,6 @@
 import { useEffect, useState, type ChangeEvent, type FormEvent } from "react";
 import { api } from "../../api";
+import { useToast } from "../../context/ToastContext";
 import { ErrorBanner } from "../ErrorBanner";
 import { isValidIsbn13 } from "../../lib/isbn";
 import type { Author, Book, Genre } from "../../types";
@@ -19,6 +20,7 @@ const COVER_TYPES = ["image/jpeg", "image/png", "image/webp"];
 const COVER_MAX_BYTES = 5 * 1024 * 1024;
 
 export function BookForm({ book, authors, genres, onSaved, onCancel }: Props) {
+  const toast = useToast();
   const editing = book !== undefined;
 
   const [isbn, setIsbn] = useState(book?.isbn ?? "");
@@ -106,15 +108,17 @@ export function BookForm({ book, authors, genres, onSaved, onCancel }: Props) {
           await api.books.removeCover(saved.isbn);
         }
       } catch (coverError) {
-        setError(
-          `El libro se guardó, pero la portada no se pudo subir: ${
+        // El libro ya está guardado: es un éxito parcial, no un fallo del formulario.
+        toast.warning(
+          `«${saved.title}» se guardó, pero la portada no se pudo subir: ${
             coverError instanceof Error ? coverError.message : "error desconocido"
-          }. Probá de nuevo editándolo.`
+          }`
         );
-        setSubmitting(false);
+        onSaved();
         return;
       }
 
+      toast.success(editing ? `«${saved.title}» actualizado.` : `«${saved.title}» creado.`);
       onSaved();
     } catch (err) {
       setError(err);

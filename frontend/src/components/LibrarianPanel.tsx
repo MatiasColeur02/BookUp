@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../api";
 import { useSession } from "../context/SessionContext";
+import { useToast } from "../context/ToastContext";
 import { useCopyDetails } from "../hooks/useCopyDetails";
 import { describeError } from "../lib/errors";
 import { isOpen, isOpenParam, OPEN_FILTERS, type OpenFilter } from "../lib/reservations";
@@ -13,6 +14,7 @@ const ALL_LIBRARIES = "all";
 
 export function LibrarianPanel() {
   const { isSysadmin, myLibraryId } = useSession();
+  const toast = useToast();
 
   const [filter, setFilter] = useState<OpenFilter>("open");
   // Un `librarian` solo puede ver su sede (pedir otra da 403), así que el selector es
@@ -67,22 +69,23 @@ export function LibrarianPanel() {
   }, [load]);
 
   /**
-   * Toda acción sobre una reserva: bloquea el diálogo, recarga y explica el 409.
-   * Si sale bien cierra el modal; si falla lo deja abierto con el error a la vista.
+   * Toda acción sobre una reserva: bloquea el diálogo, recarga y reporta por toast.
+   * Si sale bien cierra el modal; si falla lo deja abierto para reintentar.
    */
   const runAction = async (
     reservationId: number,
     action: () => Promise<unknown>,
+    successMessage: string,
     conflictMessage: string
   ) => {
-    setError(null);
     setBusyId(reservationId);
     try {
       await action();
       setManagingId(null);
+      toast.success(successMessage);
       await load();
     } catch (err) {
-      setError(describeError(err, { 409: conflictMessage }));
+      toast.error(err, { 409: conflictMessage });
     } finally {
       setBusyId(null);
     }
@@ -92,6 +95,7 @@ export function LibrarianPanel() {
     runAction(
       reservation.id,
       () => api.reservations.markPickedUp(reservation.id),
+      "Retiro registrado: el ejemplar quedó prestado.",
       "No se puede marcar el retiro: la reserva ya está cerrada o el ejemplar ya se había retirado."
     );
 
@@ -99,6 +103,7 @@ export function LibrarianPanel() {
     runAction(
       reservation.id,
       () => api.reservations.markReturned(reservation.id),
+      "Devolución registrada: el ejemplar volvió a estar disponible.",
       "No se puede registrar la devolución: la reserva ya está cerrada o el ejemplar nunca se retiró (en ese caso corresponde cancelarla)."
     );
 
@@ -106,6 +111,7 @@ export function LibrarianPanel() {
     runAction(
       reservation.id,
       () => api.reservations.cancel(reservation.id),
+      "Reserva cancelada: el ejemplar volvió a estar disponible.",
       "No se puede cancelar: la reserva ya está cerrada o el ejemplar ya fue retirado (en ese caso corresponde registrar la devolución)."
     );
 
@@ -113,6 +119,7 @@ export function LibrarianPanel() {
     runAction(
       reservation.id,
       () => api.reservations.update(reservation.id, { expires_at: new Date(`${date}T23:59:59`).toISOString() }),
+      "Vencimiento actualizado.",
       "No se puede extender: la reserva ya está cerrada o el ejemplar ya fue retirado."
     );
 
@@ -154,8 +161,8 @@ export function LibrarianPanel() {
         )}
       </div>
 
-      {/* Con el modal abierto el error se muestra ahí, al lado del botón que falló. */}
-      <ErrorBanner error={managed === null ? error : null} />
+      {/* Solo la carga del listado: los errores de cada acción salen por toast. */}
+      <ErrorBanner error={error} />
 
       {loading ? (
         <p className="muted">Cargando reservas...</p>
@@ -222,15 +229,11 @@ export function LibrarianPanel() {
           libraryName={lookupCopy(managed.physical_book_id).library?.name ?? null}
           userName={userNames[managed.user_id] ?? null}
           submitting={busyId === managed.id}
-          error={error}
           onPickup={() => markPickedUp(managed)}
           onReturn={() => markReturned(managed)}
           onCancelReservation={() => cancel(managed)}
           onExtend={(date) => extend(managed, date)}
-          onClose={() => {
-            setManagingId(null);
-            setError(null);
-          }}
+          onClose={() => setManagingId(null)}
         />
       )}
     </div>

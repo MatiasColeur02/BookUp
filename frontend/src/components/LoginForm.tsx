@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useSession } from "../context/SessionContext";
+import { useToast } from "../context/ToastContext";
 import { ErrorBanner } from "./ErrorBanner";
 
 interface LocationState {
@@ -8,6 +9,7 @@ interface LocationState {
 }
 
 export function LoginForm() {
+  const toast = useToast();
   const { login } = useSession();
   const navigate = useNavigate();
   const location = useLocation();
@@ -26,7 +28,8 @@ export function LoginForm() {
     setSubmitting(true);
     setError(null);
     try {
-      await login(email, password);
+      const user = await login(email, password);
+      toast.success(`Hola, ${user.name}.`);
       navigate(from, { replace: true });
     } catch (err) {
       setError(err);

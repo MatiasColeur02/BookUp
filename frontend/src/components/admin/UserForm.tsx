@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { api } from "../../api";
+import { useToast } from "../../context/ToastContext";
 import { roleLabel } from "../../lib/roles";
 import type { Library, User, UserRole, UserUpdate } from "../../types";
 import { ErrorBanner } from "../ErrorBanner";
@@ -15,6 +16,7 @@ interface Props {
 }
 
 export function UserForm({ user, libraries, onSaved, onCancel }: Props) {
+  const toast = useToast();
   const editing = user !== undefined;
 
   const [email, setEmail] = useState(user?.email ?? "");
@@ -46,9 +48,18 @@ export function UserForm({ user, libraries, onSaved, onCancel }: Props) {
       if (editing) {
         const payload: UserUpdate = { name, language, role, library_id };
         if (password) payload.password = password;
-        await api.users.update(user.id, payload);
+        const saved = await api.users.update(user.id, payload);
+        toast.success(`«${saved.name}» actualizado.`);
       } else {
-        await api.users.createStaff({ email, password, name, language, role, library_id });
+        const saved = await api.users.createStaff({
+          email,
+          password,
+          name,
+          language,
+          role,
+          library_id,
+        });
+        toast.success(`«${saved.name}» dado de alta.`);
       }
       onSaved();
     } catch (err) {

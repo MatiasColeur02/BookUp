@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { useToast } from "../../context/ToastContext";
 import { describeError } from "../../lib/errors";
 import { ErrorBanner } from "../ErrorBanner";
 
@@ -38,6 +39,7 @@ export function NameResourceAdmin({
   duplicateMessage,
   inUseMessage,
 }: Props) {
+  const toast = useToast();
   const [items, setItems] = useState<NamedResource[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -66,7 +68,8 @@ export function NameResourceAdmin({
     setSubmitting(true);
     setError(null);
     try {
-      await create(newName.trim());
+      const created = await create(newName.trim());
+      toast.success(`Se creó «${created.name}».`);
       setNewName("");
       await load();
     } catch (err) {
@@ -79,7 +82,8 @@ export function NameResourceAdmin({
   const handleRename = async (id: number) => {
     setError(null);
     try {
-      await update(id, editingName.trim());
+      const updated = await update(id, editingName.trim());
+      toast.success(`Ahora se llama «${updated.name}».`);
       setEditingId(null);
       await load();
     } catch (err) {
@@ -92,9 +96,10 @@ export function NameResourceAdmin({
     setError(null);
     try {
       await remove(item.id);
+      toast.success(`Se eliminó «${item.name}».`);
       await load();
     } catch (err) {
-      setError(describeError(err, { 409: inUseMessage }));
+      toast.error(err, { 409: inUseMessage });
     }
   };
 

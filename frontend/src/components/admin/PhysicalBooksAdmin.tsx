@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { api } from "../../api";
+import { useToast } from "../../context/ToastContext";
 import { useSession } from "../../context/SessionContext";
 import { describeError } from "../../lib/errors";
 import { isValidIsbn13 } from "../../lib/isbn";
@@ -29,6 +30,7 @@ const STATUS_CLASSES: Record<PhysicalBookStatus, string> = {
 };
 
 export function PhysicalBooksAdmin() {
+  const toast = useToast();
   const { isSysadmin, myLibraryId } = useSession();
 
   const [copies, setCopies] = useState<PhysicalBook[]>([]);
@@ -100,7 +102,8 @@ export function PhysicalBooksAdmin() {
     setCreating(true);
     setError(null);
     try {
-      await api.physicalBooks.create({ isbn: newIsbn, library_id: libraryId });
+      const created = await api.physicalBooks.create({ isbn: newIsbn, library_id: libraryId });
+      toast.success(`Ejemplar #${created.id} dado de alta.`);
       setNewIsbn("");
       await load();
     } catch (err) {
@@ -126,13 +129,16 @@ export function PhysicalBooksAdmin() {
     setBusyId(copy.id);
     try {
       await api.physicalBooks.updateStatus(copy.id, { status });
+      toast.success(
+        status === "lost"
+          ? `Ejemplar #${copy.id} marcado como extraviado.`
+          : `Ejemplar #${copy.id} volvió a estar disponible.`
+      );
       await load();
     } catch (err) {
-      setError(
-        describeError(err, {
-          409: "La API solo acepta pasar a «disponible» desde «perdido»: liberar un ejemplar reservado o prestado se hace cancelando o devolviendo la reserva.",
-        })
-      );
+      toast.error(err, {
+        409: "La API solo acepta pasar a «disponible» desde «perdido»: liberar un ejemplar reservado o prestado se hace cancelando o devolviendo la reserva.",
+      });
     } finally {
       setBusyId(null);
     }
@@ -144,13 +150,12 @@ export function PhysicalBooksAdmin() {
     setBusyId(copy.id);
     try {
       await api.physicalBooks.remove(copy.id);
+      toast.success(`Ejemplar #${copy.id} dado de baja.`);
       await load();
     } catch (err) {
-      setError(
-        describeError(err, {
-          409: "No se puede borrar: el ejemplar tiene reservas asociadas, incluso cerradas, y el historial las referencia. Para sacarlo de circulación marcalo «perdido».",
-        })
-      );
+      toast.error(err, {
+        409: "No se puede borrar: el ejemplar tiene reservas asociadas, incluso cerradas, y el historial las referencia. Para sacarlo de circulación marcalo «perdido».",
+      });
     } finally {
       setBusyId(null);
     }

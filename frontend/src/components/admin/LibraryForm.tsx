@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { api } from "../../api";
+import { useToast } from "../../context/ToastContext";
 import type { Library } from "../../types";
 import { ErrorBanner } from "../ErrorBanner";
 
@@ -11,6 +12,7 @@ interface Props {
 }
 
 export function LibraryForm({ library, onSaved, onCancel }: Props) {
+  const toast = useToast();
   const editing = library !== undefined;
 
   const [name, setName] = useState(library?.name ?? "");
@@ -34,11 +36,10 @@ export function LibraryForm({ library, onSaved, onCancel }: Props) {
       // campos enviados en null, así que mandar null nunca borraría un valor viejo.
       const fields = { name, address, state, city, hours, phone, email, website };
 
-      if (editing) {
-        await api.libraries.update(library.id, fields);
-      } else {
-        await api.libraries.create(fields);
-      }
+      const saved = editing
+        ? await api.libraries.update(library.id, fields)
+        : await api.libraries.create(fields);
+      toast.success(editing ? `Sede «${saved.name}» actualizada.` : `Sede «${saved.name}» creada.`);
       onSaved();
     } catch (err) {
       setError(err);

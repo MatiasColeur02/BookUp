@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { api } from "../api";
 import { useSession } from "../context/SessionContext";
+import { useToast } from "../context/ToastContext";
 import { describeError } from "../lib/errors";
 import type { Book, BookAvailability } from "../types";
 import { BookAvailabilityView } from "./BookAvailabilityView";
@@ -15,6 +16,7 @@ const PAGE_SIZE = 12;
 
 export function CatalogView() {
   const { user } = useSession();
+  const toast = useToast();
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -38,7 +40,6 @@ export function CatalogView() {
   const [loadingAvailability, setLoadingAvailability] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [confirmationMessage, setConfirmationMessage] = useState<string | null>(null);
 
   const loadAvailability = useCallback(async (isbn: string) => {
     setAvailability(await api.books.availability(isbn));
@@ -105,7 +106,6 @@ export function CatalogView() {
   const handleSearch = async (query: string) => {
     setLoading(true);
     setError(null);
-    setConfirmationMessage(null);
     try {
       setSearchResults(await api.books.search(query));
       setActiveQuery(query);
@@ -125,7 +125,6 @@ export function CatalogView() {
 
   const handleSelect = (book: Book) => {
     setError(null);
-    setConfirmationMessage(null);
     setSearchParams({ isbn: book.isbn });
   };
 
@@ -140,14 +139,12 @@ export function CatalogView() {
       return;
     }
 
-    setConfirmationMessage(null);
     setSearchParams({ isbn: selectedIsbn, reservar: String(physicalBookId) });
   };
 
   const closeDetail = () => {
     setSearchParams({});
     setError(null);
-    setConfirmationMessage(null);
   };
 
   const closeReservationForm = () => {
@@ -160,16 +157,14 @@ export function CatalogView() {
     setError(null);
     try {
       await api.reservations.create({ physical_book_id: reservingId, expires_at: expiresAt });
-      setConfirmationMessage("Reserva creada. Podés seguirla desde «Mis reservas».");
+      toast.success("Reserva creada. Podés seguirla desde «Mis reservas».");
       setSearchParams({ isbn: selectedIsbn });
       // El ejemplar pasó a `reserved`: la disponibilidad que se está mostrando quedó vieja.
       await loadAvailability(selectedIsbn);
     } catch (err) {
-      setError(
-        describeError(err, {
-          409: "Alguien reservó este ejemplar antes que vos. Probá con otra sede.",
-        })
-      );
+      toast.error(err, {
+        409: "Alguien reservó este ejemplar antes que vos. Probá con otra sede.",
+      });
       // Puede haber cambiado la disponibilidad entre la consulta y el alta.
       await loadAvailability(selectedIsbn).catch(() => undefined);
     } finally {
@@ -234,7 +229,7 @@ export function CatalogView() {
           onClose={closeDetail}
         >
           <div className="catalog-detail">
-            {confirmationMessage && <p className="success">{confirmationMessage}</p>}
+            {/* Los errores de acción salen por toast; acá solo si la ficha no cargó. */}
             <ErrorBanner error={error} />
             {loadingAvailability && <p className="muted">Consultando disponibilidad...</p>}
             {availability && (
