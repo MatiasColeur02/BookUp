@@ -4,7 +4,7 @@ import { api } from "../api";
 import { useSession } from "../context/SessionContext";
 import { ErrorBanner } from "./ErrorBanner";
 import { roleLabel } from "../lib/roles";
-import type { UserUpdate } from "../types";
+import type { Library, UserUpdate } from "../types";
 
 const LANGUAGES = [
   { code: "es", label: "Español" },
@@ -12,7 +12,7 @@ const LANGUAGES = [
 ];
 
 export function ProfileView() {
-  const { user, refresh, logout } = useSession();
+  const { user, refresh, logout, isSysadmin } = useSession();
   const navigate = useNavigate();
   const [name, setName] = useState("");
   const [language, setLanguage] = useState("es");
@@ -21,8 +21,30 @@ export function ProfileView() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<unknown>(null);
   const [saved, setSaved] = useState(false);
+  // La sede a cargo: solo la tiene un librarian (y un sysadmin si se le asignó una).
+  const [library, setLibrary] = useState<Library | null>(null);
 
   const userId = user?.id;
+  const libraryId = user?.library_id ?? null;
+
+  useEffect(() => {
+    if (libraryId === null) {
+      setLibrary(null);
+      return;
+    }
+    let cancelled = false;
+    api.libraries
+      .get(libraryId)
+      // Si la sede no se puede leer, se cae al texto sin nombre: es un dato de contexto,
+      // no vale romper el perfil por él.
+      .then((next) => {
+        if (!cancelled) setLibrary(next);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [libraryId]);
 
   useEffect(() => {
     if (userId === undefined) return;
@@ -70,6 +92,12 @@ export function ProfileView() {
     }
   };
 
+  const handleLogout = () => {
+    logout();
+    // Sin sesión, `/perfil` rebota a `/login` (RequireRole): mejor salir al catálogo.
+    navigate("/", { replace: true });
+  };
+
   const handleDelete = async () => {
     const confirmed = window.confirm(
       "¿Eliminar tu cuenta? Se cierra la sesión y no se puede deshacer."
@@ -93,6 +121,21 @@ export function ProfileView() {
         <p className="hint">
           {user.email} · {roleLabel(user.role)}
         </p>
+
+        {/* Alcance de lo que administra. Un customer no administra nada: no se muestra. */}
+        {libraryId !== null ? (
+          <p className="scope-note">
+            {isSysadmin ? "Sysadmin asignado a" : "Bibliotecario a cargo de"}{" "}
+            <strong>{library?.name ?? `la sede #${libraryId}`}</strong>
+            {library && ` · ${library.city}, ${library.state}`}
+          </p>
+        ) : (
+          isSysadmin && (
+            <p className="scope-note">
+              Administrás <strong>todas las sedes</strong> de la red.
+            </p>
+          )
+        )}
 
         <ErrorBanner error={error} />
         {saved && <p className="success">Perfil actualizado.</p>}
@@ -127,6 +170,9 @@ export function ProfileView() {
               />
             </label>
             <div className="actions">
+              <button type="button" className="row-button" onClick={handleLogout}>
+                Cerrar sesión
+              </button>
               <button type="submit" disabled={submitting}>
                 {submitting ? "Guardando..." : "Guardar cambios"}
               </button>

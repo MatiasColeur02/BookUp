@@ -18,39 +18,29 @@ import { ProfileView } from "./components/ProfileView";
 import { RegisterForm } from "./components/RegisterForm";
 import { RequireRole } from "./components/RequireRole";
 import { useSession } from "./context/SessionContext";
-import { roleLabel } from "./lib/roles";
 
 function navClass({ isActive }: { isActive: boolean }) {
   return isActive ? "active" : "";
 }
 
+/**
+ * Solo los accesos de entrada. Con sesión abierta el header no muestra nada: quién sos
+ * y el cierre de sesión viven en «Mi perfil», que ya está en la navegación.
+ */
 function SessionMenu() {
-  const { user, loading, logout } = useSession();
+  const { user, loading } = useSession();
 
   if (loading) return <span className="muted">Cargando sesión...</span>;
-
-  if (!user) {
-    return (
-      <div className="session">
-        <Link to="/login" className="session-link">
-          Ingresar
-        </Link>
-        <Link to="/registro" className="session-link primary">
-          Crear cuenta
-        </Link>
-      </div>
-    );
-  }
+  if (user) return null;
 
   return (
     <div className="session">
-      <Link to="/perfil" className="session-user">
-        <strong>{user.name}</strong>
-        <span className="role-chip">{roleLabel(user.role)}</span>
+      <Link to="/login" className="session-link">
+        Ingresar
       </Link>
-      <button type="button" className="session-link" onClick={logout}>
-        Cerrar sesión
-      </button>
+      <Link to="/registro" className="session-link primary">
+        Crear cuenta
+      </Link>
     </div>
   );
 }
