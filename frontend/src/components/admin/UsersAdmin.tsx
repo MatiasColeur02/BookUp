@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../../api";
+import { useToast } from "../../context/ToastContext";
 import { useSession } from "../../context/SessionContext";
 import { roleLabel } from "../../lib/roles";
 import type { Library, User } from "../../types";
@@ -10,6 +11,7 @@ type FormState = { mode: "hidden" } | { mode: "create" } | { mode: "edit"; user:
 
 export function UsersAdmin() {
   const { user: me, refresh } = useSession();
+  const toast = useToast();
 
   const [users, setUsers] = useState<User[]>([]);
   const [libraries, setLibraries] = useState<Library[]>([]);
@@ -47,9 +49,10 @@ export function UsersAdmin() {
     setError(null);
     try {
       await api.users.remove(user.id);
+      toast.success(`Se eliminó a «${user.name}».`);
       await load();
     } catch (err) {
-      setError(err);
+      toast.error(err);
     }
   };
 
