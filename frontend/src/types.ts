@@ -63,6 +63,18 @@ export interface Book {
   cover_url: string | null;
 }
 
+/** Filtros de `GET /books`. Todos opcionales y combinables entre sí. */
+export type BookQuery = {
+  /** Texto libre sobre título, autor, ISBN y sinopsis. */
+  q?: string;
+  author_id?: number[];
+  genre_id?: number[];
+  /** Ciudad con al menos un ejemplar **disponible** hoy. */
+  city?: string[];
+  limit?: number;
+  offset?: number;
+};
+
 /** Respuesta de `POST /books/{isbn}/cover-upload`: lo que hace falta para el PUT a S3. */
 export interface CoverUpload {
   upload_url: string;

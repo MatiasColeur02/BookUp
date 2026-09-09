@@ -150,7 +150,8 @@ Salvo el catálogo, las sedes (lectura) y el auto-registro, todo pide un JWT en
 | POST   | `/auth/login`                      | Obtener un token                                | público |
 | GET    | `/auth/me`                         | Usuario autenticado                             | autenticado |
 | GET    | `/health`                          | Health check                                    | público |
-| GET    | `/books?limit=&offset=`            | Catálogo paginado (`{items, total, limit, offset}`) | público |
+| GET    | `/books?q=&author_id=&genre_id=&city=&limit=&offset=` | Catálogo paginado, con búsqueda y filtros combinables | público |
+| GET    | `/books/cities`                    | Ciudades con stock disponible (opciones del filtro) | público |
 | POST   | `/books`                           | Alta de un libro (ISBN-13 validado)             | librarian o sysadmin |
 | GET    | `/books/search?q=`                 | Búsqueda unificada por título/autor/ISBN/sinopsis | público |
 | GET    | `/books/{isbn}`                    | Detalle de un libro                             | público |
@@ -199,7 +200,8 @@ enterarse de que existe — igual que no se enteran de HTTP.
 | Endpoint | TTL | Por qué |
 |---|---|---|
 | `GET /books/search?q=` | 120 s | La query más cara: un `ILIKE '%...%'` sobre cuatro columnas que no usa índice |
-| `GET /books`, `GET /books/{isbn}` | 300 s | El catálogo es de lectura casi pura |
+| `GET /books` (sin `city`), `GET /books/{isbn}` | 300 s | El catálogo es de lectura casi pura |
+| `GET /books?city=`, `GET /books/cities` | 30 s | Dependen del stock disponible: cambian con cada reserva, así que van al namespace de disponibilidad |
 | `GET /books/{isbn}/availability` | 30 s | La pantalla más visitada, pero también la que más rápido queda vieja |
 | `GET /libraries`, `/authors`, `/genres` (+ detalle) | 600 s | Datos de referencia que casi nunca cambian |
 

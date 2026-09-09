@@ -4,12 +4,25 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
+from app.config import settings
 from app.main import app
 from app.persistence.database import Base, get_db
 from app.persistence.models import User, UserRole
 from app.services.auth_service import hash_password
 
 PASSWORD = "secret123"
+
+
+@pytest.fixture(autouse=True)
+def disabled_cache(monkeypatch):
+    """La suite corre siempre sin cache, tenga o no `REDIS_URL` el entorno.
+
+    Cada test levanta una SQLite nueva, pero Redis es del entorno y sobrevive entre
+    tests: sin esto, correr la suite dentro del contenedor de `docker compose` (que sí
+    trae `REDIS_URL`) hace que un test lea el payload cacheado por otro y falle por algo
+    que no tiene nada que ver.
+    """
+    monkeypatch.setattr(settings, "redis_url", "")
 
 
 @pytest.fixture()

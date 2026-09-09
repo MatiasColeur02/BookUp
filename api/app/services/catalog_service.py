@@ -26,10 +26,34 @@ def _resolve_genres(db: Session, genre_ids: list[int]) -> list[Genre]:
     return genres
 
 
-def list_books(db: Session, *, limit: int = 100, offset: int = 0) -> tuple[list[Book], int]:
-    """Una página del catálogo más el total, para que el cliente sepa si quedan más."""
-    repo = BookRepository(db)
-    return repo.list_all(limit=limit, offset=offset), repo.count_all()
+def list_books(
+    db: Session,
+    *,
+    query: str | None = None,
+    author_ids: list[int] | None = None,
+    genre_ids: list[int] | None = None,
+    cities: list[str] | None = None,
+    limit: int = 100,
+    offset: int = 0,
+) -> tuple[list[Book], int]:
+    """Una página del catálogo más el total, para que el cliente sepa si quedan más.
+
+    Buscar y filtrar son la misma operación: el texto libre es un filtro más, así que
+    se combinan entre sí y paginan juntos.
+    """
+    return BookRepository(db).list_filtered(
+        query=query,
+        author_ids=author_ids,
+        genre_ids=genre_ids,
+        cities=cities,
+        limit=limit,
+        offset=offset,
+    )
+
+
+def available_cities(db: Session) -> list[str]:
+    """Ciudades con stock disponible, para poblar el filtro del catálogo."""
+    return BookRepository(db).available_cities()
 
 
 def search_books(db: Session, query: str) -> list[Book]:

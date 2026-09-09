@@ -69,6 +69,10 @@ cache, igual que no saben de HTTP.
   `BookOut` y `LibraryOut`. Cada controller tiene su tupla `_WRITE_NAMESPACES` con el
   motivo comentado. Al agregar un endpoint cacheado, revisar quién más embebe ese
   esquema.
+- **El namespace depende de los datos, no del endpoint**: `GET /books` cae en
+  `NS_CATALOG` normalmente, pero con filtro `city` pasa a `NS_AVAILABILITY` (y a su TTL
+  corto), porque "en esta ciudad" significa "con ejemplar disponible hoy" y eso cambia
+  con cada reserva. Mismo criterio para `GET /books/cities`.
 - **Nunca se cachea nada que dependa del usuario del token** (`/reservations`, `/users`,
   `/auth/me`): la clave es compartida entre usuarios y filtraría datos.
 - **Fail-open**: todo error de Redis se traga y se sirve desde la base, con un breaker de
@@ -113,4 +117,7 @@ AWS, MinIO en `docker-compose`). Vive en `controllers` por la misma razón que e
 ### Estado conocido / desalineado
 
 - La autenticación es un JWT propio (HS256, `pyjwt`) emitido por `POST /auth/login`, no Cognito todavía: en la arquitectura target lo reemplaza Cognito (ver README raíz, sección "De este MVP a la arquitectura en AWS"). El secreto sale de `JWT_SECRET` y tiene un default solo apto para desarrollo.
+- Los filtros de catálogo (`BookRepository.list_filtered`) se arman con EXISTS y no con
+  JOIN: un libro con tres autores haría tres filas y habría que deduplicar la página y el
+  `COUNT`. Dentro de un filtro los valores son OR; entre filtros, AND.
 - La búsqueda de catálogo (`BookRepository.search`) usa `ILIKE` como placeholder; en la arquitectura target la reemplaza OpenSearch.

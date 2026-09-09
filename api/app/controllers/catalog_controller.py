@@ -22,22 +22,58 @@ _WRITE_NAMESPACES = (cache.NS_CATALOG, cache.NS_AVAILABILITY)
 @router.get("", response_model=schemas.BookPage)
 def list_books(
     db: Session = Depends(get_db),
+    q: str | None = Query(None, min_length=1, description="Texto libre: título, autor, ISBN o sinopsis"),
+    author_id: list[int] = Query(default=[]),
+    genre_id: list[int] = Query(default=[]),
+    city: list[str] = Query(default=[]),
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
 ):
+    """Catálogo paginado, con búsqueda y filtros combinables.
+
+    Repetir un parámetro suma valores (`genre_id=1&genre_id=2` = "novela **o** cuento");
+    parámetros distintos se acumulan ("novela, **y** en Rosario").
+    """
     def load() -> schemas.BookPage:
-        books, total = catalog_service.list_books(db, limit=limit, offset=offset)
+        books, total = catalog_service.list_books(
+            db,
+            query=q,
+            author_ids=author_id,
+            genre_ids=genre_id,
+            cities=city,
+            limit=limit,
+            offset=offset,
+        )
         items = [schemas.BookOut.from_book(book) for book in books]
         return schemas.BookPage(items=items, total=total, limit=limit, offset=offset)
 
-    # La página va en la clave: cada (limit, offset) es una entrada distinta, y todas
-    # caen juntas con el `INCR` del namespace cuando se toca el catálogo.
+    # Filtrar por ciudad es "reservable hoy ahí", así que el resultado cambia con cada
+    # reserva: esa consulta va al namespace de disponibilidad (TTL corto, y ya lo
+    # invalidan reservas y ejemplares). Sin ciudad, el resultado solo depende del
+    # catálogo y va al namespace de catálogo, con su TTL largo.
+    namespace = cache.NS_AVAILABILITY if city else cache.NS_CATALOG
+    ttl = cache.TTL_AVAILABILITY if city else cache.TTL_CATALOG
+    key = cache.digest(
+        f"{q or ''}|{sorted(author_id)}|{sorted(genre_id)}|{sorted(city)}|{limit}|{offset}"
+    )
     return cache.cached(
-        cache.NS_CATALOG,
-        f"books:list:{limit}:{offset}",
-        ttl=cache.TTL_CATALOG,
+        namespace,
+        f"books:list:{key}",
+        ttl=ttl,
         model=schemas.BookPage,
         loader=load,
+    )
+
+
+@router.get("/cities", response_model=list[str])
+def list_cities(db: Session = Depends(get_db)):
+    """Ciudades con stock disponible: las opciones del filtro del catálogo."""
+    return cache.cached(
+        cache.NS_AVAILABILITY,
+        "books:cities",
+        ttl=cache.TTL_AVAILABILITY,
+        model=list[str],
+        loader=lambda: catalog_service.available_cities(db),
     )
 
 

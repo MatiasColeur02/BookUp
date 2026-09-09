@@ -7,6 +7,7 @@ import type {
   BookAvailability,
   BookCreate,
   BookPage,
+  BookQuery,
   CoverUpload,
   BookUpdate,
   ExpiredReservations,
@@ -74,12 +75,25 @@ interface RequestOptions {
   auth?: boolean;
 }
 
-type QueryParams = Record<string, string | number | boolean | undefined>;
+type QueryValue = string | number | boolean | undefined;
+/** Un objeto plano de valores serializables; las interfaces con campos opcionales
+ *  (como `BookQuery`) encajan sin necesidad de declarar una index signature. */
+type QueryParams = { [key: string]: QueryValue | QueryValue[] | undefined };
 
+/**
+ * Un array se serializa repitiendo la clave (`genre_id=1&genre_id=2`), que es la forma
+ * en que FastAPI arma una `list[int]` de query params.
+ */
 function buildQuery(params: QueryParams): string {
   const search = new URLSearchParams();
   for (const [key, value] of Object.entries(params)) {
-    if (value !== undefined) search.set(key, String(value));
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        if (item !== undefined) search.append(key, String(item));
+      }
+    } else if (value !== undefined) {
+      search.set(key, String(value));
+    }
   }
   const query = search.toString();
   return query ? `?${query}` : "";
@@ -172,9 +186,15 @@ export const api = {
   },
 
   books: {
-    /** Página del catálogo ordenada por título. Ver `listAll` para el catálogo entero. */
-    list: (params: { limit?: number; offset?: number } = {}) =>
-      request<BookPage>(`/books${buildQuery(params)}`, { auth: false }),
+    /**
+     * Página del catálogo ordenada por título. Buscar y filtrar son lo mismo acá: `q`
+     * es un filtro más y todos se combinan. Repetir un filtro suma valores (OR);
+     * filtros distintos se acumulan (AND). Ver `listAll` para el catálogo entero.
+     */
+    list: (params: BookQuery = {}) => request<BookPage>(`/books${buildQuery(params)}`, { auth: false }),
+
+    /** Ciudades con stock disponible: las opciones del filtro por ciudad. */
+    cities: () => request<string[]>("/books/cities", { auth: false }),
 
     /** El catálogo completo para los selectores de gestión (tope del backend: 100). */
     listAll: async () => (await api.books.list({ limit: 100 })).items,

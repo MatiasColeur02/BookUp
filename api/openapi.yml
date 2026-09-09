@@ -106,12 +106,48 @@ paths:
   /books:
     get:
       tags: [catalog]
-      summary: Listar el catálogo paginado
+      summary: Listar el catálogo paginado, con búsqueda y filtros
       description: >
-        Devuelve una página del catálogo ordenada por título, junto con el
-        `total` de libros para saber si quedan más.
+        Devuelve una página del catálogo ordenada por título, junto con el `total`
+        que matchea (no el de la página). Buscar y filtrar son la misma operación:
+        `q` es un filtro más y todos se combinan.
+
+
+        Repetir un parámetro suma valores (`genre_id=1&genre_id=2` = "novela **o**
+        cuento"); parámetros distintos se acumulan ("novela **y** en Rosario").
+
+
+        `city` significa **reservable hoy ahí**: el libro tiene al menos un ejemplar
+        en estado `available` en una sede de esa ciudad. Por eso su resultado cambia
+        con cada reserva.
       operationId: listBooks
       parameters:
+        - name: q
+          in: query
+          required: false
+          description: Texto libre sobre título, ISBN, sinopsis y nombre de autor.
+          schema: { type: string, minLength: 1 }
+        - name: author_id
+          in: query
+          required: false
+          description: Repetible; suma autores (OR).
+          schema:
+            type: array
+            items: { type: integer }
+        - name: genre_id
+          in: query
+          required: false
+          description: Repetible; suma géneros (OR).
+          schema:
+            type: array
+            items: { type: integer }
+        - name: city
+          in: query
+          required: false
+          description: Repetible; suma ciudades (OR). Solo cuenta el stock disponible.
+          schema:
+            type: array
+            items: { type: string }
         - name: limit
           in: query
           required: false
@@ -163,6 +199,24 @@ paths:
           $ref: "#/components/responses/Conflict"
         "422":
           $ref: "#/components/responses/ValidationError"
+
+  /books/cities:
+    get:
+      tags: [catalog]
+      summary: Ciudades con stock disponible
+      description: >
+        Las opciones del filtro `city` de `GET /books`: solo las ciudades que hoy
+        tienen al menos un ejemplar disponible.
+      operationId: listCities
+      responses:
+        "200":
+          description: Ciudades, ordenadas alfabéticamente
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { type: string }
+                example: ["Buenos Aires", "Córdoba", "Rosario"]
 
   /books/search:
     get:

@@ -7,6 +7,12 @@ import { describeError } from "../lib/errors";
 import type { Book, BookAvailability } from "../types";
 import { BookAvailabilityView } from "./BookAvailabilityView";
 import { BookResults, BookResultsSkeleton } from "./BookResults";
+import {
+  CatalogFilters,
+  countFilters,
+  EMPTY_FILTERS,
+  type CatalogFilterState,
+} from "./CatalogFilters";
 import { ReservationForm } from "./ReservationForm";
 import { SearchBar } from "./SearchBar";
 import { ErrorBanner } from "./ErrorBanner";
@@ -26,19 +32,18 @@ export function CatalogView() {
   const selectedIsbn = searchParams.get("isbn");
   const reservingId = Number(searchParams.get("reservar")) || null;
 
-  // El catálogo que se muestra al entrar, sin buscar nada: una página de `GET /books`
-  // que se va extendiendo con "Cargar más".
-  const [catalog, setCatalog] = useState<Book[]>([]);
-  const [catalogTotal, setCatalogTotal] = useState(0);
+  // Buscar y filtrar son la misma consulta: `GET /books` acepta texto y filtros juntos
+  // y devuelve una página. Por eso hay una sola lista, no una de catálogo y otra de
+  // resultados.
+  const [books, setBooks] = useState<Book[]>([]);
+  const [total, setTotal] = useState(0);
   const [loadingCatalog, setLoadingCatalog] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
-  // `null` = no hay búsqueda activa, se muestra el catálogo.
-  const [searchResults, setSearchResults] = useState<Book[] | null>(null);
   const [activeQuery, setActiveQuery] = useState("");
+  const [filters, setFilters] = useState<CatalogFilterState>(EMPTY_FILTERS);
   const [availability, setAvailability] = useState<BookAvailability | null>(
     null,
   );
-  const [loading, setLoading] = useState(false);
   const [loadingAvailability, setLoadingAvailability] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -70,15 +75,28 @@ export function CatalogView() {
     };
   }, [selectedIsbn]);
 
-  // Primera página del catálogo al entrar: la pantalla arranca con libros, no vacía.
+  /** Los parámetros de `GET /books` que salen del estado actual de la pantalla. */
+  const buildQuery = useCallback(
+    () => ({
+      q: activeQuery === "" ? undefined : activeQuery,
+      author_id: filters.authorIds,
+      genre_id: filters.genreIds,
+      city: filters.cities,
+    }),
+    [activeQuery, filters]
+  );
+
+  // Primera página: al entrar, y de nuevo cada vez que cambia el texto o un filtro.
   useEffect(() => {
     let cancelled = false;
+    setLoadingCatalog(true);
+    setError(null);
     api.books
-      .list({ limit: PAGE_SIZE, offset: 0 })
+      .list({ ...buildQuery(), limit: PAGE_SIZE, offset: 0 })
       .then((page) => {
         if (cancelled) return;
-        setCatalog(page.items);
-        setCatalogTotal(page.total);
+        setBooks(page.items);
+        setTotal(page.total);
       })
       .catch((err) => {
         if (!cancelled) setError(describeError(err));
@@ -89,18 +107,16 @@ export function CatalogView() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [buildQuery]);
 
   const handleLoadMore = async () => {
     setLoadingMore(true);
     setError(null);
     try {
-      const page = await api.books.list({
-        limit: PAGE_SIZE,
-        offset: catalog.length,
-      });
-      setCatalog((current) => [...current, ...page.items]);
-      setCatalogTotal(page.total);
+      // El offset sale de lo que ya está en pantalla, con los mismos filtros.
+      const page = await api.books.list({ ...buildQuery(), limit: PAGE_SIZE, offset: books.length });
+      setBooks((current) => [...current, ...page.items]);
+      setTotal(page.total);
     } catch (err) {
       setError(describeError(err));
     } finally {
@@ -108,25 +124,9 @@ export function CatalogView() {
     }
   };
 
-  const handleSearch = async (query: string) => {
-    setLoading(true);
-    setError(null);
-    try {
-      setSearchResults(await api.books.search(query));
-      setActiveQuery(query);
-    } catch (err) {
-      setError(describeError(err));
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // Limpiar la búsqueda devuelve el catálogo ya cargado, sin volver a pedirlo.
-  const handleClearSearch = () => {
-    setSearchResults(null);
-    setActiveQuery("");
-    setError(null);
-  };
+  // Buscar y limpiar solo tocan el estado: la consulta la dispara el efecto de arriba.
+  const handleSearch = (query: string) => setActiveQuery(query);
+  const handleClearSearch = () => setActiveQuery("");
 
   const handleSelect = (book: Book) => {
     setError(null);
@@ -182,15 +182,13 @@ export function CatalogView() {
     }
   };
 
-  const searching = searchResults !== null;
-  const shownBooks = searchResults ?? catalog;
-  const canLoadMore = !searching && catalog.length < catalogTotal;
-  const listCaption = searching
-    ? `${shownBooks.length} ${shownBooks.length === 1 ? "resultado" : "resultados"} para «${activeQuery}»`
-    : `${catalog.length} de ${catalogTotal}`;
+  const filtering = activeQuery !== "" || countFilters(filters) > 0;
+  const canLoadMore = books.length < total;
+  const listCaption = filtering
+    ? `${total} ${total === 1 ? "resultado" : "resultados"}`
+    : `${books.length} de ${total}`;
 
-  const selectedBook =
-    shownBooks.find((book) => book.isbn === selectedIsbn) ?? null;
+  const selectedBook = books.find((book) => book.isbn === selectedIsbn) ?? null;
 
   const reservingOption =
     reservingId === null
@@ -205,33 +203,33 @@ export function CatalogView() {
         <SearchBar
           onSearch={handleSearch}
           onClear={handleClearSearch}
-          loading={loading}
+          loading={loadingCatalog}
         />
-        {catalogTotal > 0 && (
+        {!filtering && total > 0 && (
           <p className="search-hint">
-            Buscá entre {catalogTotal} libros de toda la red por título, autor,
-            ISBN o sinopsis.
+            Buscá entre {total} libros de toda la red por título, autor, ISBN o sinopsis.
           </p>
         )}
+        <CatalogFilters filters={filters} onChange={setFilters} />
       </div>
       {/* Con el modal abierto el error se muestra adentro, no tapado detrás del fondo. */}
       <ErrorBanner error={selectedIsbn === null ? error : null} />
       <div className="catalog-results">
         <div className="catalog-results-header">
-          <h2>{searching ? "Resultados" : "Catálogo"}</h2>
+          <h2>{filtering ? "Resultados" : "Catálogo"}</h2>
           <span className="badge badge-neutral">{listCaption}</span>
         </div>
-        {loadingCatalog && !searching ? (
+        {loadingCatalog ? (
           <BookResultsSkeleton />
         ) : (
           <>
             <BookResults
-              books={shownBooks}
+              books={books}
               selectedIsbn={selectedIsbn ?? undefined}
               onSelect={handleSelect}
               emptyMessage={
-                searching
-                  ? `No encontramos libros para «${activeQuery}». Probá con otro título, autor o ISBN.`
+                filtering
+                  ? "Ningún libro coincide con lo que buscás. Probá quitando algún filtro."
                   : "Todavía no hay libros en el catálogo."
               }
             />
@@ -244,7 +242,7 @@ export function CatalogView() {
                 >
                   {loadingMore
                     ? "Cargando..."
-                    : `Cargar más — ${catalogTotal - catalog.length} restantes`}
+                    : `Cargar más — ${total - books.length} restantes`}
                 </button>
               </div>
             )}
