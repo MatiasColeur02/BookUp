@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import enum
 from datetime import datetime
 
 from sqlalchemy import (
@@ -19,18 +18,9 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .database import Base
 
-
-class UserRole(str, enum.Enum):
-    customer = "customer"
-    librarian = "librarian"
-    sysadmin = "sysadmin"
-
-
-class PhysicalBookStatus(str, enum.Enum):
-    available = "available"
-    reserved = "reserved"
-    loaned = "loaned"
-    lost = "lost"
+# Los enums viven en `entities.py` (una sola definición mientras convivan los dos mundos);
+# se re-exportan acá para que `from ..persistence.models import UserRole` siga andando.
+from .entities import PhysicalBookStatus, UserRole  # noqa: F401
 
 
 # Association tables for the Book <-> Author / Genre many-to-many relations.

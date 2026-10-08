@@ -4,7 +4,7 @@ from typing import Any, Annotated
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, StringConstraints, field_validator
 
 from .. import storage
-from ..persistence.models import PhysicalBookStatus, UserRole
+from ..persistence.entities import PhysicalBookStatus, UserRole
 
 
 def _text(max_length: int, *, min_length: int = 1) -> Any:
