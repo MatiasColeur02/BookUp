@@ -72,11 +72,87 @@ services:
       mc anonymous set download local/bookup-covers
       "
 
+  # Stand-in local de DynamoDB (migración desde Postgres, ver `api/ROADMAP.md`). Mientras
+  # dura la migración convive con `db`; la API todavía no lo usa hasta la fase 4.
+  #
+  # `-sharedDb` hace que todas las credenciales/regiones vean la misma tabla (sin eso,
+  # DynamoDB Local crea un archivo por access key + región y "no encuentra" lo que
+  # otro cliente creó). Corre como root porque un volumen nombrado nace con dueño root y
+  # el usuario de la imagen no podría escribir el archivo de la base.
+  dynamodb:
+    image: amazon/dynamodb-local
+    user: root
+    command: -jar DynamoDBLocal.jar -sharedDb -dbPath /data
+    ports:
+      - "8001:8000"   # 8000 ya es la API
+    volumes:
+      - bookup_dynamo_data:/data
+    healthcheck:
+      # Sin `-f`: en la raíz responde 400, y lo que importa es que acepte conexiones.
+      test: ["CMD-SHELL", "curl -s -o /dev/null http://localhost:8000/"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # One-shot: crea la tabla `bookup` y sus 4 GSIs (reemplaza a `alembic upgrade head`).
+  # Mismo patrón que `storage-init`. Es idempotente, así que re-correrlo no cuesta nada.
+  # El índice de OpenSearch lo crea la fase 6, no esto.
+  dynamodb-init:
+    build: ./api
+    environment:
+      DYNAMO_TABLE: bookup
+      DYNAMO_ENDPOINT_URL: http://dynamodb:8000
+      AWS_REGION: us-east-1
+      AWS_ACCESS_KEY_ID: bookup
+      AWS_SECRET_ACCESS_KEY: bookup123
+    depends_on:
+      dynamodb:
+        condition: service_healthy
+    volumes:
+      - ./api:/app
+    command: python -m app.persistence.table
+    restart: "no"
+
+  # Proyección de solo lectura del catálogo para filtros combinables y texto libre. Es
+  # descartable: la fuente de verdad es DynamoDB y `app.reindex` (fase 6) lo reconstruye.
+  # Single-node y sin el plugin de seguridad, porque es un entorno local; heap acotado
+  # para que no se coma la RAM de la máquina de desarrollo.
+  search:
+    image: opensearchproject/opensearch:2.17.1
+    environment:
+      discovery.type: single-node
+      DISABLE_SECURITY_PLUGIN: "true"
+      DISABLE_INSTALL_DEMO_CONFIG: "true"
+      OPENSEARCH_JAVA_OPTS: "-Xms512m -Xmx512m"
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      nofile:
+        soft: 65536
+        hard: 65536
+    ports:
+      - "9200:9200"
+    volumes:
+      - bookup_search_data:/usr/share/opensearch/data
+    healthcheck:
+      # `yellow` es lo mejor que alcanza un single-node: las réplicas quedan sin asignar.
+      test: ["CMD-SHELL", "curl -s 'http://localhost:9200/_cluster/health?wait_for_status=yellow&timeout=3s' | grep -qE '\"status\":\"(yellow|green)\"'"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
   api:
     build: ./api
     environment:
       DATABASE_URL: postgresql+psycopg2://bookup:bookup@db:5432/bookup
       REDIS_URL: redis://cache:6379/0
+      # Sin consumidores hasta que los services migren (fases 4 y 6); queda configurado
+      # para no tocar este bloque de nuevo.
+      DYNAMO_TABLE: bookup
+      DYNAMO_ENDPOINT_URL: http://dynamodb:8000
+      OPENSEARCH_URL: http://search:9200
+      OPENSEARCH_INDEX: bookup-books
       JWT_SECRET: dev-secret-change-me
       JWT_ALGORITHM: HS256
       JWT_EXPIRE_MINUTES: 60
@@ -118,3 +194,5 @@ services:
 volumes:
   bookup_db_data:
   bookup_storage_data:
+  bookup_dynamo_data:
+  bookup_search_data:

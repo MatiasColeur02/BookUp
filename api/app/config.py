@@ -48,6 +48,19 @@ class Settings(BaseSettings):
     # Techo del archivo de portada. Se valida al firmar y lo repite el frontend.
     cover_max_bytes: int = 5 * 1024 * 1024
 
+    # DynamoDB (migración en curso, ver `ROADMAP.md`): hoy solo lo usa `persistence/table.py`;
+    # la API sigue sobre Postgres hasta la fase 4. Sin `dynamo_table` no hay tabla a la que
+    # conectarse y `get_dynamo()` falla con un mensaje claro.
+    dynamo_table: str = ""
+    # Vacío = DynamoDB real (AWS), igual que `s3_endpoint_url`. En local, DynamoDB Local.
+    dynamo_endpoint_url: str = ""
+    aws_region: str = "us-east-1"
+
+    # Índice de búsqueda del catálogo (OpenSearch). Vacío = apagado, como `redis_url`.
+    # Todavía sin consumidores: lo estrena la fase 6.
+    opensearch_url: str = ""
+    opensearch_index: str = "bookup-books"
+
     # Vacías en AWS: ahí las credenciales salen del rol de la tarea (ECS) o de la
     # función (Lambda), que es la cadena default de boto3.
     aws_access_key_id: str = ""
