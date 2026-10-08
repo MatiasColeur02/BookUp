@@ -1,6 +1,6 @@
 /**
- * Espejo de los topes que valida la API (`api/app/controllers/schemas.py`), que a su vez
- * replican el ancho de cada columna en `models.py`.
+ * Espejo de los topes que valida la API (esquemas Pydantic en
+ * `api/app/controllers/schemas.py`).
  *
  * Acá son una cortesía, no una defensa: el `maxLength` de un input evita que alguien
  * escriba 400 caracteres para recibir un 422 recién al enviar, pero cualquiera puede

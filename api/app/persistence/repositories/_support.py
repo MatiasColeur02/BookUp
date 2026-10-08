@@ -4,7 +4,7 @@ Nada de esto es público fuera de `persistence/`. Cuatro responsabilidades:
 
 - **Codec**: entidad (dataclass) ↔ ítem. Los `None` no se guardan —un atributo ausente
   *es* el null—, así que "abierta" es `attribute_not_exists(cancelled_at)`.
-- **Ids**: el contador atómico que reemplaza al autoincremental de Postgres.
+- **Ids**: el contador atómico (DynamoDB no tiene autoincrementales).
 - **Lecturas**: paginar un Query completo, `BatchGetItem` con sus reintentos.
 - **Transacciones**: armar los ítems de `TransactWriteItems` y traducir su cancelación.
 """

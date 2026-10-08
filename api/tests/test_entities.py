@@ -14,16 +14,9 @@ from app.controllers.schemas import (
     ReservationOut,
     UserOut,
 )
-from app.persistence import entities, models
+from app.persistence import entities
 
 NOW = datetime(2026, 1, 1, tzinfo=timezone.utc)
-
-
-def test_enums_have_a_single_definition():
-    # `models.py` los re-exporta: si fueran dos clases, un `==` entre ellas dependería
-    # de que sean `str` y un `Enum(...)` de SQLAlchemy aceptaría una pero no la otra.
-    assert models.UserRole is entities.UserRole
-    assert models.PhysicalBookStatus is entities.PhysicalBookStatus
 
 
 def test_enum_values_are_the_stored_strings():

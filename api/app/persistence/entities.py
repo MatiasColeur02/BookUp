@@ -1,4 +1,4 @@
-"""Entidades del dominio como dataclasses: el reemplazo de las clases ORM de `models.py`.
+"""Entidades del dominio, como dataclasses.
 
 No hay mapeo, sesión ni relaciones lazy: una entidad es un valor inmutable que un
 repository arma al leer de DynamoDB y que un service recibe y devuelve. Para "cambiarla"
@@ -17,8 +17,6 @@ Tres convenciones:
   relaciones (`reservation.physical_book.library_id`). Un service puede leerlos, pero no
   los arma; ver `ROADMAP.md` §3.1.
 
-`UserRole` y `PhysicalBookStatus` viven acá y `models.py` los importa, así que durante la
-migración hay una sola definición de cada enum.
 """
 
 from __future__ import annotations

@@ -1,13 +1,12 @@
-"""Creación de la tabla `bookup` y sus cuatro GSIs: el reemplazo de `alembic`.
+"""Creación de la tabla `bookup` y sus cuatro GSIs.
 
 `ensure_table()` es idempotente y espera a que la tabla y sus índices estén `ACTIVE`.
 Lo corre el servicio `dynamodb-init` del compose y, más adelante, el seed y la suite de
 tests. En AWS la tabla la crea la infraestructura como código, no la app; esto es para
 local y para tests.
 
-**No versiona.** Alembic llevaba la forma de la base de versión en versión; acá no hay
-nada equivalente. Si la tabla ya existe con otros índices, `ensure_table()` no intenta
-repararla: falla con un mensaje que lo dice, porque cambiar un GSI sobre una tabla con
+**No versiona.** No hay migraciones ni nada que lleve la forma de la tabla de versión en
+versión. Si la tabla ya existe con otros índices, `ensure_table()` no intenta repararla: falla con un mensaje que lo dice, porque cambiar un GSI sobre una tabla con
 datos es un backfill escrito a mano (ver `ROADMAP.md` §9).
 
     python -m app.persistence.table

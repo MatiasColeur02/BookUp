@@ -1,20 +1,4 @@
 services:
-  db:
-    image: postgres:16
-    environment:
-      POSTGRES_USER: bookup
-      POSTGRES_PASSWORD: bookup
-      POSTGRES_DB: bookup
-    ports:
-      - "5432:5432"
-    volumes:
-      - bookup_db_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U bookup"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-
   # Stand-in local de ElastiCache for Redis: sin persistencia (`--appendonly no --save ""`),
   # que es como se configura un cache puro.
   #
@@ -72,8 +56,8 @@ services:
       mc anonymous set download local/bookup-covers
       "
 
-  # Stand-in local de DynamoDB (migración desde Postgres, ver `api/ROADMAP.md`). Mientras
-  # dura la migración convive con `db`; la API todavía no lo usa hasta la fase 4.
+  # Stand-in local de DynamoDB, la base de datos de la API (ver `api/ROADMAP.md`). Igual que
+  # `cache` lo es de ElastiCache y `storage` de S3: en AWS solo cambian las variables de entorno.
   #
   # `-sharedDb` hace que todas las credenciales/regiones vean la misma tabla (sin eso,
   # DynamoDB Local crea un archivo por access key + región y "no encuentra" lo que
@@ -109,9 +93,9 @@ services:
       timeout: 5s
       retries: 10
 
-  # One-shot: crea la tabla `bookup` y sus 4 GSIs (reemplaza a `alembic upgrade head`).
+  # One-shot: crea la tabla `bookup` y sus 4 GSIs (no hay migraciones: la forma de la tabla la define `app/persistence/table.py`).
   # Mismo patrón que `storage-init`. Es idempotente, así que re-correrlo no cuesta nada.
-  # El índice de OpenSearch lo crea la fase 6, no esto.
+  # El índice de OpenSearch no lo crea esto sino el `indexer`, al arrancar.
   dynamodb-init:
     build: ./api
     environment:
@@ -193,16 +177,14 @@ services:
   api:
     build: ./api
     environment:
-      DATABASE_URL: postgresql+psycopg2://bookup:bookup@db:5432/bookup
       REDIS_URL: redis://cache:6379/0
-      # Desde la fase 4 los services leen y escriben en DynamoDB (la base de verdad).
-      # Postgres sigue levantado solo hasta la fase 7, que lo borra junto con alembic.
+      # DynamoDB es la fuente de verdad de todo.
       DYNAMO_TABLE: bookup
       DYNAMO_ENDPOINT_URL: http://dynamodb:8000
       AWS_REGION: us-east-1
       # Donde corre `pytest` (ver `dynamodb-test`); la API no lo usa.
       DYNAMO_TEST_ENDPOINT_URL: http://dynamodb-test:8000
-      # Sin consumidores hasta la fase 6.
+      # Índice de búsqueda del catálogo: lo alimenta el servicio `indexer`.
       OPENSEARCH_URL: http://search:9200
       OPENSEARCH_INDEX: bookup-books
       JWT_SECRET: dev-secret-change-me
@@ -220,8 +202,6 @@ services:
     ports:
       - "8000:8000"
     depends_on:
-      db:
-        condition: service_healthy
       cache:
         condition: service_healthy
       storage:
@@ -233,8 +213,7 @@ services:
         condition: service_healthy
     volumes:
       - ./api:/app
-    command: >
-      sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 
   web:
     build: ./frontend
@@ -249,7 +228,6 @@ services:
       - /app/node_modules
 
 volumes:
-  bookup_db_data:
   bookup_storage_data:
   bookup_dynamo_data:
   bookup_search_data:

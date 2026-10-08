@@ -9,7 +9,7 @@ from app.persistence.entities import User, UserRole
 from app.persistence.repositories import UserRepository
 from app.services.auth_service import hash_password
 
-from .dynamo_support import temporary_dynamo
+from .dynamo_support import clear_table, temporary_dynamo
 from .factories import Factory
 from .fake_search import FakeSearchIndex
 
@@ -71,11 +71,28 @@ def sync_search(db, search_index):
     return lambda: reindex(db, search_index)
 
 
-@pytest.fixture()
-def db():
-    """Una tabla `bookup` con sus 4 GSIs, vacía y exclusiva de este test.
+@pytest.fixture(scope="session")
+def shared_db():
+    """La tabla `bookup` de la sesión de tests: se crea una vez, con sus 4 GSIs.
 
-    Necesita DynamoDB Local (`docker compose up -d dynamodb`); ver `dynamo_support.py`.
+    Necesita DynamoDB Local (`docker compose up -d dynamodb-test`); ver `dynamo_support.py`.
+    """
+    yield from temporary_dynamo(create_table=True)
+
+
+@pytest.fixture()
+def db(shared_db):
+    """La tabla, vacía: cada test arranca sin un solo ítem (ni contadores)."""
+    clear_table(shared_db)
+    return shared_db
+
+
+@pytest.fixture()
+def isolated_db():
+    """Una tabla propia, con su propio stream, que se borra al terminar.
+
+    Solo para los tests que miran el stream o borran la tabla: el stream de la tabla
+    compartida lleva los eventos de todos los demás tests.
     """
     yield from temporary_dynamo(create_table=True)
 

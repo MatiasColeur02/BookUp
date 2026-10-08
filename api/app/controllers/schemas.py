@@ -13,9 +13,9 @@ def _text(max_length: int, *, min_length: int = 1) -> Any:
     Son límites de dominio puros: DynamoDB no tiene ancho de columna que los imponga, pero
     siguen siendo lo correcto. Sin ellos un cliente escribe megabytes por campo (el ítem
     más grande que admite DynamoDB es de 400 KB, y pasarse ahí es un 500), y el mismo
-    tope viaja al documento de OpenSearch y a la UI. Los números son los de las columnas
-    que reemplazan (`models.py`), para no cambiar el contrato con el frontend, que los
-    repite en `frontend/src/lib/limits.ts`. No los borres por "no hay columna".
+    tope viaja al documento de OpenSearch y a la UI. El frontend repite los mismos números en
+    `frontend/src/lib/limits.ts`: si cambia uno, cambia el otro. No los borres por "no hay
+    columna".
 
     `min_length=0` se usa en los opcionales: el frontend manda "" para vaciar un campo.
     """

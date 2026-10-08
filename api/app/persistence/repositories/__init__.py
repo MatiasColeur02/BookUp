@@ -1,10 +1,11 @@
-"""Repositories sobre DynamoDB: la reescritura de `persistence/repositories/`.
+"""Repositories sobre DynamoDB: un acceso a datos por entidad, único lugar que conoce el motor.
 
-Conviven con los de SQLAlchemy hasta la fase 4, cuando los services pasan a usar estos y
-el paquete viejo se borra (fase 7). Misma interfaz pública que los originales salvo tres
-cambios que pide el roadmap: los `count_*` pasan a `has_*` (§4.5), `update(...)` reemplaza
-a la mutación en el lugar de la entidad (§7.2), y las transiciones de reserva viven en
-`ReservationRepository` (§4.2).
+Los services reciben un `Dynamo` y arman `XRepository(db)`; no ven boto3, claves ni
+transacciones. Tres convenciones: las preguntas del tipo «¿hay al menos uno?» son `has_*`
+(contar en DynamoDB es recorrer), un cambio es `update(id, **cambios)` y devuelve la entidad
+nueva (las entidades son inmutables), y las transiciones de reserva —que escriben la reserva
+y su ejemplar juntos— viven en `ReservationRepository`. El formato de los ítems está en
+`_items.py` y el de las claves en `persistence/keys.py`.
 """
 
 from .author_repository import AuthorRepository

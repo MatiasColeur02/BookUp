@@ -1,8 +1,8 @@
 """Cache de lecturas sobre Redis (ElastiCache for Redis en AWS).
 
 Vive en la capa de `controllers` a propósito: lo que se guarda son payloads JSON ya
-serializados por los esquemas Pydantic, no entidades ORM (que no son serializables y
-lazy-loadean fuera de la sesión de SQLAlchemy). `services` y `persistence` siguen sin
+serializados por los esquemas Pydantic, no entidades (los valores de dominio no son
+JSON). `services` y `persistence` siguen sin
 enterarse de que el cache existe, igual que no se enteran de HTTP.
 
 **Invalidación por generaciones.** Cada namespace tiene un contador (`bookup:ver:<ns>`)

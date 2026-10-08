@@ -539,7 +539,7 @@ nada de lo que existe.
 | **4** ✅ | Services | los 8 migrados, incluidas las 5 transacciones de §4.2 | los tests de reserva/ejemplar en verde, incluidos los de concurrencia |
 | **5** ✅ | Seed | `seed.py` reescrito, con contadores y desnormalización | `python -m app.seed` dos veces = mismo resultado, sin duplicar |
 | **6** ✅ | OpenSearch | `search.py`, `indexer.py`, `reindex.py`, los 3 endpoints migrados | `GET /books` con filtros combinados devuelve lo mismo que con Postgres |
-| **7** | Limpieza | borrar `models.py`, `database.py`, `alembic/`, dependencias | `grep -r sqlalchemy api/` no devuelve nada |
+| **7** ✅ | Limpieza | borrar `models.py`, `database.py`, `alembic/`, dependencias | `grep -r sqlalchemy api/` no devuelve nada |
 | **8** | Docs | `README.md`, `CLAUDE.md`, `openapi.yml` (sin cambios de contrato, sí de notas) | las secciones de §10 actualizadas |
 
 > **Fase 1 hecha.** Desvíos respecto del plan, todos a propósito: los servicios del compose
@@ -663,6 +663,22 @@ nada de lo que existe.
 > - `opensearch-py` 2.7.1 entra a `requirements.txt`. Además el servicio `search` del compose
 >   desactiva el umbral de disco: con el disco de la VM de Docker casi lleno, OpenSearch grababa un
 >   bloqueo de creación de índices en el volumen que sobrevivía a liberar espacio.
+
+> **Fase 7 hecha.** Borrados `models.py`, `database.py`, `alembic/` y `alembic.ini`; fuera
+> `sqlalchemy`, `alembic` y `psycopg2-binary` de `requirements.txt` (la imagen ya no los instala);
+> fuera `database_url` de `config.py`, y fuera el servicio `db` (Postgres), su volumen y el
+> `alembic upgrade head` del compose. `grep -rniE "sqlalchemy|alembic|psycopg" api/` no devuelve
+> nada en el código; solo quedan menciones en la documentación, que es la fase 8. Quedan en tu
+> Docker el volumen viejo `bookup_bookup_db_data` (datos de Postgres, ya sin uso): se borra con
+> `docker volume rm`. Además:
+>
+> - **Suite más rápida y estable**: cada test creaba y borraba una tabla de 4 GSIs, y DynamoDB Local
+>   en memoria se degrada con tantas altas y bajas (la suite llegó a tardar 3,5 veces más). Ahora
+>   hay una tabla compartida por sesión que se **vacía** entre tests (`db`), y una tabla propia
+>   (`isolated_db`) solo para los que miran el stream o la borran. Si la suite se pone lenta,
+>   `docker compose restart dynamodb-test`.
+> - Los comentarios que hablaban de Postgres o del ORM como estado actual se reescribieron
+>   (`entities.py`, `repositories/__init__.py`, `schemas.py`, `cache.py`, los tests).
 
 **El punto de no retorno es la fase 4.** Hasta la 3 conviven los dos mundos; a partir de ahí
 los services solo hablan DynamoDB.

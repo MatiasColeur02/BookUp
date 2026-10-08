@@ -22,6 +22,24 @@ from app.persistence.table import drop_table, ensure_table
 ENDPOINT = os.environ.get("DYNAMO_TEST_ENDPOINT_URL") or "http://localhost:8002"
 
 
+def clear_table(db: Dynamo) -> None:
+    """Borra todos los ítems (claves, contadores, alias, todo) y deja la tabla lista.
+
+    Es lo que hace barato aislar un test: crear y borrar una tabla con 4 GSIs en cada uno
+    cuesta ~0.4 s y, peor, DynamoDB Local se va degradando con tantas altas y bajas (la suite
+    llegó a tardar 3,5 veces más). Vaciar la misma tabla es una fracción de eso.
+    """
+    kwargs = {"ProjectionExpression": "PK, SK", "ConsistentRead": True}
+    while True:
+        page = db.table.scan(**kwargs)
+        with db.table.batch_writer() as batch:
+            for item in page["Items"]:
+                batch.delete_item(Key={"PK": item["PK"], "SK": item["SK"]})
+        if "LastEvaluatedKey" not in page:
+            return
+        kwargs["ExclusiveStartKey"] = page["LastEvaluatedKey"]
+
+
 def temporary_dynamo(*, create_table: bool):
     """Generador para fixtures: una tabla con nombre único, borrada al terminar.
 

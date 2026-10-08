@@ -16,7 +16,7 @@ from app.persistence.repositories import (
     ReservationRepository,
 )
 
-from .factories import ISBN
+from .factories import ISBN, Factory
 
 serializer = TypeSerializer()
 
@@ -189,9 +189,15 @@ def test_the_lambda_entry_point_processes_the_records_of_the_event(db, make, sea
 # -- de punta a punta, con el stream real de DynamoDB Local -------------------------------
 
 
-def test_the_whole_pipeline_from_real_stream_events(db, make, search_index):
+@pytest.fixture()
+def isolated_make(isolated_db):
+    return Factory(isolated_db)
+
+
+def test_the_whole_pipeline_from_real_stream_events(isolated_db, isolated_make, search_index):
     """Escribe por los repositories y lee el stream de verdad: las formas de los eventos de
     arriba son las que efectivamente produce la tabla."""
+    db, make = isolated_db, isolated_make
     reader = indexer.StreamReader(db, start="TRIM_HORIZON")
 
     def sync():
@@ -243,8 +249,10 @@ def test_the_whole_pipeline_from_real_stream_events(db, make, search_index):
     assert reader.read() == []
 
 
-def test_a_reader_notices_when_the_table_was_dropped_and_recreated(db):
+def test_a_reader_notices_when_the_table_was_dropped_and_recreated(isolated_db):
     from app.persistence.table import drop_table, ensure_table
+
+    db = isolated_db
 
     reader = indexer.StreamReader(db)
     assert reader.is_current() is True
@@ -256,7 +264,8 @@ def test_a_reader_notices_when_the_table_was_dropped_and_recreated(db):
     assert indexer.StreamReader(db).is_current() is True
 
 
-def test_a_reader_started_at_latest_only_sees_what_happens_afterwards(db, make):
+def test_a_reader_started_at_latest_only_sees_what_happens_afterwards(isolated_db, isolated_make):
+    db, make = isolated_db, isolated_make
     make.book()  # antes de enganchar el stream: no se ve
     reader = indexer.StreamReader(db, start="LATEST")
     assert reader.read() == []

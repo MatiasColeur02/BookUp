@@ -14,8 +14,8 @@ Dos criterios que atraviesan todo el archivo:
   partition keys. Una SK se compara como string, y sin padding `"10"` ordena antes que
   `"9"`; una PK solo se compara por igualdad, así que `COPY#42` queda legible.
 - **Los índices de listado ordenan por nombre plegado** (sin tildes ni mayúsculas): es
-  lo más parecido al `ORDER BY name` con la collation de Postgres que se usa hoy, y
-  evita que "Álvaro" quede después de "Zapata".
+  lo que espera quien ordena una lista de nombres a mano (el orden de bytes de un string
+  pone todas las mayúsculas antes que las minúsculas), y evita que "Álvaro" quede después de "Zapata".
 """
 
 from __future__ import annotations

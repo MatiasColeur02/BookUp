@@ -1,6 +1,6 @@
-"""Carreras por HTTP: lo que Postgres cubría con su transacción y DynamoDB cubre con
-escrituras condicionales (ROADMAP §4.2, §4.4). A nivel repository están en
-`tests/repositories/`; acá se prueba que el contrato HTTP se mantiene."""
+"""Carreras por HTTP: la exclusión mutua que DynamoDB da con escrituras condicionales
+(ROADMAP §4.2, §4.4). A nivel repository están en `tests/repositories/`; acá se prueba que el
+contrato HTTP se mantiene."""
 
 import threading
 from datetime import datetime, timedelta, timezone

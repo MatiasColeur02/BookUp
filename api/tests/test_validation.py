@@ -1,19 +1,19 @@
-"""Entradas hostiles: textos larguísimos, inyección SQL y valores fuera de rango.
+"""Entradas hostiles: textos larguísimos, intentos de inyección y valores fuera de rango.
 
 Lo que se prueba acá es que la API conteste **422** y no 500. La diferencia importa: un
-500 significa que el valor llegó hasta Postgres y reventó ahí (`StringDataRightTruncation`
-para un texto más largo que la columna), y en el camino ya consumió una conexión y una
-transacción. Ojo con la suite: SQLite ignora el ancho de un VARCHAR, así que estos tests
-solo pasan porque el tope está en el esquema Pydantic, que es justamente lo que se busca.
+500 significa que el valor llegó hasta la capa de datos (un ítem de DynamoDB admite 400 KB,
+y un texto de megabytes se pasa), y en el camino ya consumió una escritura. El tope vive en
+el esquema Pydantic, que es justamente lo que se busca.
 """
 
 from app.persistence.entities import UserRole
 
 ISBN = "9780306406157"
 
-# Payloads clásicos de inyección. No hay ninguno que pueda funcionar —SQLAlchemy manda
-# siempre sentencias parametrizadas y ningún repositorio interpola texto en el SQL— pero
-# el test deja constancia de eso y avisa si alguien introduce un `text()` con f-string.
+# Payloads clásicos de inyección SQL. No hay ninguno que pueda funcionar —no hay SQL: los
+# datos van a DynamoDB como valores tipados y el texto libre a `multi_match`, nunca a
+# `query_string`— pero el test deja constancia y avisa si alguien arma una consulta con texto
+# del usuario.
 SQL_INJECTION_PAYLOADS = [
     "'; DROP TABLE books; --",
     "' OR '1'='1",
