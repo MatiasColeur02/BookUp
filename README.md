@@ -4,15 +4,17 @@ Plataforma nacional de catálogo y búsqueda bibliotecaria: centraliza la búsqu
 disponibilidad y reserva de libros entre todas las sedes de la red, con acceso
 tanto desde las bibliotecas como desde los hogares de los usuarios.
 
-Este repo contiene el MVP: un backend monolítico en capas (API + base de
-datos) y un frontend en React, pensados para correr localmente con Docker y
-luego desplegarse sobre servicios gestionados de AWS.
+Este repo contiene el MVP: un backend monolítico en capas (API + DynamoDB +
+índice de búsqueda) y un frontend en React, pensados para correr localmente con
+Docker y luego desplegarse sobre servicios gestionados de AWS.
 
 ## Stack
 
 - **API**: Python 3.12 + FastAPI, monolito en capas (persistence / services /
   controllers)
-- **Base de datos**: PostgreSQL 16, migraciones con Alembic
+- **Base de datos**: DynamoDB, tabla única (DynamoDB Local en desarrollo). Sin migraciones: la
+  forma de la tabla la define `app/persistence/table.py`
+- **Búsqueda del catálogo**: OpenSearch, alimentado desde el stream de la tabla por un indexador
 - **Cache**: Redis 7 (ElastiCache for Redis en AWS)
 - **Portadas**: almacenamiento de objetos S3-compatible (MinIO en local, S3 en AWS)
 - **Frontend**: React 18 + TypeScript + Vite
@@ -24,14 +26,20 @@ luego desplegarse sobre servicios gestionados de AWS.
 api/
   app/
     main.py               # app FastAPI, CORS, registro de excepciones/rutas
-    config.py               # settings (DATABASE_URL, REDIS_URL, CORS, etc.)
+    config.py               # settings (DYNAMO_TABLE, OPENSEARCH_URL, REDIS_URL, CORS, etc.)
     cache.py                 # cache de lecturas sobre Redis
     storage.py                # portadas de libros sobre S3 (URLs firmadas)
+    indexer.py                # stream de DynamoDB -> índice de búsqueda (Lambda / poller local)
+    reindex.py                # reconstruye el índice de búsqueda entero
     persistence/              # capa de datos: no sabe nada de HTTP
-      database.py               # engine, sesión, Base
-      models.py                  # entidades ORM: User, Library, Book, Author,
-                                 #   Genre, PhysicalBook, Reservation
-      repositories/                # acceso a datos por entidad
+      dynamo.py                 # cliente y recurso de la tabla (`Dynamo`)
+      keys.py                    # formato de las claves: el único lugar que lo conoce
+      entities.py                 # entidades (dataclasses): User, Library, Book, Author,
+                                  #   Genre, PhysicalBook, Reservation
+      table.py                     # creación de la tabla y sus 4 GSIs
+      search.py                     # índice de búsqueda del catálogo (OpenSearch)
+      errors.py                      # ConditionFailedError / SearchUnavailableError
+      repositories/                 # acceso a datos por entidad
     services/                  # lógica de negocio, no depende de FastAPI
       catalog_service.py           # búsqueda y disponibilidad cruzada
       library_service.py
@@ -45,8 +53,7 @@ api/
       user_controller.py
       schemas.py
     seed.py                    # carga de datos de ejemplo
-  alembic/                   # migraciones de base de datos
-  tests/                      # tests con pytest
+  tests/                      # tests con pytest (contra DynamoDB Local y OpenSearch)
 frontend/
   src/
     api.ts                     # cliente HTTP hacia la API
@@ -60,7 +67,9 @@ Las dependencias siempre apuntan hacia adentro: `controllers` conoce a
 `services`, `services` conoce a `persistence`, pero `persistence` no conoce a
 `services` ni a FastAPI, y `services` no conoce HTTP (las excepciones de
 dominio como `NotFoundError`/`ConflictError` se mapean a códigos HTTP recién
-en `main.py`).
+en `main.py`). Los services tampoco ven boto3, claves ni transacciones: reciben
+un `Dynamo` y hablan con repositories, así que cambiar de motor de datos tocaría
+solo `persistence/`.
 
 ## Cómo correrlo local
 
@@ -70,10 +79,23 @@ Requiere Docker y Docker Compose.
 docker compose up --build
 ```
 
-Esto levanta Postgres, Redis y MinIO (con el bucket de portadas ya creado), corre
-las migraciones de Alembic, expone la API en `http://localhost:8000` (docs interactivas
+Esto levanta DynamoDB Local (con la tabla ya creada), OpenSearch, Redis y MinIO (con el
+bucket de portadas ya creado), expone la API en `http://localhost:8000` (docs interactivas
 en `http://localhost:8000/docs`) y el frontend en `http://localhost:5173`. La consola de
 MinIO queda en `http://localhost:9001` (`bookup` / `bookup123`).
+
+| Servicio | Para qué | Puerto |
+|---|---|---|
+| `dynamodb` | DynamoDB Local, con volumen: tus datos de desarrollo | 8001 |
+| `dynamodb-init` | One-shot: crea la tabla `bookup` y sus 4 GSIs (idempotente) | — |
+| `dynamodb-test` | DynamoDB Local **en memoria**, solo para `pytest` | 8002 |
+| `search` | OpenSearch (un nodo, sin seguridad: es desarrollo) | 9200 |
+| `indexer` | Lee el stream de la tabla y mantiene el índice de búsqueda; al arrancar lo crea y lo llena | — |
+| `cache` / `storage` / `storage-init` | Redis y MinIO (más la creación del bucket) | 6379 / 9000, 9001 |
+| `api` / `web` | La API y el frontend | 8000 / 5173 |
+
+OpenSearch usa ~1 GB de RAM. Si el disco de la VM de Docker se llena, `docker system prune`
+(o borrar caché de build) suele ser suficiente.
 
 Para cargar datos de ejemplo (bibliotecas, libros, ejemplares y usuarios):
 
@@ -85,7 +107,18 @@ El seed carga un dataset completo y **determinista** (mismo resultado en cualqui
 máquina): 10 sedes de todo el país, 71 libros de 53 autores en 16 géneros, ~400
 ejemplares repartidos entre las sedes y ~190 reservas que cubren todo el ciclo de vida
 (abiertas sin retirar, prestadas, algunas en mora, devueltas, canceladas y vencidas).
-Volver a correrlo no duplica nada: si ya hay datos, no hace nada.
+Volver a correrlo no duplica nada: si ya hay datos, no hace nada. Deja los contadores de
+ids en el último valor usado (el primer alta por la API no pisa nada sembrado) y reindexa el
+catálogo. Si la tabla ya tiene datos creados por la API pero nunca se sembró, se niega a
+mezclarse con ellos en vez de pisarlos.
+
+Para **empezar de cero** (tabla vacía y sembrada de nuevo), borrá la tabla y volvé a
+crearla y sembrarla; el indexador detecta solo que la tabla se recreó y reindexa:
+
+```bash
+docker compose exec api python -c "from app.persistence.dynamo import get_dynamo; from app.persistence.table import drop_table; drop_table(get_dynamo())"
+docker compose exec api sh -c "python -m app.persistence.table && python -m app.seed"
+```
 
 Hay un bibliotecario por sede (`<sede>@bookup.example`), dos sysadmins y 20 lectores.
 **Todos los usuarios comparten la password `bookup123`:**
@@ -116,16 +149,25 @@ no se pueden crear sedes ni personal por la API, por eso el seed lo bootstrapea.
 
 ### Backend sin Docker
 
+La API necesita los servicios de arriba. Los más prácticos son los del compose, y la API
+corre en tu máquina contra ellos:
+
 ```bash
+docker compose up -d dynamodb dynamodb-init search cache storage storage-init
 cd api
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements-dev.txt
-cp ../.env.example .env   # ajustar DATABASE_URL si hace falta
-alembic upgrade head
+cp ../.env.example .env   # los endpoints de .env.example apuntan a localhost
+python -m app.seed        # crea el índice y reindexa el catálogo
 uvicorn app.main:app --reload
+python -m app.indexer     # en otra terminal: mantiene el índice al día
 ```
 
+Tests. Necesitan DynamoDB Local en memoria y OpenSearch, y fallan —no se saltean— si no
+los encuentran. La suite usa su propio `dynamodb-test` y nunca toca tu tabla `bookup`:
+
 ```bash
+docker compose up -d dynamodb-test search
 cd api && pytest
 ```
 
@@ -142,6 +184,12 @@ npm run dev
 
 La superficie completa está documentada en [`api/openapi.yml`](api/openapi.yml).
 
+**Consistencia.** Todo lo que se lee por clave —el detalle de un libro, la disponibilidad, las
+respuestas de los `POST`/`PATCH`, reservas, usuarios— es consistente: se ve lo que se acaba de
+escribir. Solo el listado del catálogo (`GET /books`, `/books/search`, `/books/cities`) sale del
+índice de búsqueda y es **eventualmente consistente**: un libro recién creado tarda ~1 s en
+aparecer en él. Si el índice no está disponible esos tres endpoints dan 503 y el resto sigue.
+
 Salvo el catálogo, las sedes (lectura) y el auto-registro, todo pide un JWT en
 `Authorization: Bearer <token>`. La columna "Acceso" indica qué rol lo puede usar.
 
@@ -150,11 +198,11 @@ Salvo el catálogo, las sedes (lectura) y el auto-registro, todo pide un JWT en
 | POST   | `/auth/login`                      | Obtener un token                                | público |
 | GET    | `/auth/me`                         | Usuario autenticado                             | autenticado |
 | GET    | `/health`                          | Health check                                    | público |
-| GET    | `/books?q=&author_id=&genre_id=&city=&limit=&offset=` | Catálogo paginado, con búsqueda y filtros combinables | público |
+| GET    | `/books?q=&author_id=&genre_id=&city=&limit=&offset=` | Catálogo paginado, con búsqueda y filtros combinables (índice de búsqueda: ~1 s de retraso, 503 si no está) | público |
 | GET    | `/books/cities`                    | Ciudades con stock disponible (opciones del filtro) | público |
 | POST   | `/books`                           | Alta de un libro (ISBN-13 validado)             | librarian o sysadmin |
-| GET    | `/books/search?q=`                 | Búsqueda unificada por título/autor/ISBN/sinopsis | público |
-| GET    | `/books/{isbn}`                    | Detalle de un libro                             | público |
+| GET    | `/books/search?q=`                 | Búsqueda unificada por título/autor/ISBN/sinopsis (índice de búsqueda) | público |
+| GET    | `/books/{isbn}`                    | Detalle de un libro (de la base: consistente)   | público |
 | PATCH  | `/books/{isbn}`                    | Actualización parcial de un libro               | librarian o sysadmin |
 | DELETE | `/books/{isbn}`                    | Baja de un libro (409 si tiene ejemplares)      | librarian o sysadmin |
 | POST   | `/books/{isbn}/cover-upload`       | URL firmada para subir la portada a S3          | librarian o sysadmin |
@@ -199,7 +247,7 @@ enterarse de que existe — igual que no se enteran de HTTP.
 
 | Endpoint | TTL | Por qué |
 |---|---|---|
-| `GET /books/search?q=` | 120 s | La query más cara: un `ILIKE '%...%'` sobre cuatro columnas que no usa índice |
+| `GET /books/search?q=` | 120 s | La lectura más cara del catálogo: texto libre sobre el índice de búsqueda |
 | `GET /books` (sin `city`), `GET /books/{isbn}` | 300 s | El catálogo es de lectura casi pura |
 | `GET /books?city=`, `GET /books/cities` | 30 s | Dependen del stock disponible: cambian con cada reserva, así que van al namespace de disponibilidad |
 | `GET /books/{isbn}/availability` | 30 s | La pantalla más visitada, pero también la que más rápido queda vieja |
@@ -215,7 +263,10 @@ de la clave; invalidar es un `INCR` O(1) y las claves viejas quedan huérfanas h
 vence su TTL. Evita barrer con `KEYS`/`SCAN`, que en ElastiCache bloquea el nodo. Las
 escrituras invalidan siguiendo cómo se embeben los esquemas: renombrar un autor refresca
 el catálogo y la disponibilidad, reservar o devolver un ejemplar refresca la
-disponibilidad.
+disponibilidad. El listado del catálogo sale de un índice que se actualiza ~1 s después de
+cada escritura, así que **el indexador también invalida** el catálogo, y lo hace después de
+forzar el refresco del índice: invalidar antes dejaría que una lectura en esa ventana
+recachee la lista vieja por 5 minutos.
 
 **El cache nunca tira abajo la API.** Todo error de Redis se traga y se sirve desde la
 base, y un breaker lo apaga 10 s para que un nodo caído no le sume timeouts a cada
@@ -230,8 +281,8 @@ caracteres y devolver un 422 recién al enviar.
 
 | Riesgo | Qué lo corta |
 |---|---|
-| Inyección SQL | El ORM parametriza todo; no hay SQL armado con f-strings. Además se escapan los comodines `%` y `_` del `ILIKE`, que no son inyección pero convierten una búsqueda en un scan completo |
-| Texto larguísimo (nombres, sinopsis) | `max_length` en los esquemas Pydantic, igual al ancho de cada columna. Antes, un nombre de 5.000 caracteres llegaba a Postgres y salía como **500**; ahora es un 422 |
+| Inyección | No hay SQL: los datos van a DynamoDB como valores tipados. El texto libre del catálogo va a OpenSearch como `multi_match` y **nunca como `query_string`**, que interpreta operadores del usuario (`*`, `OR`, `~`, `campo:`) y deja armar consultas carísimas a propósito |
+| Texto larguísimo (nombres, sinopsis) | `max_length` en los esquemas Pydantic. Sin él, un nombre de 5.000 caracteres llega a la capa de datos (un ítem de DynamoDB admite 400 KB) y sale como **500**; con él es un 422 |
 | Portada enorme | Doble barrera: el tamaño declarado al pedir la URL firmada, y el tamaño **real** del objeto (un `HEAD`) al confirmarla. Lo que no cumple se borra del bucket y nunca llega a la fila |
 | Cuerpo de request gigante | Middleware de 1 MB por `Content-Length`, antes de leer el cuerpo (413) |
 | Fuerza bruta sobre el login | Rate limit por IP y por cuenta sobre Redis (429 + `Retry-After`) |
@@ -321,16 +372,22 @@ descriptos en la propuesta:
 - **Cómputo**: la API FastAPI corre en contenedores (ECS Fargate) o Lambda
   detrás de API Gateway, con auto-scaling y despliegue multi-AZ. El frontend
   se sirve como estático desde S3 + CloudFront.
-- **Base de datos**: RDS PostgreSQL Multi-AZ (réplicas de lectura por región
-  para consultar stock del resto de la red sin afectar el nodo de escritura).
+- **Base de datos**: DynamoDB en modo On-Demand con Point-in-Time Recovery (el tráfico
+  de una red de bibliotecas es irregular), y el rol de la tarea con permisos acotados a la
+  tabla y sus índices. El código ya está: en local cambia solo `DYNAMO_ENDPOINT_URL`
+  (se borra en AWS) y la tabla la crea la infraestructura como código en lugar de
+  `table.py`. Las tablas globales cubren la lectura de stock del resto de la red.
 - **Cache**: ElastiCache for Redis en subnets privadas. El código ya está: solo
   cambia `REDIS_URL` del contenedor local al endpoint del cluster.
 - **Portadas**: S3 + CloudFront. El código ya está: se borran `S3_ENDPOINT_URL` y
   `S3_PUBLIC_ENDPOINT_URL` (que apuntan a MinIO), `S3_BUCKET` pasa a ser el bucket real
   y las credenciales salen del rol de la tarea en vez del `.env`.
-- **Búsqueda**: el `ILIKE` de `/books/search` (en `BookRepository`) es un
-  placeholder; en producción el índice lo sirve OpenSearch, alimentado desde
-  Postgres.
+- **Búsqueda**: un dominio de OpenSearch sirve el listado, la búsqueda y las ciudades del
+  catálogo. Lo alimenta una **Lambda** con un *event source mapping* al stream de la tabla
+  (`NEW_AND_OLD_IMAGES`): es el handler de `app/indexer.py`, el mismo código que en local corre
+  como el servicio `indexer`. Faltan, y son parte de la infraestructura, la DLQ y
+  `BisectBatchOnFunctionError` del mapping (un evento que falla siempre congela el shard) y la
+  firma SigV4 del cliente.
 - **Analítica**: un proceso ETL (Glue) copia datos hacia un data warehouse
   (Redshift/Athena sobre S3), separado de la base operativa.
 - **API pública**: API Gateway con autenticación, rate limiting y métricas
@@ -340,11 +397,11 @@ descriptos en la propuesta:
   `customer`/`librarian`/`sysadmin`. En la arquitectura target ese emisor lo
   reemplaza Cognito: el resto de la autorización por rol ya está en su lugar.
 - **Redes**: VPC con subnets públicas (ALB/API Gateway, CloudFront) y privadas
-  (RDS, tareas de cómputo).
+  (VPC endpoint de DynamoDB, OpenSearch, tareas de cómputo).
 
 ## Próximos pasos
 
 - Migrar la emisión de tokens propia a Cognito.
-- Integrar OpenSearch para la búsqueda de catálogo.
-- Definir el pipeline ETL hacia el data warehouse.
+- Definir el pipeline ETL hacia el data warehouse. Con DynamoDB deja de ser opcional: no hay
+  consultas ad-hoc sobre el modelo operativo, y la analítica sale de ahí (Glue → Athena/Redshift).
 - Infraestructura como código (Terraform/CDK) para el despliegue en AWS.

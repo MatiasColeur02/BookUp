@@ -5,6 +5,15 @@ info:
     API del MVP de BookUp: catálogo de libros, sedes de biblioteca, reservas de
     ejemplares físicos y usuarios. Generado a partir del código en
     `api/app/controllers/` (routers FastAPI) y `api/app/controllers/schemas.py`.
+
+
+    **Consistencia.** La fuente de verdad es DynamoDB, y todo lo que se lee por clave
+    (`GET /books/{isbn}`, `/books/{isbn}/availability`, las respuestas de los `POST` y
+    `PATCH`, reservas, usuarios) es consistente: se ve lo que se acaba de escribir. Solo el
+    **listado del catálogo** (`GET /books`, `/books/search`, `/books/cities`) sale de un
+    índice de búsqueda que se alimenta del stream de la tabla, así que es **eventualmente
+    consistente**: un cambio tarda en aparecer ~1 segundo. Si el índice no está disponible,
+    esos tres endpoints dan 503 y el resto de la API sigue funcionando.
   version: "0.1.0"
 servers:
   - url: http://localhost:8000
@@ -16,7 +25,9 @@ tags:
   - name: catalog
     description: >
       Catálogo de libros. Lectura pública; la escritura requiere
-      `librarian`/`sysadmin`.
+      `librarian`/`sysadmin`. El detalle de un libro y su disponibilidad se leen de la
+      base y son consistentes; el listado, la búsqueda y las ciudades se leen de un índice
+      de búsqueda y se actualizan ~1 s después de cada escritura.
   - name: authors
     description: Autores del catálogo
   - name: genres
@@ -107,10 +118,29 @@ paths:
             application/json:
               schema:
                 type: object
+                required: [status, cache, storage, search]
                 properties:
                   status:
                     type: string
                     example: ok
+                  cache:
+                    type: string
+                    enum: [ok, down, disabled]
+                    description: >
+                      Redis. Informativo, con `down` la API sirve igual, desde la base.
+                  storage:
+                    type: string
+                    enum: [ok, down, disabled]
+                    description: >
+                      Bucket de portadas. Informativo, sin él solo fallan los endpoints de
+                      portada.
+                  search:
+                    type: string
+                    enum: [ok, down, disabled]
+                    description: >
+                      Índice de búsqueda del catálogo. Informativo, sin él `GET /books`,
+                      `/books/search` y `/books/cities` dan 503 y el resto sigue andando.
+                      Ninguno de los tres baja el `status` general.
 
   /books:
     get:
@@ -129,14 +159,24 @@ paths:
         `city` significa **reservable hoy ahí**: el libro tiene al menos un ejemplar
         en estado `available` en una sede de esa ciudad. Por eso su resultado cambia
         con cada reserva.
+
+
+        **Eventualmente consistente.** El listado sale del índice de búsqueda, que se
+        actualiza ~1 segundo después de cada escritura (crear un libro, reservar,
+        cancelar, renombrar un autor...). El `POST` que creó un libro devuelve la entidad
+        completa de inmediato, y `GET /books/{isbn}` también; el listado lo incluye un
+        instante después. Da 503 si el índice no está disponible.
       operationId: listBooks
       parameters:
         - name: q
           in: query
           required: false
           description: >
-            Texto libre sobre título, ISBN, sinopsis y nombre de autor. Los comodines de
-            LIKE (`%` y `_`) se escapan: se busca el texto tal cual se escribió.
+            Texto libre sobre título, ISBN, sinopsis y nombre de autor. Sin distinguir
+            mayúsculas ni tildes («garcia marquez» encuentra «García Márquez»). Se piden
+            **todas** las palabras, y solo la última puede estar a medias («borg» encuentra
+            «Borges»; «jor luis borges» no). La entrada es texto, nunca sintaxis: `%`, `*`,
+            `OR`, `~` o `title:` no tienen ningún significado especial.
           schema: { type: string, minLength: 1, maxLength: 200 }
         - name: author_id
           in: query
@@ -179,6 +219,8 @@ paths:
                 $ref: "#/components/schemas/BookPage"
         "422":
           $ref: "#/components/responses/ValidationError"
+        "503":
+          $ref: "#/components/responses/SearchUnavailable"
     post:
       tags: [catalog]
       summary: Crear un libro en el catálogo
@@ -220,7 +262,8 @@ paths:
       summary: Ciudades con stock disponible
       description: >
         Las opciones del filtro `city` de `GET /books`: solo las ciudades que hoy
-        tienen al menos un ejemplar disponible.
+        tienen al menos un ejemplar disponible. Sale del índice de búsqueda (eventualmente
+        consistente, ~1 s); da 503 si no está disponible.
       operationId: listCities
       responses:
         "200":
@@ -231,14 +274,19 @@ paths:
                 type: array
                 items: { type: string }
                 example: ["Buenos Aires", "Córdoba", "Rosario"]
+        "503":
+          $ref: "#/components/responses/SearchUnavailable"
 
   /books/search:
     get:
       tags: [catalog]
       summary: Buscar libros por texto libre
       description: >
-        Búsqueda por título/ISBN/autor usando `ILIKE` (placeholder; en la
-        arquitectura target se reemplaza por OpenSearch).
+        Búsqueda por título, ISBN, autor y sinopsis sobre el índice de búsqueda
+        (OpenSearch): sin distinguir mayúsculas ni tildes, con todas las palabras
+        presentes y la última admitida a medias. Devuelve hasta 50 libros, los más
+        relevantes primero. Eventualmente consistente (~1 s); da 503 si el índice no está
+        disponible.
       operationId: searchBooks
       parameters:
         - name: q
@@ -259,11 +307,16 @@ paths:
                   $ref: "#/components/schemas/BookOut"
         "422":
           $ref: "#/components/responses/ValidationError"
+        "503":
+          $ref: "#/components/responses/SearchUnavailable"
 
   /books/{isbn}:
     get:
       tags: [catalog]
       summary: Obtener un libro por ISBN
+      description: >
+        Se lee directo de la base: es consistente, un libro recién creado se ve de
+        inmediato (a diferencia del listado, que sale del índice de búsqueda).
       operationId: getBook
       parameters:
         - $ref: "#/components/parameters/IsbnPath"
@@ -1435,6 +1488,21 @@ components:
         type: integer
 
   responses:
+    SearchUnavailable:
+      description: >
+        El índice de búsqueda no está configurado o no contesta. Solo afecta al listado, la
+        búsqueda y las ciudades del catálogo; el resto de la API sigue funcionando.
+        Conviene reintentar tras `Retry-After`.
+      headers:
+        Retry-After:
+          description: Segundos sugeridos antes de reintentar.
+          schema: { type: integer, example: 5 }
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              detail: { type: string, example: The search index is not reachable }
     NotFound:
       description: El recurso solicitado no existe
       content:

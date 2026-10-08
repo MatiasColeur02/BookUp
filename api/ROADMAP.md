@@ -1,5 +1,9 @@
 # Migración de PostgreSQL a DynamoDB
 
+> **Estado: las 8 fases están hechas.** Este documento queda como registro de las decisiones y de lo
+> que se desvió del plan (las notas «Fase N hecha» de la sección 8). Lo vigente está en `README.md`,
+> `api/CLAUDE.md` y `api/data_base.md` (sección 4); este plan describe el camino, no el estado actual.
+
 Plan de ejecución para reemplazar la capa de datos de BookUp por DynamoDB + OpenSearch.
 No hay nada en producción: no hay migración de datos, hay **reimplementación**. El
 `seed.py` sigue siendo la forma de poblar el sistema y su interfaz (`python -m app.seed`)
@@ -540,7 +544,7 @@ nada de lo que existe.
 | **5** ✅ | Seed | `seed.py` reescrito, con contadores y desnormalización | `python -m app.seed` dos veces = mismo resultado, sin duplicar |
 | **6** ✅ | OpenSearch | `search.py`, `indexer.py`, `reindex.py`, los 3 endpoints migrados | `GET /books` con filtros combinados devuelve lo mismo que con Postgres |
 | **7** ✅ | Limpieza | borrar `models.py`, `database.py`, `alembic/`, dependencias | `grep -r sqlalchemy api/` no devuelve nada |
-| **8** | Docs | `README.md`, `CLAUDE.md`, `openapi.yml` (sin cambios de contrato, sí de notas) | las secciones de §10 actualizadas |
+| **8** ✅ | Docs | `README.md`, `CLAUDE.md`, `openapi.yml` (sin cambios de contrato, sí de notas) | las secciones de §10 actualizadas |
 
 > **Fase 1 hecha.** Desvíos respecto del plan, todos a propósito: los servicios del compose
 > se llaman `dynamodb` / `dynamodb-init` (no `db-init`) porque `db` sigue siendo Postgres
@@ -679,6 +683,18 @@ nada de lo que existe.
 >   `docker compose restart dynamodb-test`.
 > - Los comentarios que hablaban de Postgres o del ORM como estado actual se reescribieron
 >   (`entities.py`, `repositories/__init__.py`, `schemas.py`, `cache.py`, los tests).
+
+> **Fase 8 hecha.** Actualizados `README.md` (stack, estructura, servicios del compose, cómo
+> correrlo y empezar de cero, tests, cache, validación, endpoints y la sección de AWS),
+> `api/CLAUDE.md` (comandos, arquitectura, modelo de datos, búsqueda, tests y estado conocido),
+> `api/data_base.md` (el diccionario relacional queda como modelo *conceptual*; sección 4 nueva con el
+> modelo físico: ítems, GSIs, accesos, lo que Postgres daba gratis e índice de búsqueda),
+> `api/openapi.yml` (**sin cambios de contrato**: notas de consistencia eventual, el 503 de los tres
+> endpoints del catálogo y el `/health` real; validado como YAML y con todas las referencias
+> resueltas) y `frontend/README.md`. Los comandos de reset y de tests documentados se ejecutaron
+> tal cual. Quedan dos cosas que ya estaban así y que no son de esta migración: el README apunta a
+> un `frontend/ROADMAP.md` que no existe, y la infraestructura como código (Terraform/CDK) sigue en
+> «Próximos pasos».
 
 **El punto de no retorno es la fase 4.** Hasta la 3 conviven los dos mundos; a partir de ahí
 los services solo hablan DynamoDB.

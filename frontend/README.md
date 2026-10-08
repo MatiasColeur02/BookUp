@@ -17,7 +17,7 @@ npm run preview           # sirve dist/ para revisar el build
 linter configurados. Corrélo antes de commitear — `tsc --noEmit` es lo que garantiza
 que `src/types.ts` siga alineado con `api/openapi.yml`.
 
-Con Docker Compose (desde la raíz del repo, levanta Postgres + API + frontend):
+Con Docker Compose (desde la raíz del repo, levanta DynamoDB Local + OpenSearch + Redis + MinIO + API + frontend):
 
 ```bash
 docker compose up --build
