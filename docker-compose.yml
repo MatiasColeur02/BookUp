@@ -139,6 +139,11 @@ services:
       DISABLE_SECURITY_PLUGIN: "true"
       DISABLE_INSTALL_DEMO_CONFIG: "true"
       OPENSEARCH_JAVA_OPTS: "-Xms512m -Xmx512m"
+      # El disco de la VM de Docker se llena (imágenes, build cache) y OpenSearch lo trata
+      # como emergencia: pasado el 95% bloquea la creación de índices, y ese bloqueo queda
+      # grabado en el volumen aunque después se libere espacio. Es un cluster de desarrollo
+      # y descartable, así que no vale la pena que el espacio libre lo rompa.
+      cluster.routing.allocation.disk.threshold_enabled: "false"
     ulimits:
       memlock:
         soft: -1
@@ -156,6 +161,34 @@ services:
       interval: 10s
       timeout: 5s
       retries: 12
+
+  # El indexador: lee el stream de la tabla y mantiene el índice de búsqueda (en AWS es una
+  # Lambda con un event source mapping al mismo stream; ver `api/app/indexer.py`). Al arrancar
+  # crea el índice, reindexa todo desde DynamoDB y sigue los cambios, así que `docker compose
+  # up` deja la búsqueda andando sin pasos manuales. El seed también reindexa por su cuenta.
+  indexer:
+    build: ./api
+    command: python -m app.indexer
+    restart: unless-stopped
+    environment:
+      DYNAMO_TABLE: bookup
+      DYNAMO_ENDPOINT_URL: http://dynamodb:8000
+      AWS_REGION: us-east-1
+      AWS_ACCESS_KEY_ID: bookup
+      AWS_SECRET_ACCESS_KEY: bookup123
+      OPENSEARCH_URL: http://search:9200
+      OPENSEARCH_INDEX: bookup-books
+      # Para invalidar el cache de catálogo cuando el índice cambia.
+      REDIS_URL: redis://cache:6379/0
+    depends_on:
+      dynamodb-init:
+        condition: service_completed_successfully
+      search:
+        condition: service_healthy
+      cache:
+        condition: service_healthy
+    volumes:
+      - ./api:/app
 
   api:
     build: ./api

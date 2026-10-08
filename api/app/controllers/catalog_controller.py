@@ -112,8 +112,8 @@ def search_books(
     q: str = Query(..., min_length=1, max_length=MAX_QUERY_LENGTH),
     db: Dynamo = Depends(get_db),
 ):
-    # La consulta más cara del MVP: un ILIKE con `%...%` a cuatro columnas, que no usa
-    # índice y escanea la tabla entera. Es la que más gana con el cache.
+    # Texto libre sobre el índice de búsqueda: la más cara de las lecturas del catálogo,
+    # y la que más gana con el cache.
     return cache.cached(
         cache.NS_CATALOG,
         f"books:search:{cache.digest(q)}",

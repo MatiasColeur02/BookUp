@@ -538,7 +538,7 @@ nada de lo que existe.
 | **3** ✅ | Repositories | los 7 reescritos + tests de repositorio propios (nuevos) | cada método probado contra DynamoDB Local |
 | **4** ✅ | Services | los 8 migrados, incluidas las 5 transacciones de §4.2 | los tests de reserva/ejemplar en verde, incluidos los de concurrencia |
 | **5** ✅ | Seed | `seed.py` reescrito, con contadores y desnormalización | `python -m app.seed` dos veces = mismo resultado, sin duplicar |
-| **6** | OpenSearch | `search.py`, `indexer.py`, `reindex.py`, los 3 endpoints migrados | `GET /books` con filtros combinados devuelve lo mismo que con Postgres |
+| **6** ✅ | OpenSearch | `search.py`, `indexer.py`, `reindex.py`, los 3 endpoints migrados | `GET /books` con filtros combinados devuelve lo mismo que con Postgres |
 | **7** | Limpieza | borrar `models.py`, `database.py`, `alembic/`, dependencias | `grep -r sqlalchemy api/` no devuelve nada |
 | **8** | Docs | `README.md`, `CLAUDE.md`, `openapi.yml` (sin cambios de contrato, sí de notas) | las secciones de §10 actualizadas |
 
@@ -626,6 +626,43 @@ nada de lo que existe.
 >   necesita `docker compose up -d dynamodb-test`.
 > - La fecha de las reservas es relativa a "ahora"; `seed(now=...)` la fija para los tests.
 >   Lo único que no es idéntico entre corridas es el hash bcrypt de los passwords (sal nueva).
+
+> **Fase 6 hecha.** `GET /books` (con filtros), `/books/search` y `/books/cities` salen de
+> OpenSearch; el puente en memoria de la fase 4 se borró. Qué hay que saber:
+>
+> - **Piezas**: `persistence/search.py` (cliente, mapping, documento y `multi_match`),
+>   `app/indexer.py` (handler de Lambda + poller local sobre el stream) y `app/reindex.py`.
+>   El servicio `indexer` del compose engancha el stream, reindexa todo y sigue los cambios, así
+>   `docker compose up` deja la búsqueda andando; el seed también reindexa. Retraso medido de
+>   punta a punta: ~1 s (reservar, cancelar, renombrar un autor, crear un libro).
+> - **La imagen del evento corrige a GSI2.** Los disponibles de un libro se leen de un índice
+>   secundario (eventualmente consistente), así que el estado que trae el propio evento pisa lo
+>   que diga el índice; si no, «se reservó el último ejemplar» podía dejar a la ciudad ofreciendo
+>   stock hasta el próximo evento del libro.
+> - **Orden refrescar → invalidar.** El indexador fuerza el refresco del índice *antes* de
+>   invalidar el cache de catálogo. Al revés (como estaba al principio), una lectura dentro de la
+>   ventana de ~1 s recacheaba la lista vieja por 5 minutos. Lo encontró la prueba de punta a punta.
+> - **Búsqueda de texto**: `multi_match` tipo `bool_prefix` con `and`: todas las palabras, y solo
+>   la última puede estar a medias («borg» sí, «jor luis borges» no; «Ficc\*» tampoco: con un
+>   carácter después ya no es palabra a medias). Sin tildes ni mayúsculas. Es menos permisiva que
+>   el `ILIKE '%…%'`, que matcheaba en medio de una palabra. Los operadores del usuario (`*`, `OR`,
+>   `~`, `title:`) son texto.
+> - **El índice faltante no es un error**: sin índice (aún nadie indexó) el catálogo es vacío.
+>   Sin `OPENSEARCH_URL` o con el servicio caído, los tres endpoints dan **503** con `Retry-After`,
+>   y `/health` informa `search: ok|down|disabled` sin bajar el status general.
+> - **Tests**: la suite HTTP usa un `FakeSearchIndex` en proceso; `test_search_contract.py` corre
+>   las mismas ~100 expectativas contra el fake **y** contra OpenSearch real (si el fake promete
+>   algo que el motor no hace, falla ahí). `test_indexer.py` incluye un recorrido completo sobre
+>   el stream real de DynamoDB Local. Un fixture de sesión impide que un test llegue al índice de
+>   desarrollo por accidente. `pytest` ahora también necesita `docker compose up -d search`.
+> - **Reset de la tabla**: el poller detecta que la tabla se recreó (stream nuevo) y vuelve a
+>   reindexar solo; no hace falta reiniciar el servicio.
+> - **Pendiente de IaC (fase fuera del plan)**: la Lambda necesita su DLQ y
+>   `BisectBatchOnFunctionError`, y el cliente falta firmar con SigV4 para un dominio gestionado de
+>   AWS; en local no aplica y no está probado.
+> - `opensearch-py` 2.7.1 entra a `requirements.txt`. Además el servicio `search` del compose
+>   desactiva el umbral de disco: con el disco de la VM de Docker casi lleno, OpenSearch grababa un
+>   bloqueo de creación de índices en el volumen que sobrevivía a liberar espacio.
 
 **El punto de no retorno es la fase 4.** Hasta la 3 conviven los dos mundos; a partir de ahí
 los services solo hablan DynamoDB.

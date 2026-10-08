@@ -46,6 +46,20 @@ def fresh(db):
     return db
 
 
+def all_books(db: Dynamo):
+    """Todos los libros, por la lista del catálogo (GSI1): la fuente de verdad, no el índice."""
+    isbns = [
+        i["isbn"]
+        for i in s.query_all(
+            db,
+            IndexName=keys.GSI1,
+            KeyConditionExpression="GSI1PK = :list",
+            ExpressionAttributeValues={":list": keys.LIST_CATALOG},
+        )
+    ]
+    return [BookRepository(db).get(isbn) for isbn in isbns]
+
+
 def scan(db: Dynamo) -> dict[tuple[str, str], dict]:
     """Toda la tabla. Sin `password_hash`: bcrypt usa una sal nueva en cada corrida."""
     items, kwargs = {}, {"ConsistentRead": True}
@@ -66,7 +80,7 @@ def test_the_dataset_has_the_documented_size(seeded):
     assert len(LibraryRepository(seeded).list_all()) == len(seeding.LIBRARIES) == 10
     assert len(AuthorRepository(seeded).list_all()) == len(seeding.AUTHORS) == 53
     assert len(GenreRepository(seeded).list_all()) == len(seeding.GENRES) == 16
-    assert len(BookRepository(seeded).list_filtered(limit=500)[0]) == len(seeding.BOOKS) == 71
+    assert len(all_books(seeded)) == len(seeding.BOOKS) == 71
     assert len(PhysicalBookRepository(seeded).list_all()) == 398
     # 12 de staff (2 sysadmin + una librarian por sede) y 20 lectores.
     assert len(UserRepository(seeded).list_all()) == 32
@@ -135,7 +149,7 @@ def test_counters_are_left_at_the_last_id_so_the_next_create_is_n_plus_one(fresh
     )
     assert user.id == 33
     copy = PhysicalBookRepository(seeded).create(
-        PhysicalBook(isbn=BookRepository(seeded).list_filtered(limit=1)[0][0].isbn, library_id=1)
+        PhysicalBook(isbn=all_books(seeded)[0].isbn, library_id=1)
     )
     assert copy.id == 399
     reservation = ReservationRepository(seeded).create(
@@ -146,7 +160,7 @@ def test_counters_are_left_at_the_last_id_so_the_next_create_is_n_plus_one(fresh
 
 def test_the_denormalized_fields_are_consistent_with_their_sources(seeded):
     libraries = {lib.id: lib for lib in LibraryRepository(seeded).list_all()}
-    titles = {b.isbn: b.title for b in BookRepository(seeded).list_filtered(limit=500)[0]}
+    titles = {b.isbn: b.title for b in all_books(seeded)}
     authors = {a.id: a.name for a in AuthorRepository(seeded).list_all()}
     genres = {g.id: g.name for g in GenreRepository(seeded).list_all()}
 
@@ -155,7 +169,7 @@ def test_the_denormalized_fields_are_consistent_with_their_sources(seeded):
         assert (copy.library_name, copy.library_city) == (library.name, library.city)
         assert copy.book_title == titles[copy.isbn]
 
-    for book in BookRepository(seeded).list_filtered(limit=500)[0]:
+    for book in all_books(seeded):
         assert book.authors and all(authors[a.id] == a.name for a in book.authors)
         assert book.genres and all(genres[g.id] == g.name for g in book.genres)
 

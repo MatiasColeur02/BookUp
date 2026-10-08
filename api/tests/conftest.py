@@ -3,6 +3,7 @@ from fastapi.testclient import TestClient
 
 from app.config import settings
 from app.main import app
+from app.persistence import search
 from app.persistence.dynamo import get_db
 from app.persistence.entities import User, UserRole
 from app.persistence.repositories import UserRepository
@@ -10,6 +11,7 @@ from app.services.auth_service import hash_password
 
 from .dynamo_support import temporary_dynamo
 from .factories import Factory
+from .fake_search import FakeSearchIndex
 
 PASSWORD = "secret123"
 
@@ -24,6 +26,49 @@ def disabled_cache(monkeypatch):
     que no tiene nada que ver.
     """
     monkeypatch.setattr(settings, "redis_url", "")
+
+
+@pytest.fixture(autouse=True, scope="session")
+def no_real_search():
+    """Ningún test, ni siquiera un fixture de módulo, llega al índice real por accidente.
+
+    El contenedor `api` trae `OPENSEARCH_URL` apuntando al índice de desarrollo; sin esto, un
+    fixture que corre antes del `search_index` de cada test (por ejemplo, uno que siembra y
+    reindexa) escribiría datos de prueba en él. El contract test arma su propio cliente con un
+    índice temporal y no pasa por `get_index`.
+    """
+    patch = pytest.MonkeyPatch()
+
+    def forbidden():
+        raise AssertionError("a test reached the real search index; use the `search_index` fixture")
+
+    patch.setattr(search, "get_index", forbidden)
+    patch.setattr(settings, "opensearch_url", "")
+    yield
+    patch.undo()
+
+
+@pytest.fixture(autouse=True)
+def search_index(monkeypatch):
+    """La suite corre siempre contra un índice de búsqueda en proceso, tenga o no
+    `OPENSEARCH_URL` el entorno (el contenedor `api` del compose sí la trae).
+
+    Arranca vacío: los tests que listan el catálogo lo llenan con `sync_search`, que hace lo
+    que en producción hace el indexador. `tests/test_search_contract.py` verifica que este
+    fake y OpenSearch de verdad se comporten igual.
+    """
+    index = FakeSearchIndex()
+    monkeypatch.setattr(search, "get_index", lambda: index)
+    monkeypatch.setattr(settings, "opensearch_url", "http://fake-search:9200")
+    return index
+
+
+@pytest.fixture()
+def sync_search(db, search_index):
+    """Pasa el estado actual de DynamoDB al índice de búsqueda, como lo haría el indexador."""
+    from app.reindex import reindex
+
+    return lambda: reindex(db, search_index)
 
 
 @pytest.fixture()

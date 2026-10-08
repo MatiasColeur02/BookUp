@@ -4,10 +4,9 @@ Un libro es una **partición**: el ítem `META` más un ítem por autor y por g�
 (*adjacency list*, ROADMAP §3.1), con el nombre desnormalizado. Leerlo entero es un solo
 `Query` con `PK = BOOK#<isbn>`.
 
-`list_filtered`, `search` y `available_cities` eran queries con `EXISTS`/`ILIKE` y
-DynamoDB no las puede servir (filtros combinables + texto libre): la fase 6 las mueve a
-OpenSearch (`persistence/search.py`). Hasta entonces las sirve `_catalog_bridge.py`, un
-puente en memoria que se borra con esa fase.
+El listado con filtros, la búsqueda de texto y las ciudades **no están acá**: DynamoDB no
+puede servir filtros combinables con texto libre, y eso es del índice de OpenSearch
+(`persistence/search.py`), alimentado por el stream de esta tabla.
 """
 
 from __future__ import annotations
@@ -19,7 +18,7 @@ from ..dynamo import Dynamo
 from ..entities import Author, Book, Genre
 from ..errors import ConditionFailedError
 from .. import keys
-from . import _catalog_bridge, _items, _support as s
+from . import _items, _support as s
 
 _SCALARS = {"title", "language", "pages", "synopsis", "cover_key"}
 _NEW = "attribute_not_exists(PK)"
@@ -140,36 +139,6 @@ class BookRepository:
         items = self._partition(book.isbn)
         ops = [s.tx_delete(keys.key(i[keys.PK], i[keys.SK])) for i in items]
         s.run_in_batches(self.db, ops)
-
-    # -- puente temporal hasta la fase 6 (OpenSearch); ver `_catalog_bridge.py` ------
-
-    def list_filtered(
-        self,
-        *,
-        query: str | None = None,
-        author_ids: list[int] | None = None,
-        genre_ids: list[int] | None = None,
-        cities: list[str] | None = None,
-        limit: int = 20,
-        offset: int = 0,
-    ) -> tuple[list[Book], int]:
-        """Una página del catálogo filtrado, más el total que matchea (no el de la página)."""
-        return _catalog_bridge.list_filtered(
-            self.db,
-            query=query,
-            author_ids=author_ids or [],
-            genre_ids=genre_ids or [],
-            cities=cities or [],
-            limit=limit,
-            offset=offset,
-        )
-
-    def search(self, query: str, limit: int = 50) -> list[Book]:
-        return _catalog_bridge.search(self.db, query, limit)
-
-    def available_cities(self) -> list[str]:
-        """Ciudades con al menos un ejemplar disponible, para poblar el filtro."""
-        return _catalog_bridge.available_cities(self.db)
 
     def has_physical_books(self, isbn: str) -> bool:
         return s.exists_any(

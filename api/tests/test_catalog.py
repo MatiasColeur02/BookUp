@@ -4,7 +4,7 @@ from app.persistence.repositories import PhysicalBookRepository, ReservationRepo
 
 
 @pytest.fixture()
-def sample_catalog(make):
+def sample_catalog(make, sync_search):
     library_a = make.library("Central", city="CABA")
     library_b = make.library("Norte", city="Rosario")
 
@@ -21,6 +21,7 @@ def sample_catalog(make):
 
     make.copy(book.isbn, library_a)
     make.copy(book.isbn, library_b)
+    sync_search()  # el indexador, en producción, un instante después de cada escritura
     return book, library_a, library_b
 
 
@@ -87,12 +88,15 @@ def test_list_books_filters_by_city_with_available_stock(client, sample_catalog)
     assert client.get("/books", params={"city": "Narnia"}).json()["total"] == 0
 
 
-def test_city_filter_ignores_copies_that_are_not_available(client, sample_catalog, make, db):
+def test_city_filter_ignores_copies_that_are_not_available(
+    client, sample_catalog, make, db, sync_search
+):
     book, library_a, library_b = sample_catalog
     # "En esta ciudad" es "reservable hoy": un ejemplar prestado no cuenta.
     for copy in PhysicalBookRepository(db).list_all(library_id=library_a.id):
         reservation = make.reservation(copy)
         ReservationRepository(db).mark_picked_up(reservation.id)
+    sync_search()
 
     assert client.get("/books", params={"city": library_a.city}).json()["total"] == 0
     assert client.get("/books", params={"city": library_b.city}).json()["total"] == 1

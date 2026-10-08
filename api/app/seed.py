@@ -28,6 +28,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 
+from .config import settings
 from .persistence import keys
 from .persistence.dynamo import Dynamo, get_dynamo
 from .persistence.entities import (
@@ -869,6 +870,27 @@ def _write(db: Dynamo, items: list[dict]) -> None:
         list(pool.map(lambda batch: _write_batch(db, batch), batches))
 
 
+def _reindex(db: Dynamo) -> None:
+    """Indexa el catálogo recién sembrado, si hay un índice configurado.
+
+    El seed no escribe en OpenSearch: escribe en DynamoDB y después llama a `reindex`, que
+    arma los documentos desde la tabla — un solo camino de indexación, también acá. Si el
+    índice no contesta no se aborta: los datos ya están, y `python -m app.reindex` (o el
+    indexador al arrancar) lo repara.
+    """
+    if not settings.opensearch_url:
+        return
+    from .persistence.errors import SearchUnavailableError
+    from .reindex import reindex
+
+    try:
+        result = reindex(db)
+        print(f"Search index rebuilt: {result.indexed} books.")
+    except SearchUnavailableError as exc:
+        print(f"WARNING: the data was seeded but the search index was not built ({exc}).")
+        print("         Run `python -m app.reindex` when OpenSearch is up.")
+
+
 def seed(db: Dynamo | None = None, *, now: datetime | None = None) -> bool:
     """Siembra la tabla. Devuelve `False` si ya estaba sembrada y no hizo nada."""
     db = db or get_dynamo()
@@ -920,6 +942,8 @@ def seed(db: Dynamo | None = None, *, now: datetime | None = None) -> bool:
 
     # Último: recién ahora la tabla cuenta como sembrada.
     _write(db, [{**keys.seed_marker(), "seeded_at": keys.iso(now)}])
+
+    _reindex(db)
 
     open_reservations = sum(1 for r in reservations if r.is_open)
     print(

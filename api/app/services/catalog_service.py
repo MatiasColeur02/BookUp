@@ -1,5 +1,6 @@
 from ..persistence.dynamo import Dynamo
 from ..persistence.entities import Author, Book, Genre, Library, PhysicalBook
+from ..persistence import search
 from ..persistence.errors import AlreadyExistsError, ConditionFailedError
 from ..persistence.repositories import (
     AuthorRepository,
@@ -39,9 +40,12 @@ def list_books(
     """Una página del catálogo más el total, para que el cliente sepa si quedan más.
 
     Buscar y filtrar son la misma operación: el texto libre es un filtro más, así que
-    se combinan entre sí y paginan juntos.
+    se combinan entre sí y paginan juntos. Lo sirve el índice de búsqueda, no DynamoDB, y
+    por eso es eventualmente consistente: un libro recién creado tarda ~1 s en aparecer
+    (el `POST` sí devuelve la entidad, leída de DynamoDB). `db` no se usa; queda en la firma
+    para que los controllers sigan pasando lo mismo a todos los services.
     """
-    return BookRepository(db).list_filtered(
+    return search.get_index().search_books(
         query=query,
         author_ids=author_ids,
         genre_ids=genre_ids,
@@ -53,11 +57,11 @@ def list_books(
 
 def available_cities(db: Dynamo) -> list[str]:
     """Ciudades con stock disponible, para poblar el filtro del catálogo."""
-    return BookRepository(db).available_cities()
+    return search.get_index().available_cities()
 
 
 def search_books(db: Dynamo, query: str) -> list[Book]:
-    return BookRepository(db).search(query)
+    return search.get_index().search_text(query)
 
 
 def get_book(db: Dynamo, isbn: str) -> Book:

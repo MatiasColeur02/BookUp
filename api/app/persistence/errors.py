@@ -24,3 +24,11 @@ class ConditionFailedError(PersistenceError):
 
 class AlreadyExistsError(ConditionFailedError):
     """Se intentó crear algo cuya identidad (email, nombre de género, isbn) ya existe."""
+
+
+class SearchUnavailableError(PersistenceError):
+    """El índice de búsqueda no está configurado o no contesta.
+
+    `main.py` lo mapea a 503. A diferencia de `ConditionFailedError` no es un conflicto del
+    cliente: es una dependencia caída, y `Retry-After`/reintentar tiene sentido.
+    """

@@ -102,13 +102,15 @@ def test_cover_upload_unknown_book_is_404(client, s3, sysadmin_headers):
     assert response.status_code == 404
 
 
-def test_attach_cover_sets_cover_url(client, book, s3, sysadmin_headers):
+def test_attach_cover_sets_cover_url(client, book, s3, sysadmin_headers, sync_search):
     key = f"covers/{ISBN}/abc.png"
     response = client.put(f"/books/{ISBN}/cover", json={"key": key}, headers=sysadmin_headers)
     assert response.status_code == 200
     assert response.json()["cover_url"].endswith(key)
 
-    # Y el catálogo la devuelve: `cover_url` sale de `cover_key`, que no se expone.
+    # Y el catálogo la devuelve: `cover_url` sale de `cover_key`, que no se expone. (El
+    # listado sale del índice, que el indexador actualiza un instante después.)
+    sync_search()
     listed = client.get("/books").json()["items"][0]
     assert listed["cover_url"].endswith(key)
     assert "cover_key" not in listed

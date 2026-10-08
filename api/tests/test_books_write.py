@@ -75,8 +75,9 @@ def test_create_book_with_unknown_genre(client, sysadmin_headers):
     assert response.status_code == 404
 
 
-def test_search_route_still_wins_over_the_isbn_route(client, sysadmin_headers):
+def test_search_route_still_wins_over_the_isbn_route(client, sysadmin_headers, sync_search):
     client.post("/books", json=_payload(), headers=sysadmin_headers)
+    sync_search()
 
     response = client.get("/books/search", params={"q": "Cien"})
     assert response.status_code == 200

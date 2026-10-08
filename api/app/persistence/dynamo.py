@@ -34,6 +34,9 @@ class Dynamo:
     table: Any
     # Cliente de bajo nivel: `TransactWriteItems` no existe en el recurso `Table`.
     client: Any
+    # Lectura del stream de la tabla (`app/indexer.py`). Mismo endpoint y credenciales que
+    # `client`: el stream de una tabla vive donde vive la tabla.
+    streams: Any
 
 
 def connect(
@@ -58,12 +61,14 @@ def connect(
 
     # Una `Session` propia y no el default de boto3: crear recursos desde varios threads
     # sobre la sesión compartida es una carrera conocida.
-    resource = boto3.session.Session().resource("dynamodb", **kwargs)
+    session = boto3.session.Session()
+    resource = session.resource("dynamodb", **kwargs)
     return Dynamo(
         table_name=table_name,
         resource=resource,
         table=resource.Table(table_name),
         client=resource.meta.client,
+        streams=session.client("dynamodbstreams", **kwargs),
     )
 
 

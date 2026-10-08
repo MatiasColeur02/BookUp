@@ -11,3 +11,4 @@ bcrypt==4.2.0
 pyjwt==2.9.0
 redis==5.0.8
 boto3==1.35.24
+opensearch-py==2.7.1

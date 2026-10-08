@@ -14,7 +14,8 @@ from .controllers import (
     reservation_controller,
     user_controller,
 )
-from .persistence.errors import ConditionFailedError
+from .persistence import search
+from .persistence.errors import ConditionFailedError, SearchUnavailableError
 from .services.errors import ConflictError, ForbiddenError, NotFoundError, UnauthorizedError
 
 app = FastAPI(title="BookUp API", version="0.1.0")
@@ -71,6 +72,13 @@ def handle_condition_failed(request: Request, exc: ConditionFailedError) -> JSON
     return JSONResponse(status_code=409, content={"detail": str(exc)})
 
 
+@app.exception_handler(SearchUnavailableError)
+def handle_search_unavailable(request: Request, exc: SearchUnavailableError) -> JSONResponse:
+    # Solo el catálogo con filtros y la búsqueda dependen del índice; el resto de la API
+    # sigue sirviendo. Un 503 (y no un 500) le dice al cliente que reintente.
+    return JSONResponse(status_code=503, content={"detail": str(exc)}, headers={"Retry-After": "5"})
+
+
 @app.exception_handler(UnauthorizedError)
 def handle_unauthorized(request: Request, exc: UnauthorizedError) -> JSONResponse:
     return JSONResponse(
@@ -97,7 +105,13 @@ app.include_router(user_controller.router)
 
 @app.get("/health")
 def health():
-    # `cache` y `storage` son informativos: la API sirve todo igual con Redis caído o
-    # sin bucket, así que un `down` acá no baja el status general ni saca la instancia
-    # del target group.
-    return {"status": "ok", "cache": cache.health(), "storage": storage.health()}
+    # `cache`, `storage` y `search` son informativos: la API sirve todo igual con Redis caído,
+    # sin bucket o sin el índice (solo `GET /books` con filtros, `/books/search` y
+    # `/books/cities` dejan de responder), así que un `down` acá no baja el status general ni
+    # saca la instancia del target group.
+    return {
+        "status": "ok",
+        "cache": cache.health(),
+        "storage": storage.health(),
+        "search": search.health(),
+    }
