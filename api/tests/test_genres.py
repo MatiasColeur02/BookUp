@@ -1,9 +1,9 @@
-from app.persistence.models import Book, Genre, UserRole
+from app.persistence.entities import UserRole
 
 
-def test_list_genres_is_public(client, db_session):
-    db_session.add_all([Genre(name="Ficción"), Genre(name="Ensayo")])
-    db_session.commit()
+def test_list_genres_is_public(client, make):
+    make.genre("Ficción")
+    make.genre("Ensayo")
 
     response = client.get("/genres")
     assert response.status_code == 200
@@ -79,12 +79,9 @@ def test_delete_genre(client, sysadmin_headers):
     assert client.get(f"/genres/{created['id']}").status_code == 404
 
 
-def test_delete_genre_conflicts_when_linked_to_a_book(client, sysadmin_headers, db_session):
-    genre = Genre(name="Ficción")
-    db_session.add(genre)
-    db_session.flush()
-    db_session.add(Book(isbn="9788420633107", title="Ficciones", language="es", genres=[genre]))
-    db_session.commit()
+def test_delete_genre_conflicts_when_linked_to_a_book(client, sysadmin_headers, make):
+    genre = make.genre("Ficción")
+    make.book("9788420633107", "Ficciones", genres=[genre])
 
     response = client.delete(f"/genres/{genre.id}", headers=sysadmin_headers)
     assert response.status_code == 409

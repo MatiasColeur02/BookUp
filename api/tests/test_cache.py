@@ -5,7 +5,8 @@ import redis
 
 from app import cache
 from app.config import settings
-from app.persistence.models import Author, Book, Genre, Library, PhysicalBook, UserRole
+from app.persistence.entities import UserRole
+from app.persistence.repositories import BookRepository
 
 
 class FakeRedis:
@@ -79,35 +80,22 @@ def fake_cache(monkeypatch):
 
 
 @pytest.fixture()
-def catalog(db_session):
-    library = Library(name="Central", address="Calle 1", state="BA", city="CABA")
-    author = Author(name="Jorge Luis Borges")
-    genre = Genre(name="Ficción")
-    db_session.add_all([library, author, genre])
-    db_session.flush()
-
-    book = Book(
-        isbn="9788420633107",
-        title="Ficciones",
-        language="es",
-        authors=[author],
-        genres=[genre],
-    )
-    db_session.add(book)
-    db_session.flush()
-    db_session.add(PhysicalBook(isbn=book.isbn, library_id=library.id))
-    db_session.commit()
+def catalog(make):
+    library = make.library("Central", city="CABA")
+    author = make.author("Jorge Luis Borges")
+    genre = make.genre("Ficción")
+    book = make.book("9788420633107", "Ficciones", authors=[author], genres=[genre])
+    make.copy(book.isbn, library)
     return book, author, library
 
 
-def test_read_is_served_from_cache(client, fake_cache, catalog, db_session):
+def test_read_is_served_from_cache(client, fake_cache, catalog, db):
     book, _, _ = catalog
     assert client.get(f"/books/{book.isbn}").json()["title"] == "Ficciones"
 
     # Escritura por fuera de la API: nadie invalida, así que el hit sigue sirviendo lo
     # viejo. Es la prueba de que la segunda lectura no tocó la base.
-    book.title = "El Aleph"
-    db_session.commit()
+    BookRepository(db).update(book.isbn, title="El Aleph")
 
     assert client.get(f"/books/{book.isbn}").json()["title"] == "Ficciones"
 

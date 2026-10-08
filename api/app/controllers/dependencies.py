@@ -7,10 +7,9 @@ live in the services, next to the entity they have to load anyway.
 
 from fastapi import Depends
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from sqlalchemy.orm import Session
 
-from ..persistence.database import get_db
-from ..persistence.models import User, UserRole
+from ..persistence.dynamo import Dynamo, get_db
+from ..persistence.entities import User, UserRole
 from ..persistence.repositories import UserRepository
 from ..services import auth_service
 from ..services.errors import ForbiddenError, UnauthorizedError
@@ -22,7 +21,7 @@ _bearer = HTTPBearer(auto_error=False, description="JWT emitido por `POST /auth/
 
 def get_current_user(
     credentials: HTTPAuthorizationCredentials | None = Depends(_bearer),
-    db: Session = Depends(get_db),
+    db: Dynamo = Depends(get_db),
 ) -> User:
     if credentials is None:
         raise UnauthorizedError("Missing bearer token")

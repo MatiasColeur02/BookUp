@@ -1,13 +1,13 @@
 import pytest
 
-from app.persistence.dynamo_repositories import (
+from app.persistence.repositories import (
     PhysicalBookRepository,
     ReservationRepository,
 )
 from app.persistence.entities import PhysicalBook, PhysicalBookStatus
 from app.persistence.errors import ConditionFailedError
 
-from .conftest import ISBN
+from ..factories import ISBN
 
 OTHER = "9780000000002"
 available, reserved, loaned, lost = (

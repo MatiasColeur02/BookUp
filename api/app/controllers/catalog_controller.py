@@ -2,12 +2,11 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import StringConstraints
-from sqlalchemy.orm import Session
 
 from .. import cache, storage
 from ..config import settings
-from ..persistence.database import get_db
-from ..persistence.models import User, UserRole
+from ..persistence.dynamo import Dynamo, get_db
+from ..persistence.entities import User, UserRole
 from ..services import catalog_service
 from . import schemas
 from .dependencies import require_roles
@@ -32,7 +31,7 @@ _WRITE_NAMESPACES = (cache.NS_CATALOG, cache.NS_AVAILABILITY)
 
 @router.get("", response_model=schemas.BookPage)
 def list_books(
-    db: Session = Depends(get_db),
+    db: Dynamo = Depends(get_db),
     q: str | None = Query(
         None,
         min_length=1,
@@ -85,7 +84,7 @@ def list_books(
 
 
 @router.get("/cities", response_model=list[str])
-def list_cities(db: Session = Depends(get_db)):
+def list_cities(db: Dynamo = Depends(get_db)):
     """Ciudades con stock disponible: las opciones del filtro del catálogo."""
     return cache.cached(
         cache.NS_AVAILABILITY,
@@ -99,7 +98,7 @@ def list_cities(db: Session = Depends(get_db)):
 @router.post("", response_model=schemas.BookOut, status_code=201)
 def create_book(
     payload: schemas.BookCreate,
-    db: Session = Depends(get_db),
+    db: Dynamo = Depends(get_db),
     _: User = Depends(require_staff),
 ):
     book = catalog_service.create_book(db, **payload.model_dump())
@@ -111,7 +110,7 @@ def create_book(
 @router.get("/search", response_model=list[schemas.BookOut])
 def search_books(
     q: str = Query(..., min_length=1, max_length=MAX_QUERY_LENGTH),
-    db: Session = Depends(get_db),
+    db: Dynamo = Depends(get_db),
 ):
     # La consulta más cara del MVP: un ILIKE con `%...%` a cuatro columnas, que no usa
     # índice y escanea la tabla entera. Es la que más gana con el cache.
@@ -127,7 +126,7 @@ def search_books(
 
 
 @router.get("/{isbn}", response_model=schemas.BookOut)
-def get_book(isbn: str, db: Session = Depends(get_db)):
+def get_book(isbn: str, db: Dynamo = Depends(get_db)):
     return cache.cached(
         cache.NS_CATALOG,
         f"books:{isbn}",
@@ -141,7 +140,7 @@ def get_book(isbn: str, db: Session = Depends(get_db)):
 def update_book(
     isbn: str,
     payload: schemas.BookUpdate,
-    db: Session = Depends(get_db),
+    db: Dynamo = Depends(get_db),
     _: User = Depends(require_staff),
 ):
     book = catalog_service.update_book(db, isbn, **payload.model_dump(exclude_unset=True))
@@ -152,7 +151,7 @@ def update_book(
 @router.delete("/{isbn}", status_code=204)
 def delete_book(
     isbn: str,
-    db: Session = Depends(get_db),
+    db: Dynamo = Depends(get_db),
     _: User = Depends(require_staff),
 ):
     # La key se lee antes: después del delete la fila ya no está.
@@ -175,7 +174,7 @@ def _require_storage() -> None:
 def request_cover_upload(
     isbn: str,
     payload: schemas.CoverUploadRequest,
-    db: Session = Depends(get_db),
+    db: Dynamo = Depends(get_db),
     _: User = Depends(require_staff),
 ):
     """Firma una URL para que el browser haga el `PUT` del archivo directo a S3.
@@ -211,7 +210,7 @@ def request_cover_upload(
 def attach_cover(
     isbn: str,
     payload: schemas.CoverAttach,
-    db: Session = Depends(get_db),
+    db: Dynamo = Depends(get_db),
     _: User = Depends(require_staff),
 ):
     """Confirma la key subida y la guarda en la fila del libro."""
@@ -256,7 +255,7 @@ def attach_cover(
 @router.delete("/{isbn}/cover", response_model=schemas.BookOut)
 def remove_cover(
     isbn: str,
-    db: Session = Depends(get_db),
+    db: Dynamo = Depends(get_db),
     _: User = Depends(require_staff),
 ):
     book, previous_key = catalog_service.set_cover(db, isbn, None)
@@ -266,7 +265,7 @@ def remove_cover(
 
 
 @router.get("/{isbn}/availability", response_model=schemas.BookAvailability)
-def get_availability(isbn: str, db: Session = Depends(get_db)):
+def get_availability(isbn: str, db: Dynamo = Depends(get_db)):
     def load() -> schemas.BookAvailability:
         book, rows = catalog_service.get_availability(db, isbn)
         libraries = [

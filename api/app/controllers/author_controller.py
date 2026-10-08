@@ -1,9 +1,8 @@
 from fastapi import APIRouter, Depends
-from sqlalchemy.orm import Session
 
 from .. import cache
-from ..persistence.database import get_db
-from ..persistence.models import User, UserRole
+from ..persistence.dynamo import Dynamo, get_db
+from ..persistence.entities import User, UserRole
 from ..services import author_service
 from . import schemas
 from .dependencies import require_roles
@@ -18,7 +17,7 @@ _WRITE_NAMESPACES = (cache.NS_AUTHORS, cache.NS_CATALOG, cache.NS_AVAILABILITY)
 
 
 @router.get("", response_model=list[schemas.AuthorOut])
-def list_authors(db: Session = Depends(get_db)):
+def list_authors(db: Dynamo = Depends(get_db)):
     return cache.cached(
         cache.NS_AUTHORS,
         "authors:list",
@@ -31,7 +30,7 @@ def list_authors(db: Session = Depends(get_db)):
 @router.post("", response_model=schemas.AuthorOut, status_code=201)
 def create_author(
     payload: schemas.AuthorCreate,
-    db: Session = Depends(get_db),
+    db: Dynamo = Depends(get_db),
     _: User = Depends(require_staff),
 ):
     author = author_service.create_author(db, **payload.model_dump())
@@ -40,7 +39,7 @@ def create_author(
 
 
 @router.get("/{author_id}", response_model=schemas.AuthorOut)
-def get_author(author_id: int, db: Session = Depends(get_db)):
+def get_author(author_id: int, db: Dynamo = Depends(get_db)):
     return cache.cached(
         cache.NS_AUTHORS,
         f"authors:{author_id}",
@@ -54,7 +53,7 @@ def get_author(author_id: int, db: Session = Depends(get_db)):
 def update_author(
     author_id: int,
     payload: schemas.AuthorUpdate,
-    db: Session = Depends(get_db),
+    db: Dynamo = Depends(get_db),
     _: User = Depends(require_staff),
 ):
     author = author_service.update_author(
@@ -67,7 +66,7 @@ def update_author(
 @router.delete("/{author_id}", status_code=204)
 def delete_author(
     author_id: int,
-    db: Session = Depends(get_db),
+    db: Dynamo = Depends(get_db),
     _: User = Depends(require_staff),
 ):
     author_service.delete_author(db, author_id)

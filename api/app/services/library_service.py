@@ -1,15 +1,15 @@
-from sqlalchemy.orm import Session
-
-from ..persistence.models import Library, User, UserRole
+from ..persistence.dynamo import Dynamo
+from ..persistence.entities import Library, User, UserRole
+from ..persistence.errors import ConditionFailedError
 from ..persistence.repositories import LibraryRepository
 from .errors import ConflictError, ForbiddenError, NotFoundError
 
 
-def list_libraries(db: Session) -> list[Library]:
+def list_libraries(db: Dynamo) -> list[Library]:
     return LibraryRepository(db).list_all()
 
 
-def get_library(db: Session, library_id: int) -> Library:
+def get_library(db: Dynamo, library_id: int) -> Library:
     library = LibraryRepository(db).get(library_id)
     if library is None:
         raise NotFoundError(f"Library {library_id} not found")
@@ -17,7 +17,7 @@ def get_library(db: Session, library_id: int) -> Library:
 
 
 def create_library(
-    db: Session,
+    db: Dynamo,
     *,
     name: str,
     address: str,
@@ -28,7 +28,7 @@ def create_library(
     email: str | None = None,
     website: str | None = None,
 ) -> Library:
-    library = LibraryRepository(db).create(
+    return LibraryRepository(db).create(
         Library(
             name=name,
             address=address,
@@ -40,9 +40,6 @@ def create_library(
             website=website,
         )
     )
-    db.commit()
-    db.refresh(library)
-    return library
 
 
 def _assert_can_manage(editor: User, library_id: int) -> None:
@@ -55,7 +52,7 @@ def _assert_can_manage(editor: User, library_id: int) -> None:
 
 
 def update_library(
-    db: Session,
+    db: Dynamo,
     library_id: int,
     *,
     editor: User,
@@ -70,36 +67,36 @@ def update_library(
 ) -> Library:
     library = get_library(db, library_id)
     _assert_can_manage(editor, library_id)
-
     # Partial update: like `update_user`, a None means "not sent" rather than
     # "set to null", so the optional fields can't be cleared through here.
-    for field, value in (
-        ("name", name),
-        ("address", address),
-        ("state", state),
-        ("city", city),
-        ("hours", hours),
-        ("phone", phone),
-        ("email", email),
-        ("website", website),
-    ):
-        if value is not None:
-            setattr(library, field, value)
+    changes = {
+        field: value
+        for field, value in (
+            ("name", name),
+            ("address", address),
+            ("state", state),
+            ("city", city),
+            ("hours", hours),
+            ("phone", phone),
+            ("email", email),
+            ("website", website),
+        )
+        if value is not None
+    }
+    if not changes:
+        return library
+    try:
+        return LibraryRepository(db).update(library_id, **changes)
+    except ConditionFailedError as exc:
+        raise NotFoundError(f"Library {library_id} not found") from exc
 
-    db.commit()
-    db.refresh(library)
-    return library
 
-
-def delete_library(db: Session, library_id: int) -> None:
+def delete_library(db: Dynamo, library_id: int) -> None:
     repo = LibraryRepository(db)
     library = repo.get(library_id)
     if library is None:
         raise NotFoundError(f"Library {library_id} not found")
-
     # Physical copies reference the library; deleting it would orphan them.
-    if repo.count_physical_books(library_id):
+    if repo.has_physical_books(library_id):
         raise ConflictError(f"Library {library_id} still has physical books")
-
     repo.delete(library)
-    db.commit()

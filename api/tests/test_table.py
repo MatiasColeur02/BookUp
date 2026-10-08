@@ -1,6 +1,6 @@
 """`persistence/table.py` contra DynamoDB Local.
 
-Se saltea solo si no hay un DynamoDB al que conectarse (ver `dynamo_support.py`).
+Necesita DynamoDB Local (ver `dynamo_support.py`).
 """
 
 import pytest

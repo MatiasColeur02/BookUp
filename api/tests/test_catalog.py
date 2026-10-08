@@ -1,38 +1,26 @@
 import pytest
 
-from app.persistence.models import Author, Book, Genre, Library, PhysicalBook
+from app.persistence.repositories import PhysicalBookRepository, ReservationRepository
 
 
 @pytest.fixture()
-def sample_catalog(db_session):
-    library_a = Library(name="Central", address="Calle 1", state="BA", city="CABA")
-    library_b = Library(name="Norte", address="Calle 2", state="SF", city="Rosario")
-    db_session.add_all([library_a, library_b])
-    db_session.flush()
+def sample_catalog(make):
+    library_a = make.library("Central", city="CABA")
+    library_b = make.library("Norte", city="Rosario")
 
-    author = Author(name="Jorge Luis Borges")
-    genre = Genre(name="Ficción")
-    db_session.add_all([author, genre])
-    db_session.flush()
+    author = make.author("Jorge Luis Borges")
+    genre = make.genre("Ficción")
 
-    book = Book(
-        isbn="9788420633107",
-        title="Ficciones",
-        language="es",
-        synopsis="Cuentos fantásticos y filosóficos.",
+    book = make.book(
+        "9788420633107",
+        "Ficciones",
         authors=[author],
         genres=[genre],
+        synopsis="Cuentos fantásticos y filosóficos.",
     )
-    db_session.add(book)
-    db_session.flush()
 
-    db_session.add_all(
-        [
-            PhysicalBook(isbn=book.isbn, library_id=library_a.id),
-            PhysicalBook(isbn=book.isbn, library_id=library_b.id),
-        ]
-    )
-    db_session.commit()
+    make.copy(book.isbn, library_a)
+    make.copy(book.isbn, library_b)
     return book, library_a, library_b
 
 
@@ -66,7 +54,7 @@ def test_list_books_filters_by_text(client, sample_catalog):
     assert client.get("/books", params={"q": "nomatch"}).json()["total"] == 0
 
 
-def test_list_books_filters_by_author_and_genre(client, sample_catalog, db_session):
+def test_list_books_filters_by_author_and_genre(client, sample_catalog):
     book, _, _ = sample_catalog
     author_id = book.authors[0].id
     genre_id = book.genres[0].id
@@ -93,20 +81,18 @@ def test_list_books_different_filters_are_an_and(client, sample_catalog):
     assert response.json()["total"] == 0
 
 
-def test_list_books_filters_by_city_with_available_stock(client, sample_catalog, db_session):
+def test_list_books_filters_by_city_with_available_stock(client, sample_catalog):
     book, library_a, _ = sample_catalog
     assert client.get("/books", params={"city": library_a.city}).json()["total"] == 1
     assert client.get("/books", params={"city": "Narnia"}).json()["total"] == 0
 
 
-def test_city_filter_ignores_copies_that_are_not_available(client, sample_catalog, db_session):
-    from app.persistence.models import PhysicalBookStatus
-
+def test_city_filter_ignores_copies_that_are_not_available(client, sample_catalog, make, db):
     book, library_a, library_b = sample_catalog
     # "En esta ciudad" es "reservable hoy": un ejemplar prestado no cuenta.
-    for copy in db_session.query(PhysicalBook).filter_by(library_id=library_a.id):
-        copy.status = PhysicalBookStatus.loaned
-    db_session.commit()
+    for copy in PhysicalBookRepository(db).list_all(library_id=library_a.id):
+        reservation = make.reservation(copy)
+        ReservationRepository(db).mark_picked_up(reservation.id)
 
     assert client.get("/books", params={"city": library_a.city}).json()["total"] == 0
     assert client.get("/books", params={"city": library_b.city}).json()["total"] == 1

@@ -1,6 +1,7 @@
 import bcrypt
 
-from app.persistence.models import Library, User, UserRole
+from app.persistence.entities import UserRole
+from app.persistence.repositories import UserRepository
 
 
 def test_create_user_is_public(client):
@@ -33,11 +34,11 @@ def test_create_user_cannot_choose_its_role(client):
     assert response.json()["role"] == "customer"
 
 
-def test_create_user_hashes_password(client, db_session):
+def test_create_user_hashes_password(client, db):
     client.post(
         "/users", json={"email": "hash@example.com", "password": "secret123", "name": "Hash"}
     )
-    user = db_session.query(User).filter_by(email="hash@example.com").first()
+    user = UserRepository(db).get_by_email("hash@example.com")
     assert user.password_hash != "secret123"
     assert bcrypt.checkpw(b"secret123", user.password_hash.encode("utf-8"))
 
@@ -56,10 +57,8 @@ def test_create_user_rejects_short_password(client):
     assert response.status_code == 422
 
 
-def test_create_staff_user(client, sysadmin_headers, db_session):
-    library = Library(name="Central", address="Calle 1", state="BA", city="CABA")
-    db_session.add(library)
-    db_session.commit()
+def test_create_staff_user(client, sysadmin_headers, make):
+    library = make.library("Central", city="CABA")
 
     response = client.post(
         "/users/staff",
@@ -105,10 +104,8 @@ def test_create_staff_user_requires_a_token(client):
     assert response.status_code == 401
 
 
-def test_create_staff_user_rejects_library_id_on_a_non_librarian(client, sysadmin_headers, db_session):
-    library = Library(name="Central", address="Calle 1", state="BA", city="CABA")
-    db_session.add(library)
-    db_session.commit()
+def test_create_staff_user_rejects_library_id_on_a_non_librarian(client, sysadmin_headers, make):
+    library = make.library("Central", city="CABA")
 
     response = client.post(
         "/users/staff",
@@ -187,15 +184,14 @@ def test_patch_user_updates_name_and_language(client, make_user, auth_headers):
     assert body["email"] == user.email
 
 
-def test_patch_user_updates_password(client, make_user, auth_headers, db_session):
+def test_patch_user_updates_password(client, make_user, auth_headers, db):
     user = make_user()
     response = client.patch(
         f"/users/{user.id}", json={"password": "newsecret123"}, headers=auth_headers(user)
     )
     assert response.status_code == 200
 
-    db_session.expire_all()
-    refreshed = db_session.get(User, user.id)
+    refreshed = UserRepository(db).get(user.id)
     assert bcrypt.checkpw(b"newsecret123", refreshed.password_hash.encode("utf-8"))
 
 
@@ -208,11 +204,9 @@ def test_customer_cannot_promote_themselves(client, make_user, auth_headers):
 
 
 def test_sysadmin_can_assign_a_librarian_to_a_library(
-    client, make_user, sysadmin_headers, db_session
+    client, make_user, sysadmin_headers, make
 ):
-    library = Library(name="Central", address="Calle 1", state="BA", city="CABA")
-    db_session.add(library)
-    db_session.commit()
+    library = make.library("Central", city="CABA")
     user = make_user()
 
     response = client.patch(
@@ -227,11 +221,9 @@ def test_sysadmin_can_assign_a_librarian_to_a_library(
 
 
 def test_demoting_a_librarian_clears_their_library(
-    client, make_user, sysadmin_headers, db_session
+    client, make_user, sysadmin_headers, make
 ):
-    library = Library(name="Central", address="Calle 1", state="BA", city="CABA")
-    db_session.add(library)
-    db_session.commit()
+    library = make.library("Central", city="CABA")
     librarian = make_user(UserRole.librarian, library_id=library.id)
 
     response = client.patch(

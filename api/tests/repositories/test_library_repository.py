@@ -1,6 +1,6 @@
 import pytest
 
-from app.persistence.dynamo_repositories import LibraryRepository, PhysicalBookRepository
+from app.persistence.repositories import LibraryRepository, PhysicalBookRepository
 from app.persistence.entities import Library
 from app.persistence.errors import ConditionFailedError
 

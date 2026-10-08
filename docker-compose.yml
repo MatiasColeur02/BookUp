@@ -147,10 +147,12 @@ services:
     environment:
       DATABASE_URL: postgresql+psycopg2://bookup:bookup@db:5432/bookup
       REDIS_URL: redis://cache:6379/0
-      # Sin consumidores hasta que los services migren (fases 4 y 6); queda configurado
-      # para no tocar este bloque de nuevo.
+      # Desde la fase 4 los services leen y escriben en DynamoDB (la base de verdad).
+      # Postgres sigue levantado solo hasta la fase 7, que lo borra junto con alembic.
       DYNAMO_TABLE: bookup
       DYNAMO_ENDPOINT_URL: http://dynamodb:8000
+      AWS_REGION: us-east-1
+      # Sin consumidores hasta la fase 6.
       OPENSEARCH_URL: http://search:9200
       OPENSEARCH_INDEX: bookup-books
       JWT_SECRET: dev-secret-change-me
@@ -174,6 +176,9 @@ services:
         condition: service_healthy
       storage:
         condition: service_healthy
+      # La tabla tiene que existir antes de que la API reciba tráfico.
+      dynamodb-init:
+        condition: service_completed_successfully
     volumes:
       - ./api:/app
     command: >

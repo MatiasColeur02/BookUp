@@ -7,7 +7,7 @@ transacción. Ojo con la suite: SQLite ignora el ancho de un VARCHAR, así que e
 solo pasan porque el tope está en el esquema Pydantic, que es justamente lo que se busca.
 """
 
-from app.persistence.models import Book, Library, UserRole
+from app.persistence.entities import UserRole
 
 ISBN = "9780306406157"
 
@@ -155,10 +155,9 @@ def test_user_name_and_language_are_bounded(client):
     )
 
 
-def test_sql_injection_payloads_do_not_run_as_sql(client, db_session, sysadmin_headers):
-    """El texto viaja como parámetro, nunca como SQL: se busca literalmente y no pasa nada."""
-    db_session.add(Book(isbn=ISBN, title="Un libro", language="es"))
-    db_session.commit()
+def test_sql_injection_payloads_do_not_run_as_sql(client, make, sysadmin_headers):
+    """No hay SQL ni intérprete de consultas: el texto se busca literalmente y no pasa nada."""
+    make.book(ISBN, "Un libro")
 
     for payload in SQL_INJECTION_PAYLOADS:
         response = client.get("/books", params={"q": payload})
@@ -170,7 +169,7 @@ def test_sql_injection_payloads_do_not_run_as_sql(client, db_session, sysadmin_h
     assert client.get(f"/books/{ISBN}").status_code == 200
 
 
-def test_sql_injection_in_a_stored_name_is_stored_as_text(client, sysadmin_headers, db_session):
+def test_sql_injection_in_a_stored_name_is_stored_as_text(client, sysadmin_headers):
     """Guardar `'; DROP TABLE ...` es legítimo: es un nombre feo, no una sentencia."""
     payload = "Robert'); DROP TABLE authors; --"
     created = client.post("/authors", json={"name": payload}, headers=sysadmin_headers)
@@ -195,21 +194,19 @@ def test_city_filter_values_are_bounded(client):
     assert client.get("/books", params={"city": "c" * 101}).status_code == 422
 
 
-def test_a_wildcard_search_does_not_dump_the_catalog(client, db_session):
-    """`%` es un comodín de ILIKE: sin escapar, buscar «%» devolvería todo el catálogo."""
-    db_session.add(Book(isbn=ISBN, title="Un libro", language="es"))
-    db_session.commit()
+def test_a_wildcard_search_does_not_dump_the_catalog(client, make):
+    """`%` es un carácter más, no un comodín: buscar «%» no devuelve todo el catálogo."""
+    make.book(ISBN, "Un libro")
 
     response = client.get("/books", params={"q": "%"})
     assert response.status_code == 200
     assert response.json()["items"] == []
 
 
-def test_reservation_cannot_be_parked_for_years(client, make_user, auth_headers, db_session):
+def test_reservation_cannot_be_parked_for_years(client, make, make_user, auth_headers):
     """Un `expires_at` lejano retiene el ejemplar: futuro no alcanza como validación."""
-    db_session.add(Library(name="Sede", address="Calle 1", state="BA", city="La Plata"))
-    db_session.add(Book(isbn=ISBN, title="Un libro", language="es"))
-    db_session.commit()
+    make.library("Sede", city="La Plata")
+    make.book(ISBN, "Un libro")
     headers = auth_headers(make_user(UserRole.customer))
 
     # Ni siquiera hace falta que el ejemplar exista: el 422 sale de la validación del

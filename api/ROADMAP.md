@@ -536,7 +536,7 @@ nada de lo que existe.
 | **1** ✅ | Infra local | `docker-compose` con DynamoDB Local + OpenSearch, `dynamo.py`, `keys.py`, `table.py` | `docker compose up` levanta todo y `ensure_table()` crea tabla y 4 GSIs |
 | **2** | Entidades | `entities.py` con las dataclasses y los enums | `schemas.py` importa de ahí y `pytest` sigue en verde con Postgres |
 | **3** ✅ | Repositories | los 7 reescritos + tests de repositorio propios (nuevos) | cada método probado contra DynamoDB Local |
-| **4** | Services | los 8 migrados, incluidas las 5 transacciones de §4.2 | los tests de reserva/ejemplar en verde, incluidos los de concurrencia |
+| **4** ✅ | Services | los 8 migrados, incluidas las 5 transacciones de §4.2 | los tests de reserva/ejemplar en verde, incluidos los de concurrencia |
 | **5** | Seed | `seed.py` reescrito, con contadores y desnormalización | `python -m app.seed` dos veces = mismo resultado, sin duplicar |
 | **6** | OpenSearch | `search.py`, `indexer.py`, `reindex.py`, los 3 endpoints migrados | `GET /books` con filtros combinados devuelve lo mismo que con Postgres |
 | **7** | Limpieza | borrar `models.py`, `database.py`, `alembic/`, dependencias | `grep -r sqlalchemy api/` no devuelve nada |
@@ -553,7 +553,7 @@ nada de lo que existe.
 > transacción que la reserva (fase 4). Los tests de `table.py` corren contra DynamoDB
 > Local y se saltean solos si no hay uno.
 
-> **Fase 3 hecha.** Los repositories nuevos viven en `persistence/dynamo_repositories/` (los
+> **Fase 3 hecha.** Los repositories nuevos viven en `persistence/repositories/` (los
 > de SQLAlchemy siguen en `repositories/` hasta la fase 4; en la 7 se borra el viejo y se
 > mueve este). Desvíos y decisiones:
 >
@@ -580,6 +580,31 @@ nada de lo que existe.
 >   `run_transaction` lo completa.
 > - Las lecturas de la tabla base son fuertes; las de GSI no pueden serlo, así que
 >   `has_books`/`has_physical_books`/`available_by_book` pueden ir unos ms atrás en AWS.
+
+> **Fase 4 hecha — punto de no retorno cruzado.** Los 8 services, los controllers y los
+> fixtures de la suite hablan solo con DynamoDB. Qué hay que saber:
+>
+> - **Los repositories nuevos ya son `persistence/repositories/`**: se borró el paquete
+>   SQLAlchemy y `dynamo_repositories/` ocupó su lugar (no esperé a la fase 7: quedaba
+>   código muerto con el mismo nombre). `models.py`, `database.py` y `alembic/` siguen,
+>   solo para el `seed.py` viejo, hasta las fases 5 y 7.
+> - **`GET /books` con filtros, `/books/search` y `/books/cities` corren sobre un puente en
+>   memoria** (`repositories/_catalog_bridge.py`): un Scan del catálogo filtrado en Python.
+>   Es la "alternativa descartada" de §2, usada a propósito como andamio para que la suite
+>   de catálogo siga en verde entre la fase 4 y la 6. **No escala** (sirve para el seed de
+>   71 libros) y se borra entero con OpenSearch. Diferencia visible: el texto ya no tiene
+>   comodines, `%` y `_` son literales.
+> - **La app arranca vacía hasta la fase 5**: el `seed.py` viejo escribe en Postgres. Hasta
+>   entonces se puede registrar un usuario y probar, pero no hay catálogo ni sysadmin.
+> - **`pytest` ahora necesita DynamoDB Local** y **falla** (no se saltea) si no lo encuentra:
+>   una suite que se saltea sola es una suite en verde que no probó nada. Cada test tiene su
+>   propia tabla (4 GSIs) y la borra al terminar; la suite pasó de ~2 a ~3,5 minutos.
+> - **La traducción de errores quedó en cada service**: atrapan `ConditionFailedError` /
+>   `AlreadyExistsError` del repository y relanzan el `ConflictError` con su mensaje de
+>   siempre. Las lecturas previas ("¿está disponible?") ya solo dan mensajes precisos; el
+>   candado real es la condición de la escritura. `physical_book_service` dejó de depender
+>   de `reservation_service` (cerrar la reserva de un ejemplar perdido ahora es del repo).
+> - `docker-compose`: la API espera a `dynamodb-init` (`service_completed_successfully`).
 
 **El punto de no retorno es la fase 4.** Hasta la 3 conviven los dos mundos; a partir de ahí
 los services solo hablan DynamoDB.

@@ -1,11 +1,11 @@
 import pytest
 
-from app.persistence.dynamo_repositories import BookRepository, PhysicalBookRepository
-from app.persistence.dynamo_repositories import _support as s
+from app.persistence.repositories import BookRepository, PhysicalBookRepository
+from app.persistence.repositories import _support as s
 from app.persistence.entities import Author, Book
 from app.persistence.errors import AlreadyExistsError, ConditionFailedError
 
-from .conftest import ISBN
+from ..factories import ISBN
 
 
 def test_create_and_get_assemble_the_book_with_its_authors_and_genres(db, make):
@@ -94,7 +94,7 @@ def test_update_replaces_the_author_and_genre_associations(db, make):
     assert [a.id for a in updated.authors] == [a2.id, a3.id]
     assert [g.id for g in updated.genres] == [g2.id]
     # Los enlaces que sobraban dejaron de contar para los 409.
-    from app.persistence.dynamo_repositories import AuthorRepository, GenreRepository
+    from app.persistence.repositories import AuthorRepository, GenreRepository
 
     assert AuthorRepository(db).has_books(a1.id) is False
     assert AuthorRepository(db).has_books(a3.id) is True

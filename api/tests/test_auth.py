@@ -3,7 +3,8 @@ from datetime import datetime, timedelta, timezone
 import jwt
 
 from app.config import settings
-from app.persistence.models import UserRole
+from app.persistence.entities import UserRole
+from app.persistence.repositories import UserRepository
 from tests.conftest import PASSWORD
 
 
@@ -81,12 +82,11 @@ def test_token_signed_with_another_secret_is_rejected(client, make_user):
     assert response.status_code == 401
 
 
-def test_token_of_a_deleted_user_is_rejected(client, make_user, auth_headers, db_session):
+def test_token_of_a_deleted_user_is_rejected(client, make_user, auth_headers, db):
     user = make_user()
     headers = auth_headers(user)
 
-    db_session.delete(user)
-    db_session.commit()
+    UserRepository(db).delete(user)
 
     response = client.get("/auth/me", headers=headers)
     assert response.status_code == 401

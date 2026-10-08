@@ -2,26 +2,35 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from app.persistence.models import Book, Library, PhysicalBook, Reservation, UserRole
+from app.persistence import keys
+from app.persistence.entities import UserRole
 
 
 @pytest.fixture()
-def reservation_setup(db_session, make_user):
-    library = Library(name="Central", address="Calle 1", state="BA", city="CABA")
-    db_session.add(library)
-    db_session.flush()
-
-    book = Book(isbn="9780307474728", title="Cien años de soledad", language="es")
-    db_session.add(book)
-    db_session.flush()
-
-    physical_book = PhysicalBook(isbn=book.isbn, library_id=library.id)
-    db_session.add(physical_book)
-    db_session.commit()
-    db_session.refresh(physical_book)
+def reservation_setup(make, make_user):
+    library = make.library("Central", city="CABA")
+    book = make.book("9780307474728", "Cien años de soledad")
+    physical_book = make.copy(book.isbn, library)
 
     user = make_user(UserRole.customer)
     return physical_book, user
+
+
+def _backdate(db, reservation_id: int) -> None:
+    """Pone el vencimiento en el pasado, como si hubiera pasado el tiempo.
+
+    Escribe directo en la tabla porque ningún camino de la API (ni del repository) permite
+    mover `expires_at` hacia atrás de una reserva retirada: es justo lo que se simula.
+    """
+    past = datetime.now(timezone.utc) - timedelta(days=1)
+    db.table.update_item(
+        Key=keys.key(keys.reservation_pk(reservation_id)),
+        UpdateExpression="SET expires_at = :expires, GSI4SK = :sort",
+        ExpressionAttributeValues={
+            ":expires": keys.iso(past),
+            ":sort": keys.open_reservation_index(reservation_id, past)[keys.GSI4_SK],
+        },
+    )
 
 
 def _expires_at() -> str:
@@ -81,12 +90,10 @@ def test_list_reservations_as_sysadmin(client, reservation_setup, auth_headers, 
 
 
 def test_list_reservations_filtered_by_library(
-    client, reservation_setup, auth_headers, sysadmin_headers, db_session
+    client, reservation_setup, auth_headers, sysadmin_headers, make
 ):
     physical_book, user = reservation_setup
-    other_library = Library(name="Norte", address="Calle 2", state="SF", city="Rosario")
-    db_session.add(other_library)
-    db_session.commit()
+    other_library = make.library("Norte", city="Rosario")
 
     _reserve(client, auth_headers(user), physical_book.id)
 
@@ -137,7 +144,7 @@ def test_librarian_lists_only_their_own_library(
 
 
 def test_mine_returns_own_reservations_regardless_of_role(
-    client, reservation_setup, auth_headers, make_user, db_session
+    client, reservation_setup, auth_headers, make_user, make
 ):
     """A librarian can reserve at any branch, including one that is not theirs.
 
@@ -146,9 +153,7 @@ def test_mine_returns_own_reservations_regardless_of_role(
     """
     physical_book, _ = reservation_setup
 
-    other_library = Library(name="Norte", address="Calle 2", state="SF", city="Rosario")
-    db_session.add(other_library)
-    db_session.commit()
+    other_library = make.library("Norte", city="Rosario")
 
     librarian = make_user(UserRole.librarian, library_id=other_library.id)
     headers = auth_headers(librarian)
@@ -403,16 +408,13 @@ def test_extend_forbidden_for_the_customer(client, reservation_setup, auth_heade
 
 
 def test_expire_releases_only_the_overdue_ones(
-    client, reservation_setup, auth_headers, sysadmin_headers, db_session
+    client, reservation_setup, auth_headers, sysadmin_headers, db
 ):
     physical_book, user = reservation_setup
     created = _reserve(client, auth_headers(user), physical_book.id).json()
 
     # Backdate the expiry past the deadline, the way time would have.
-    db_session.expire_all()
-    reservation = db_session.get(Reservation, created["id"])
-    reservation.expires_at = datetime.now(timezone.utc) - timedelta(days=1)
-    db_session.commit()
+    _backdate(db, created["id"])
 
     response = client.post("/reservations/expire", headers=sysadmin_headers)
     assert response.status_code == 200
@@ -423,30 +425,24 @@ def test_expire_releases_only_the_overdue_ones(
     assert detail["cancelled_at"] is not None
 
 
-def test_expire_is_idempotent(client, reservation_setup, auth_headers, sysadmin_headers, db_session):
+def test_expire_is_idempotent(client, reservation_setup, auth_headers, sysadmin_headers, db):
     physical_book, user = reservation_setup
     created = _reserve(client, auth_headers(user), physical_book.id).json()
-    db_session.expire_all()
-    reservation = db_session.get(Reservation, created["id"])
-    reservation.expires_at = datetime.now(timezone.utc) - timedelta(days=1)
-    db_session.commit()
+    _backdate(db, created["id"])
 
     assert client.post("/reservations/expire", headers=sysadmin_headers).json() == {"expired": 1}
     assert client.post("/reservations/expire", headers=sysadmin_headers).json() == {"expired": 0}
 
 
 def test_expire_leaves_picked_up_reservations_alone(
-    client, reservation_setup, auth_headers, sysadmin_headers, make_user, db_session
+    client, reservation_setup, auth_headers, sysadmin_headers, make_user, db
 ):
     physical_book, user = reservation_setup
     created = _reserve(client, auth_headers(user), physical_book.id).json()
     librarian = make_user(UserRole.librarian, library_id=physical_book.library_id)
     client.patch(f"/reservations/{created['id']}/pickup", headers=auth_headers(librarian))
 
-    db_session.expire_all()
-    reservation = db_session.get(Reservation, created["id"])
-    reservation.expires_at = datetime.now(timezone.utc) - timedelta(days=1)
-    db_session.commit()
+    _backdate(db, created["id"])
 
     # An overdue loan is a different problem: expiry only frees copies that
     # were never collected.

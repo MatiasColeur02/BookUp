@@ -10,17 +10,15 @@ import pytest
 
 from app import storage
 from app.config import settings
-from app.persistence.models import Book
+from app.persistence.entities import Book
+from app.persistence.repositories import BookRepository
 
 ISBN = "9780306406157"
 
 
 @pytest.fixture()
-def book(db_session):
-    book = Book(isbn=ISBN, title="Un libro", language="es")
-    db_session.add(book)
-    db_session.commit()
-    return book
+def book(db):
+    return BookRepository(db).create(Book(isbn=ISBN, title="Un libro", language="es"))
 
 
 @pytest.fixture()

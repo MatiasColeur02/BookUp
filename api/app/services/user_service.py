@@ -1,12 +1,12 @@
-from sqlalchemy.orm import Session
-
-from ..persistence.models import User, UserRole
+from ..persistence.dynamo import Dynamo
+from ..persistence.entities import User, UserRole
+from ..persistence.errors import AlreadyExistsError, ConditionFailedError
 from ..persistence.repositories import LibraryRepository, UserRepository
 from .auth_service import hash_password
 from .errors import ConflictError, ForbiddenError, NotFoundError
 
 
-def _validate_role_and_library(db: Session, role: UserRole, library_id: int | None) -> None:
+def _validate_role_and_library(db: Dynamo, role: UserRole, library_id: int | None) -> None:
     """`library_id` only means something for a librarian: it is the branch they run."""
     if library_id is None:
         return
@@ -16,11 +16,11 @@ def _validate_role_and_library(db: Session, role: UserRole, library_id: int | No
         raise NotFoundError(f"Library {library_id} not found")
 
 
-def list_users(db: Session) -> list[User]:
+def list_users(db: Dynamo) -> list[User]:
     return UserRepository(db).list_all()
 
 
-def get_user(db: Session, user_id: int) -> User:
+def get_user(db: Dynamo, user_id: int) -> User:
     user = UserRepository(db).get(user_id)
     if user is None:
         raise NotFoundError(f"User {user_id} not found")
@@ -28,7 +28,7 @@ def get_user(db: Session, user_id: int) -> User:
 
 
 def create_user(
-    db: Session,
+    db: Dynamo,
     *,
     email: str,
     password: str,
@@ -42,26 +42,25 @@ def create_user(
     repo = UserRepository(db)
     if repo.get_by_email(email) is not None:
         raise ConflictError(f"User with email {email} already exists")
-
     _validate_role_and_library(db, role, library_id)
 
-    user = repo.create(
-        User(
-            email=email,
-            password_hash=hash_password(password),
-            name=name,
-            language=language,
-            role=role,
-            library_id=library_id,
+    try:
+        return repo.create(
+            User(
+                email=email,
+                password_hash=hash_password(password),
+                name=name,
+                language=language,
+                role=role,
+                library_id=library_id,
+            )
         )
-    )
-    db.commit()
-    db.refresh(user)
-    return user
+    except AlreadyExistsError as exc:  # someone registered the same email meanwhile
+        raise ConflictError(f"User with email {email} already exists") from exc
 
 
 def update_user(
-    db: Session,
+    db: Dynamo,
     user_id: int,
     *,
     editor: User,
@@ -72,37 +71,42 @@ def update_user(
     library_id: int | None = None,
 ) -> User:
     user = get_user(db, user_id)
-
     if (role is not None or library_id is not None) and editor.role is not UserRole.sysadmin:
         raise ForbiddenError("Only a sysadmin can change role or library_id")
 
+    changes: dict = {}
     if name is not None:
-        user.name = name
+        changes["name"] = name
     if language is not None:
-        user.language = language
+        changes["language"] = language
     if password is not None:
-        user.password_hash = hash_password(password)
+        changes["password_hash"] = hash_password(password)
+
+    new_role = role if role is not None else user.role
+    new_library_id = user.library_id
     if role is not None:
-        user.role = role
+        changes["role"] = role
         # Demoting a librarian drops the branch they used to run, so the caller
         # doesn't have to null a field that a partial update can't null.
         if role is not UserRole.librarian and library_id is None:
-            user.library_id = None
+            new_library_id = None
     if library_id is not None:
-        user.library_id = library_id
+        new_library_id = library_id
+    _validate_role_and_library(db, new_role, new_library_id)
+    if new_library_id != user.library_id:
+        changes["library_id"] = new_library_id  # None removes the attribute
 
-    _validate_role_and_library(db, user.role, user.library_id)
+    if not changes:
+        return user
+    try:
+        return UserRepository(db).update(user_id, **changes)
+    except ConditionFailedError as exc:
+        raise NotFoundError(f"User {user_id} not found") from exc
 
-    db.commit()
-    db.refresh(user)
-    return user
 
-
-def delete_user(db: Session, user_id: int) -> None:
+def delete_user(db: Dynamo, user_id: int) -> None:
     repo = UserRepository(db)
     user = repo.get(user_id)
     if user is None:
         raise NotFoundError(f"User {user_id} not found")
-
     repo.delete(user)
-    db.commit()

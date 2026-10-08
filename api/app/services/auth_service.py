@@ -7,10 +7,10 @@ from datetime import datetime, timedelta, timezone
 
 import bcrypt
 import jwt
-from sqlalchemy.orm import Session
 
 from ..config import settings
-from ..persistence.models import User
+from ..persistence.dynamo import Dynamo
+from ..persistence.entities import User
 from ..persistence.repositories import UserRepository
 from .errors import UnauthorizedError
 
@@ -23,7 +23,7 @@ def verify_password(password: str, password_hash: str) -> bool:
     return bcrypt.checkpw(password.encode("utf-8"), password_hash.encode("utf-8"))
 
 
-def authenticate(db: Session, *, email: str, password: str) -> User:
+def authenticate(db: Dynamo, *, email: str, password: str) -> User:
     user = UserRepository(db).get_by_email(email)
     # Same error for "no such email" and "wrong password", so the endpoint does
     # not leak which emails are registered.

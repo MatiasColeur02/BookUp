@@ -1,9 +1,9 @@
-from app.persistence.models import Author, Book, UserRole
+from app.persistence.entities import UserRole
 
 
-def test_list_authors_is_public(client, db_session):
-    db_session.add_all([Author(name="Borges"), Author(name="Cortázar")])
-    db_session.commit()
+def test_list_authors_is_public(client, make):
+    make.author("Borges")
+    make.author("Cortázar")
 
     response = client.get("/authors")
     assert response.status_code == 200
@@ -82,14 +82,9 @@ def test_delete_author_not_found(client, sysadmin_headers):
     assert client.delete("/authors/9999", headers=sysadmin_headers).status_code == 404
 
 
-def test_delete_author_conflicts_when_linked_to_a_book(client, sysadmin_headers, db_session):
-    author = Author(name="Borges")
-    db_session.add(author)
-    db_session.flush()
-    db_session.add(
-        Book(isbn="9788420633107", title="Ficciones", language="es", authors=[author])
-    )
-    db_session.commit()
+def test_delete_author_conflicts_when_linked_to_a_book(client, sysadmin_headers, make):
+    author = make.author("Borges")
+    make.book("9788420633107", "Ficciones", authors=[author])
 
     response = client.delete(f"/authors/{author.id}", headers=sysadmin_headers)
     assert response.status_code == 409

@@ -1,6 +1,6 @@
 import pytest
 
-from app.persistence.dynamo_repositories import UserRepository
+from app.persistence.repositories import UserRepository
 from app.persistence.entities import User, UserRole
 from app.persistence.errors import AlreadyExistsError, ConditionFailedError
 

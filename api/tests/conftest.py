@@ -1,14 +1,15 @@
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
-from sqlalchemy.pool import StaticPool
 
 from app.config import settings
 from app.main import app
-from app.persistence.database import Base, get_db
-from app.persistence.models import User, UserRole
+from app.persistence.dynamo import get_db
+from app.persistence.entities import User, UserRole
+from app.persistence.repositories import UserRepository
 from app.services.auth_service import hash_password
+
+from .dynamo_support import temporary_dynamo
+from .factories import Factory
 
 PASSWORD = "secret123"
 
@@ -17,7 +18,7 @@ PASSWORD = "secret123"
 def disabled_cache(monkeypatch):
     """La suite corre siempre sin cache, tenga o no `REDIS_URL` el entorno.
 
-    Cada test levanta una SQLite nueva, pero Redis es del entorno y sobrevive entre
+    Cada test tiene su propia tabla, pero Redis es del entorno y sobrevive entre
     tests: sin esto, correr la suite dentro del contenedor de `docker compose` (que sí
     trae `REDIS_URL`) hace que un test lea el payload cacheado por otro y falle por algo
     que no tiene nada que ver.
@@ -26,38 +27,24 @@ def disabled_cache(monkeypatch):
 
 
 @pytest.fixture()
-def engine():
-    test_engine = create_engine(
-        "sqlite://",
-        connect_args={"check_same_thread": False},
-        poolclass=StaticPool,
-    )
-    Base.metadata.create_all(bind=test_engine)
-    yield test_engine
-    Base.metadata.drop_all(bind=test_engine)
-    test_engine.dispose()
+def db():
+    """Una tabla `bookup` con sus 4 GSIs, vacía y exclusiva de este test.
+
+    Necesita DynamoDB Local (`docker compose up -d dynamodb`); ver `dynamo_support.py`.
+    """
+    yield from temporary_dynamo(create_table=True)
 
 
 @pytest.fixture()
-def db_session(engine):
-    session_local = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-    session = session_local()
-    try:
-        yield session
-    finally:
-        session.close()
+def make(db) -> Factory:
+    """Arma estado (autores, libros, ejemplares...) pasando por los repositories."""
+    return Factory(db)
 
 
 @pytest.fixture()
-def client(engine):
-    session_local = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-
+def client(db):
     def override_get_db():
-        db = session_local()
-        try:
-            yield db
-        finally:
-            db.close()
+        yield db
 
     app.dependency_overrides[get_db] = override_get_db
     try:
@@ -67,24 +54,22 @@ def client(engine):
 
 
 @pytest.fixture()
-def make_user(db_session):
-    """Create a user with a known password, straight through the ORM."""
+def make_user(db):
+    """Create a user with a known password, straight through the repository."""
     created = 0
 
     def _make(role: UserRole = UserRole.customer, *, email=None, library_id=None) -> User:
         nonlocal created
         created += 1
-        user = User(
-            email=email or f"{role.value}{created}@example.com",
-            password_hash=hash_password(PASSWORD),
-            name=f"{role.value.title()} {created}",
-            role=role,
-            library_id=library_id,
+        return UserRepository(db).create(
+            User(
+                email=email or f"{role.value}{created}@example.com",
+                password_hash=hash_password(PASSWORD),
+                name=f"{role.value.title()} {created}",
+                role=role,
+                library_id=library_id,
+            )
         )
-        db_session.add(user)
-        db_session.commit()
-        db_session.refresh(user)
-        return user
 
     return _make
 

@@ -1,6 +1,6 @@
 import pytest
 
-from app.persistence.dynamo_repositories import BookRepository, GenreRepository
+from app.persistence.repositories import BookRepository, GenreRepository
 from app.persistence.entities import Genre
 from app.persistence.errors import AlreadyExistsError, ConditionFailedError
 

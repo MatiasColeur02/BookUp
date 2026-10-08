@@ -1,4 +1,4 @@
-from app.persistence.models import Book, PhysicalBook, UserRole
+from app.persistence.entities import UserRole
 
 
 def test_create_library(client, sysadmin_headers):
@@ -163,14 +163,11 @@ def test_delete_library_forbidden_for_librarians(
     assert response.status_code == 403
 
 
-def test_delete_library_conflicts_with_physical_books(client, sysadmin_headers, db_session):
+def test_delete_library_conflicts_with_physical_books(client, sysadmin_headers, make):
     created = _create_library(client, sysadmin_headers)
 
-    book = Book(isbn="9780307474728", title="Cien años de soledad", language="es")
-    db_session.add(book)
-    db_session.flush()
-    db_session.add(PhysicalBook(isbn=book.isbn, library_id=created["id"]))
-    db_session.commit()
+    book = make.book("9780307474728", "Cien años de soledad")
+    make.copy(book.isbn, library_id=created["id"])
 
     response = client.delete(f"/libraries/{created['id']}", headers=sysadmin_headers)
     assert response.status_code == 409

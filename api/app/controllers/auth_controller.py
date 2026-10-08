@@ -1,9 +1,8 @@
 from fastapi import APIRouter, Depends, Request
-from sqlalchemy.orm import Session
 
 from .. import ratelimit
-from ..persistence.database import get_db
-from ..persistence.models import User
+from ..persistence.dynamo import Dynamo, get_db
+from ..persistence.entities import User
 from ..services import auth_service
 from ..services.errors import UnauthorizedError
 from . import schemas
@@ -13,7 +12,7 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 
 
 @router.post("/login", response_model=schemas.TokenOut)
-def login(request: Request, payload: schemas.LoginRequest, db: Session = Depends(get_db)):
+def login(request: Request, payload: schemas.LoginRequest, db: Dynamo = Depends(get_db)):
     # El freno por IP va antes de tocar la base; el de la cuenta, solo sobre los intentos
     # fallidos, para que nadie pueda bloquear a otro usuario a fuerza de errarle la
     # contraseña. Ver `ratelimit.failed_login`.

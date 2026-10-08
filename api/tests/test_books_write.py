@@ -1,19 +1,13 @@
 import pytest
 
-from app.persistence.models import Author, Genre, Library, PhysicalBook, UserRole
+from app.persistence.entities import UserRole
 
 ISBN = "9780307474728"
 
 
 @pytest.fixture()
-def author_and_genre(db_session):
-    author = Author(name="Gabriel García Márquez")
-    genre = Genre(name="Ficción")
-    db_session.add_all([author, genre])
-    db_session.commit()
-    db_session.refresh(author)
-    db_session.refresh(genre)
-    return author, genre
+def author_and_genre(make):
+    return make.author("Gabriel García Márquez"), make.genre("Ficción")
 
 
 def _payload(**overrides) -> dict:
@@ -102,12 +96,9 @@ def test_update_book_partial(client, sysadmin_headers):
     assert body["pages"] == 471
 
 
-def test_update_book_replaces_the_author_list(client, sysadmin_headers, author_and_genre, db_session):
+def test_update_book_replaces_the_author_list(client, sysadmin_headers, author_and_genre, make):
     author, _ = author_and_genre
-    other = Author(name="Otro Autor")
-    db_session.add(other)
-    db_session.commit()
-    db_session.refresh(other)
+    other = make.author("Otro Autor")
 
     client.post("/books", json=_payload(author_ids=[author.id]), headers=sysadmin_headers)
 
@@ -144,14 +135,10 @@ def test_delete_book_not_found(client, sysadmin_headers):
     assert client.delete("/books/9780000000001", headers=sysadmin_headers).status_code == 404
 
 
-def test_delete_book_conflicts_with_physical_copies(client, sysadmin_headers, db_session):
+def test_delete_book_conflicts_with_physical_copies(client, sysadmin_headers, make):
     client.post("/books", json=_payload(), headers=sysadmin_headers)
 
-    library = Library(name="Central", address="Calle 1", state="BA", city="CABA")
-    db_session.add(library)
-    db_session.flush()
-    db_session.add(PhysicalBook(isbn=ISBN, library_id=library.id))
-    db_session.commit()
+    make.copy(ISBN, make.library("Central", city="CABA"))
 
     response = client.delete(f"/books/{ISBN}", headers=sysadmin_headers)
     assert response.status_code == 409

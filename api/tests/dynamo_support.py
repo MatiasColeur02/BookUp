@@ -23,8 +23,9 @@ ENDPOINT = settings.dynamo_endpoint_url or "http://localhost:8001"
 def temporary_dynamo(*, create_table: bool):
     """Generador para fixtures: una tabla con nombre único, borrada al terminar.
 
-    Se saltea el test si no hay un DynamoDB al que conectarse, así la suite sigue
-    corriendo sin Docker mientras la API esté sobre Postgres.
+    Falla (no se saltea) si no hay un DynamoDB al que conectarse: desde la fase 4 la API
+    entera corre sobre DynamoDB, y una suite que se saltea sola en silencio sería una suite
+    en verde que no probó nada.
     """
     handle: Dynamo = connect(
         f"bookup-test-{uuid.uuid4().hex[:12]}",
@@ -36,7 +37,11 @@ def temporary_dynamo(*, create_table: bool):
     try:
         handle.client.list_tables(Limit=1)
     except (EndpointConnectionError, ClientError, OSError):
-        pytest.skip(f"no DynamoDB reachable at {ENDPOINT}")
+        pytest.fail(
+            f"no DynamoDB reachable at {ENDPOINT}: run `docker compose up -d dynamodb` "
+            "(or set DYNAMO_ENDPOINT_URL)",
+            pytrace=False,
+        )
     try:
         if create_table:
             ensure_table(handle)

@@ -11,7 +11,7 @@ import redis
 
 from app import cache
 from app.config import settings
-from app.persistence.models import UserRole
+from app.persistence.entities import UserRole
 
 
 class FakeRedis:

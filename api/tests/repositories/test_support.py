@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 import pytest
 
 from app.persistence import keys
-from app.persistence.dynamo_repositories import _support as s
+from app.persistence.repositories import _support as s
 from app.persistence.entities import PhysicalBook, PhysicalBookStatus, Reservation
 from app.persistence.errors import AlreadyExistsError, ConditionFailedError
 

@@ -1,6 +1,6 @@
 import pytest
 
-from app.persistence.dynamo_repositories import AuthorRepository, BookRepository
+from app.persistence.repositories import AuthorRepository, BookRepository
 from app.persistence.entities import Author
 from app.persistence.errors import ConditionFailedError
 

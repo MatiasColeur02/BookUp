@@ -1,17 +1,22 @@
 from datetime import datetime, timezone
 
-from sqlalchemy.orm import Session
-
-from ..persistence.models import PhysicalBook, PhysicalBookStatus, Reservation, User, UserRole
+from ..persistence.dynamo import Dynamo
+from ..persistence.entities import PhysicalBookStatus, Reservation, User, UserRole
+from ..persistence.errors import ConditionFailedError
 from ..persistence.repositories import PhysicalBookRepository, ReservationRepository
 from .errors import ConflictError, ForbiddenError, NotFoundError
+
+# Every transition below reads first and then writes, but the reads are only there to
+# give a precise message. What keeps two requests from both winning is the condition of
+# the write inside the repository: the loser gets `ConditionFailedError`, and it is
+# translated to the same 409 as the pre-check.
 
 
 def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
-def _get_or_404(db: Session, reservation_id: int) -> Reservation:
+def _get_or_404(db: Dynamo, reservation_id: int) -> Reservation:
     reservation = ReservationRepository(db).get(reservation_id)
     if reservation is None:
         raise NotFoundError(f"Reservation {reservation_id} not found")
@@ -19,13 +24,14 @@ def _get_or_404(db: Session, reservation_id: int) -> Reservation:
 
 
 def _assert_can_manage(viewer: User, reservation: Reservation) -> None:
-    """Staff-side operations: the librarian of the branch holding the copy, or a sysadmin."""
+    """Staff-side operations: the librarian of the branch holding the copy, or a sysadmin.
+
+    `reservation.library_id` is copied from the copy when the reservation is made, so
+    authorizing needs no read of the copy.
+    """
     if viewer.role is UserRole.sysadmin:
         return
-    if (
-        viewer.role is UserRole.librarian
-        and viewer.library_id == reservation.physical_book.library_id
-    ):
+    if viewer.role is UserRole.librarian and viewer.library_id == reservation.library_id:
         return
     raise ForbiddenError(f"You are not allowed to manage reservation {reservation.id}")
 
@@ -43,54 +49,31 @@ def _assert_open(reservation: Reservation) -> None:
         raise ConflictError(f"Reservation {reservation.id} was already returned")
 
 
-def close_open_reservation(
-    db: Session, physical_book: PhysicalBook, *, at: datetime | None = None
-) -> Reservation | None:
-    """Close the open reservation of a copy, if there is one. Does not commit.
-
-    Used when a copy leaves circulation outside the normal flow (marked `lost`):
-    a picked-up reservation is closed as returned, one still waiting for pickup
-    as cancelled.
-    """
-    reservation = ReservationRepository(db).get_open_for_physical_book(physical_book.id)
-    if reservation is None:
-        return None
-
-    when = at or _now()
-    if reservation.picked_up:
-        reservation.returned_at = when
-    else:
-        reservation.cancelled_at = when
-    return reservation
-
-
 def create_reservation(
-    db: Session, *, physical_book_id: int, user: User, expires_at: datetime
+    db: Dynamo, *, physical_book_id: int, user: User, expires_at: datetime
 ) -> Reservation:
-    physical_book_repo = PhysicalBookRepository(db)
-    physical_book = physical_book_repo.get(physical_book_id)
+    physical_book = PhysicalBookRepository(db).get(physical_book_id)
     if physical_book is None:
         raise NotFoundError(f"Physical book {physical_book_id} not found")
     if physical_book.status != PhysicalBookStatus.available:
         raise ConflictError(f"Physical book {physical_book_id} is not available")
 
-    physical_book.status = PhysicalBookStatus.reserved
-    reservation = ReservationRepository(db).create(
-        Reservation(physical_book_id=physical_book_id, user_id=user.id, expires_at=expires_at)
-    )
-    db.commit()
-    db.refresh(reservation)
-    return reservation
+    try:
+        return ReservationRepository(db).create(
+            Reservation(physical_book_id=physical_book_id, user_id=user.id, expires_at=expires_at)
+        )
+    except ConditionFailedError as exc:  # somebody else reserved it first
+        raise ConflictError(f"Physical book {physical_book_id} is not available") from exc
 
 
-def get_reservation(db: Session, reservation_id: int, *, viewer: User) -> Reservation:
+def get_reservation(db: Dynamo, reservation_id: int, *, viewer: User) -> Reservation:
     reservation = _get_or_404(db, reservation_id)
     _assert_can_view(viewer, reservation)
     return reservation
 
 
 def list_reservations(
-    db: Session,
+    db: Dynamo,
     *,
     viewer: User,
     library_id: int | None = None,
@@ -120,7 +103,7 @@ def list_reservations(
 
 
 def update_reservation(
-    db: Session, reservation_id: int, *, viewer: User, expires_at: datetime | None = None
+    db: Dynamo, reservation_id: int, *, viewer: User, expires_at: datetime | None = None
 ) -> Reservation:
     reservation = _get_or_404(db, reservation_id)
     _assert_can_manage(viewer, reservation)
@@ -128,16 +111,16 @@ def update_reservation(
 
     if reservation.picked_up:
         raise ConflictError(f"Reservation {reservation_id} was already picked up")
+    if expires_at is None:
+        return reservation
 
-    if expires_at is not None:
-        reservation.expires_at = expires_at
-
-    db.commit()
-    db.refresh(reservation)
-    return reservation
+    try:
+        return ReservationRepository(db).update_expiry(reservation_id, expires_at)
+    except ConditionFailedError as exc:
+        raise ConflictError(str(exc)) from exc
 
 
-def mark_picked_up(db: Session, reservation_id: int, *, viewer: User) -> Reservation:
+def mark_picked_up(db: Dynamo, reservation_id: int, *, viewer: User) -> Reservation:
     reservation = _get_or_404(db, reservation_id)
     _assert_can_manage(viewer, reservation)
     _assert_open(reservation)
@@ -145,14 +128,13 @@ def mark_picked_up(db: Session, reservation_id: int, *, viewer: User) -> Reserva
     if reservation.picked_up:
         raise ConflictError(f"Reservation {reservation_id} was already picked up")
 
-    reservation.picked_up = True
-    reservation.physical_book.status = PhysicalBookStatus.loaned
-    db.commit()
-    db.refresh(reservation)
-    return reservation
+    try:
+        return ReservationRepository(db).mark_picked_up(reservation_id)
+    except ConditionFailedError as exc:
+        raise ConflictError(str(exc)) from exc
 
 
-def cancel_reservation(db: Session, reservation_id: int, *, viewer: User) -> Reservation:
+def cancel_reservation(db: Dynamo, reservation_id: int, *, viewer: User) -> Reservation:
     reservation = _get_or_404(db, reservation_id)
     _assert_can_view(viewer, reservation)
     _assert_open(reservation)
@@ -162,14 +144,13 @@ def cancel_reservation(db: Session, reservation_id: int, *, viewer: User) -> Res
             f"Reservation {reservation_id} was already picked up: return it instead"
         )
 
-    reservation.cancelled_at = _now()
-    reservation.physical_book.status = PhysicalBookStatus.available
-    db.commit()
-    db.refresh(reservation)
-    return reservation
+    try:
+        return ReservationRepository(db).cancel(reservation_id, _now())
+    except ConditionFailedError as exc:
+        raise ConflictError(str(exc)) from exc
 
 
-def mark_returned(db: Session, reservation_id: int, *, viewer: User) -> Reservation:
+def mark_returned(db: Dynamo, reservation_id: int, *, viewer: User) -> Reservation:
     reservation = _get_or_404(db, reservation_id)
     _assert_can_manage(viewer, reservation)
     _assert_open(reservation)
@@ -179,27 +160,21 @@ def mark_returned(db: Session, reservation_id: int, *, viewer: User) -> Reservat
             f"Reservation {reservation_id} was never picked up: cancel it instead"
         )
 
-    reservation.returned_at = _now()
-    reservation.physical_book.status = PhysicalBookStatus.available
-    db.commit()
-    db.refresh(reservation)
-    return reservation
+    try:
+        return ReservationRepository(db).mark_returned(reservation_id, _now())
+    except ConditionFailedError as exc:
+        raise ConflictError(str(exc)) from exc
 
 
-def expire_reservations(db: Session, now: datetime | None = None) -> int:
+def expire_reservations(db: Dynamo, now: datetime | None = None) -> int:
     """Release copies held by reservations that expired without being picked up.
 
     Idempotent: a second run finds nothing left to expire. Meant to be driven by
-    a scheduler (EventBridge in the target architecture).
+    a scheduler (EventBridge in the target architecture). A reservation picked up or
+    cancelled between the listing and the write is skipped by the repository, not
+    expired by mistake. The listing is a Query on the sparse index of open reservations,
+    so it walks dozens of items, not the whole history.
     """
     when = now or _now()
-    expired = ReservationRepository(db).list_expired(when)
-
-    for reservation in expired:
-        reservation.cancelled_at = when
-        # A copy already marked `lost` stays lost; only release the held ones.
-        if reservation.physical_book.status is PhysicalBookStatus.reserved:
-            reservation.physical_book.status = PhysicalBookStatus.available
-
-    db.commit()
-    return len(expired)
+    repo = ReservationRepository(db)
+    return repo.expire([reservation.id for reservation in repo.list_expired(when)], when)

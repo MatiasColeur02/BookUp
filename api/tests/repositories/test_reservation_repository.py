@@ -3,11 +3,11 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from app.persistence.dynamo_repositories import PhysicalBookRepository, ReservationRepository
+from app.persistence.repositories import PhysicalBookRepository, ReservationRepository
 from app.persistence.entities import PhysicalBookStatus, Reservation
 from app.persistence.errors import ConditionFailedError
 
-from .conftest import ISBN
+from ..factories import ISBN
 
 available, reserved, loaned = (
     PhysicalBookStatus.available,
