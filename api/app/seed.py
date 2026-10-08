@@ -1,25 +1,57 @@
-"""Populate the database with a rich sample dataset for local development.
+"""Populate DynamoDB with a rich sample dataset for local development.
+
+    python -m app.seed
 
 El dataset es **determinista**: la distribución de ejemplares y reservas sale de un
-`random.Random(RANDOM_SEED)`, así que dos corridas sobre bases limpias dan exactamente
-lo mismo y un bug reproduce igual en cualquier máquina.
+`random.Random(RANDOM_SEED)`, así que dos corridas sobre tablas limpias dan exactamente
+lo mismo y un bug reproduce igual en cualquier máquina. Lo único que depende del reloj son
+las fechas de las reservas (relativas a "ahora"); `seed(now=...)` lo fija para los tests.
 
 Los datos de catálogo (sedes, autores, géneros, libros) son fijos y están declarados
 como tablas al principio del módulo; lo aleatorio es sólo el "ruido" operativo: qué
 sede tiene qué ejemplar y qué reservas circularon por él.
+
+**Cómo escribe.** Los ids son los que daría el contador (1..N en el orden de creación) y se
+asignan acá, en memoria; los ítems se arman con `repositories/_items.py` —el mismo formato
+que usan los repositories, con los campos desnormalizados— y se escriben en lotes de 25.
+Al final se dejan los contadores en N: si no, el primer `POST /authors` obtendría el id 1 y
+pisaría al primer autor sembrado. El ítem centinela `SEED#META` va **último**, así una
+corrida interrumpida no queda marcada como hecha y se puede repetir (reescribe los mismos
+ítems). El seed no indexa en OpenSearch: eso lo hace `app.reindex` (fase 6).
 """
 
 from __future__ import annotations
 
+import dataclasses
 import random
+import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 
-from .persistence import models
-from .persistence.database import Base, SessionLocal, engine
+from .persistence import keys
+from .persistence.dynamo import Dynamo, get_dynamo
+from .persistence.entities import (
+    Author,
+    Book,
+    Genre,
+    Library,
+    PhysicalBook,
+    PhysicalBookStatus,
+    Reservation,
+    User,
+    UserRole,
+)
+from .persistence.repositories import _items
+from .persistence.repositories import _support as s
+from .persistence.table import ensure_table
 from .services.auth_service import hash_password
 
 # Development-only credentials: every seeded user shares this password.
 SEED_PASSWORD = "bookup123"
+
+# BatchWriteItem admite hasta 25 ítems por llamada.
+BATCH_SIZE = 25
+WRITE_WORKERS = 8
 
 # Semilla del RNG: cambiarla regenera otro dataset igual de válido.
 RANDOM_SEED = 20240501
@@ -507,10 +539,10 @@ RESERVATION_PLAN: dict[str, int] = {
 }
 
 
-def _build_catalog(db) -> tuple[dict, dict, list]:
-    libraries = {}
-    for key, name, address, state, city, hours, phone, website in LIBRARIES:
-        libraries[key] = models.Library(
+def _build_catalog() -> tuple[dict[str, Library], dict[str, Genre], list[Book]]:
+    libraries = {
+        key: Library(
+            id=index,
             name=name,
             address=address,
             state=state,
@@ -520,121 +552,150 @@ def _build_catalog(db) -> tuple[dict, dict, list]:
             email=f"{key}@bookup.example",
             website=website,
         )
-    db.add_all(libraries.values())
-
-    genres = {name: models.Genre(name=name) for name in GENRES}
-    authors = {key: models.Author(name=name) for key, name in AUTHORS}
-    db.add_all(genres.values())
-    db.add_all(authors.values())
-
-    books = []
-    for isbn12, title, author_keys, genre_names, pages, language, synopsis in BOOKS:
-        books.append(
-            models.Book(
-                isbn=_isbn13(isbn12),
-                title=title,
-                language=language,
-                pages=pages,
-                synopsis=synopsis,
-                authors=[authors[key] for key in author_keys],
-                genres=[genres[name] for name in genre_names],
-            )
+        for index, (key, name, address, state, city, hours, phone, website) in enumerate(
+            LIBRARIES, start=1
         )
-    db.add_all(books)
-    db.flush()
+    }
+    genres = {name: Genre(id=index, name=name) for index, name in enumerate(GENRES, start=1)}
+    authors = {key: Author(id=index, name=name) for index, (key, name) in enumerate(AUTHORS, start=1)}
+
+    books = [
+        Book(
+            isbn=_isbn13(isbn12),
+            title=title,
+            language=language,
+            pages=pages,
+            synopsis=synopsis,
+            authors=[authors[key] for key in author_keys],
+            genres=[genres[name] for name in genre_names],
+        )
+        for isbn12, title, author_keys, genre_names, pages, language, synopsis in BOOKS
+    ]
     return libraries, genres, books
 
 
-def _build_copies(db, rng: random.Random, libraries: dict, books: list) -> list:
+def _build_copies(
+    rng: random.Random, libraries: dict[str, Library], books: list[Book]
+) -> list[PhysicalBook]:
     """Reparte ejemplares: cada libro está en varias sedes, con más de una copia a veces.
 
     Los títulos más pedidos (los primeros de la lista) se distribuyen a más sedes, así
-    la pantalla de disponibilidad muestra stock cruzado de verdad.
+    la pantalla de disponibilidad muestra stock cruzado de verdad. Los ids salen del orden
+    de creación, como los asignaría el contador. Todos nacen `available`: el estado final
+    lo fija `_build_reservations`.
     """
     branches = list(libraries.values())
-    copies = []
+    titles = {book.isbn: book.title for book in books}
+    copies: list[PhysicalBook] = []
     for index, book in enumerate(books):
         popular = index < 15
         branch_count = rng.randint(4, 7) if popular else rng.randint(1, 4)
         for branch in rng.sample(branches, branch_count):
             for _ in range(rng.randint(1, 3) if popular else rng.randint(1, 2)):
-                copies.append(models.PhysicalBook(isbn=book.isbn, library_id=branch.id))
-    db.add_all(copies)
-    db.flush()
+                copies.append(
+                    PhysicalBook(
+                        id=len(copies) + 1,
+                        isbn=book.isbn,
+                        library_id=branch.id,
+                        library_name=branch.name,
+                        library_city=branch.city,
+                        book_title=titles[book.isbn],
+                    )
+                )
     return copies
 
 
-def _build_users(db, libraries: dict) -> list:
-    """Bootstrapea el staff y los lectores.
+def _build_users(libraries: dict[str, Library]) -> tuple[list[User], list[User]]:
+    """Bootstrapea el staff y los lectores. Devuelve `(staff, customers)`.
 
     Sin al menos un `sysadmin` nadie puede crear sedes ni personal por la API, así que
     el seed lo crea a mano: es el único punto donde se saltea esa regla.
     """
     password_hash = hash_password(SEED_PASSWORD)
-    staff = [
-        models.User(
-            email="admin@bookup.example",
-            password_hash=password_hash,
-            name="Sysadmin",
-            role=models.UserRole.sysadmin,
-        ),
-        models.User(
-            email="soporte@bookup.example",
-            password_hash=password_hash,
-            name="Soporte BookUp",
-            role=models.UserRole.sysadmin,
-        ),
+    specs: list[tuple[str, str, UserRole, int | None]] = [
+        ("admin@bookup.example", "Sysadmin", UserRole.sysadmin, None),
+        ("soporte@bookup.example", "Soporte BookUp", UserRole.sysadmin, None),
     ]
     for key, name in LIBRARIANS.items():
-        staff.append(
-            models.User(
-                email=f"{key}@bookup.example",
-                password_hash=password_hash,
-                name=name,
-                role=models.UserRole.librarian,
-                library_id=libraries[key].id,
-            )
-        )
-
-    customers = [
-        models.User(
-            email=f"{local_part}@bookup.example",
-            password_hash=password_hash,
-            name=name,
-            role=models.UserRole.customer,
-        )
+        specs.append((f"{key}@bookup.example", name, UserRole.librarian, libraries[key].id))
+    staff_count = len(specs)
+    specs += [
+        (f"{local_part}@bookup.example", name, UserRole.customer, None)
         for local_part, name in CUSTOMERS
     ]
 
-    db.add_all(staff)
-    db.add_all(customers)
-    db.flush()
-    return customers
+    users = [
+        User(
+            id=index,
+            email=email,
+            password_hash=password_hash,
+            name=name,
+            role=role,
+            library_id=library_id,
+        )
+        for index, (email, name, role, library_id) in enumerate(specs, start=1)
+    ]
+    return users[:staff_count], users[staff_count:]
 
 
 def _build_reservations(
-    db, rng: random.Random, customers: list, copies: list, demo_library_ids: set[int]
-) -> list:
+    rng: random.Random,
+    now: datetime,
+    customers: list[User],
+    copies: list[PhysicalBook],
+    demo_library_ids: set[int],
+) -> tuple[list[Reservation], list[PhysicalBook]]:
     """Genera historial y reservas vivas, dejando el `status` del ejemplar consistente.
 
     Un ejemplar puede tener muchas reservas cerradas (ya circuló) pero como máximo una
-    abierta: esa es la que fija su estado en `reserved` o `loaned`.
+    abierta: esa es la que fija su estado en `reserved` o `loaned`. Devuelve las reservas
+    y los ejemplares con su estado final (`status` y `open_reservation_id`).
     """
-    now = datetime.now(timezone.utc)
-    reservations: list[models.Reservation] = []
-    rng.shuffle(copies)
+    reservations: list[Reservation] = []
+    status: dict[int, PhysicalBookStatus] = {}
+    open_reservation: dict[int, int] = {}
+    pool = list(copies)  # `copies` conserva el orden de ids; el RNG baraja una copia
+    rng.shuffle(pool)
+
+    def add(
+        copy: PhysicalBook,
+        user: User,
+        *,
+        reserved_at: datetime,
+        expires_at: datetime,
+        picked_up: bool,
+        cancelled_at: datetime | None = None,
+        returned_at: datetime | None = None,
+    ) -> None:
+        """Suma una reserva con el siguiente id; si queda abierta, es la del ejemplar."""
+        reservation = Reservation(
+            id=len(reservations) + 1,
+            user_id=user.id,
+            physical_book_id=copy.id,
+            reserved_at=reserved_at,
+            expires_at=expires_at,
+            picked_up=picked_up,
+            cancelled_at=cancelled_at,
+            returned_at=returned_at,
+            # Desnormalizados del ejemplar, como los copia el repository al reservar.
+            library_id=copy.library_id,
+            isbn=copy.isbn,
+        )
+        reservations.append(reservation)
+        if reservation.is_open:
+            open_reservation[copy.id] = reservation.id
 
     # Las reservas abiertas se cargan hacia las tres sedes del README: son las que se
     # usan para probar el panel del bibliotecario, y repartidas parejo entre diez sedes
     # quedaban dos o tres por sede.
-    demo_free = [copy for copy in copies if copy.library_id in demo_library_ids]
-    other_free = [copy for copy in copies if copy.library_id not in demo_library_ids]
+    demo_free = [copy for copy in pool if copy.library_id in demo_library_ids]
+    other_free = [copy for copy in pool if copy.library_id not in demo_library_ids]
 
-    def take_free() -> models.PhysicalBook | None:
-        pool = demo_free if demo_free and rng.random() < 0.6 else other_free
-        if not pool:
-            pool = demo_free or other_free
-        return pool.pop() if pool else None
+    def take_free() -> PhysicalBook | None:
+        source = demo_free if demo_free and rng.random() < 0.6 else other_free
+        if not source:
+            source = demo_free or other_free
+        return source.pop() if source else None
 
     # Primero las cerradas: pueden caer sobre cualquier ejemplar, incluso uno que después
     # quede reservado de nuevo — es exactamente el caso "este libro ya circuló".
@@ -644,45 +705,37 @@ def _build_reservations(
         ("expired", RESERVATION_PLAN["expired"]),
     ):
         for _ in range(amount):
-            copy = rng.choice(copies)
+            copy = rng.choice(pool)
             user = rng.choice(customers)
             reserved_at = now - timedelta(days=rng.randint(20, 400), hours=rng.randint(0, 23))
 
             if kind == "returned":
-                expires_at = reserved_at + timedelta(days=14)
-                reservations.append(
-                    models.Reservation(
-                        user_id=user.id,
-                        physical_book_id=copy.id,
-                        reserved_at=reserved_at,
-                        expires_at=expires_at,
-                        picked_up=True,
-                        returned_at=reserved_at + timedelta(days=rng.randint(3, 25)),
-                    )
+                add(
+                    copy,
+                    user,
+                    reserved_at=reserved_at,
+                    expires_at=reserved_at + timedelta(days=14),
+                    picked_up=True,
+                    returned_at=reserved_at + timedelta(days=rng.randint(3, 25)),
                 )
             elif kind == "cancelled":
-                expires_at = reserved_at + timedelta(days=7)
-                reservations.append(
-                    models.Reservation(
-                        user_id=user.id,
-                        physical_book_id=copy.id,
-                        reserved_at=reserved_at,
-                        expires_at=expires_at,
-                        picked_up=False,
-                        cancelled_at=reserved_at + timedelta(days=rng.randint(1, 5)),
-                    )
+                add(
+                    copy,
+                    user,
+                    reserved_at=reserved_at,
+                    expires_at=reserved_at + timedelta(days=7),
+                    picked_up=False,
+                    cancelled_at=reserved_at + timedelta(days=rng.randint(1, 5)),
                 )
             else:  # expired: nunca la retiraron y el vencimiento la cerró
                 expires_at = reserved_at + timedelta(days=3)
-                reservations.append(
-                    models.Reservation(
-                        user_id=user.id,
-                        physical_book_id=copy.id,
-                        reserved_at=reserved_at,
-                        expires_at=expires_at,
-                        picked_up=False,
-                        cancelled_at=expires_at,
-                    )
+                add(
+                    copy,
+                    user,
+                    reserved_at=reserved_at,
+                    expires_at=expires_at,
+                    picked_up=False,
+                    cancelled_at=expires_at,
                 )
 
     # Ahora las abiertas: un ejemplar por reserva, y el ejemplar cambia de estado.
@@ -701,23 +754,15 @@ def _build_reservations(
                 # Algunas quedan en mora (vencidas y sin devolver): es lo que el
                 # bibliotecario tiene que ver en su panel.
                 expires_at = now + timedelta(days=rng.randint(-6, 18))
-                copy.status = models.PhysicalBookStatus.loaned
+                status[copy.id] = PhysicalBookStatus.loaned
                 picked_up = True
             else:
                 reserved_at = now - timedelta(days=rng.randint(0, 4))
                 expires_at = now + timedelta(days=rng.randint(1, 7))
-                copy.status = models.PhysicalBookStatus.reserved
+                status[copy.id] = PhysicalBookStatus.reserved
                 picked_up = False
 
-            reservations.append(
-                models.Reservation(
-                    user_id=user.id,
-                    physical_book_id=copy.id,
-                    reserved_at=reserved_at,
-                    expires_at=expires_at,
-                    picked_up=picked_up,
-                )
-            )
+            add(copy, user, reserved_at=reserved_at, expires_at=expires_at, picked_up=picked_up)
 
     # `ana@bookup.example` es la lectora que documenta el README: se le garantiza una
     # reserva de cada estado para que «Mis reservas» muestre el ciclo completo sin
@@ -725,94 +770,168 @@ def _build_reservations(
     ana = customers[0]
     ana_reserved = take_free()
     if ana_reserved is not None:
-        ana_reserved.status = models.PhysicalBookStatus.reserved
-        reservations.append(
-            models.Reservation(
-                user_id=ana.id,
-                physical_book_id=ana_reserved.id,
-                reserved_at=now - timedelta(days=1),
-                expires_at=now + timedelta(days=5),
-                picked_up=False,
-            )
+        status[ana_reserved.id] = PhysicalBookStatus.reserved
+        add(
+            ana_reserved,
+            ana,
+            reserved_at=now - timedelta(days=1),
+            expires_at=now + timedelta(days=5),
+            picked_up=False,
         )
     ana_loaned = take_free()
     if ana_loaned is not None:
-        ana_loaned.status = models.PhysicalBookStatus.loaned
-        reservations.append(
-            models.Reservation(
-                user_id=ana.id,
-                physical_book_id=ana_loaned.id,
-                reserved_at=now - timedelta(days=9),
-                expires_at=now + timedelta(days=12),
-                picked_up=True,
-            )
-        )
-    ana_history = rng.sample(copies, 2)
-    reservations.append(
-        models.Reservation(
-            user_id=ana.id,
-            physical_book_id=ana_history[0].id,
-            reserved_at=now - timedelta(days=120),
-            expires_at=now - timedelta(days=106),
+        status[ana_loaned.id] = PhysicalBookStatus.loaned
+        add(
+            ana_loaned,
+            ana,
+            reserved_at=now - timedelta(days=9),
+            expires_at=now + timedelta(days=12),
             picked_up=True,
-            returned_at=now - timedelta(days=110),
         )
+    ana_history = rng.sample(pool, 2)
+    add(
+        ana_history[0],
+        ana,
+        reserved_at=now - timedelta(days=120),
+        expires_at=now - timedelta(days=106),
+        picked_up=True,
+        returned_at=now - timedelta(days=110),
     )
-    reservations.append(
-        models.Reservation(
-            user_id=ana.id,
-            physical_book_id=ana_history[1].id,
-            reserved_at=now - timedelta(days=60),
-            expires_at=now - timedelta(days=53),
-            picked_up=False,
-            cancelled_at=now - timedelta(days=58),
-        )
+    add(
+        ana_history[1],
+        ana,
+        reserved_at=now - timedelta(days=60),
+        expires_at=now - timedelta(days=53),
+        picked_up=False,
+        cancelled_at=now - timedelta(days=58),
     )
 
-    # Unos pocos extraviados, siempre sobre ejemplares sin reserva abierta: `lost` cierra
-    # la reserva viva si la hubiera, y eso es trabajo del service, no del seed.
+    # Unos pocos extraviados, siempre sobre ejemplares sin reserva abierta: marcar `lost`
+    # un ejemplar con reserva viva la cierra, y eso es trabajo del repository, no del seed.
     for _ in range(8):
         copy = take_free()
         if copy is None:
             break
-        copy.status = models.PhysicalBookStatus.lost
+        status[copy.id] = PhysicalBookStatus.lost
 
-    db.add_all(reservations)
-    db.flush()
-    return reservations
-
-
-def seed() -> None:
-    Base.metadata.create_all(bind=engine)
-    db = SessionLocal()
-    try:
-        if db.query(models.Library).count() > 0:
-            print("Data already present, skipping seed.")
-            return
-
-        rng = random.Random(RANDOM_SEED)
-
-        libraries, genres, books = _build_catalog(db)
-        copies = _build_copies(db, rng, libraries, books)
-        customers = _build_users(db, libraries)
-        # Las sedes del README: ahí se concentran las reservas vivas de la demo.
-        demo_library_ids = {libraries[key].id for key in ("central", "norte", "sur")}
-        reservations = _build_reservations(db, rng, customers, copies, demo_library_ids)
-
-        db.commit()
-
-        open_reservations = sum(1 for r in reservations if r.is_open)
-        print(
-            "Sample data loaded:\n"
-            f"  {len(libraries)} sedes\n"
-            f"  {len(AUTHORS)} autores, {len(genres)} géneros, {len(books)} libros\n"
-            f"  {len(copies)} ejemplares\n"
-            f"  {len(LIBRARIANS) + 2} usuarios de staff, {len(customers)} lectores\n"
-            f"  {len(reservations)} reservas ({open_reservations} abiertas)\n"
-            f"Seeded users share the password {SEED_PASSWORD!r}."
+    final_copies = [
+        dataclasses.replace(
+            copy,
+            status=status.get(copy.id, PhysicalBookStatus.available),
+            open_reservation_id=open_reservation.get(copy.id),
         )
-    finally:
-        db.close()
+        for copy in copies
+    ]
+    return reservations, final_copies
+
+
+class SeedConflictError(RuntimeError):
+    """La tabla ya tiene datos que no son de un seed completo."""
+
+
+def _already_seeded(db: Dynamo) -> bool:
+    """¿Hay un seed completo? Si hay datos de otro origen, se niega a mezclarse con ellos.
+
+    Sin esto, sembrar sobre una tabla donde ya se registraron usuarios por la API pisaría
+    `USER#1` con el sysadmin del seed.
+    """
+    if s.get_item(db, *keys.seed_marker().values()) is not None:
+        return True
+    existing = s.batch_get(db, [keys.counter(name) for name in _items.COUNTERS])
+    if existing:
+        raise SeedConflictError(
+            "The table already has data but no completed seed (counters exist for "
+            f"{sorted(i[keys.PK] for i in existing)}). Refusing to overwrite it: "
+            "drop the table, or run the seed on an empty one."
+        )
+    return False
+
+
+def _write_batch(db: Dynamo, batch: list[dict]) -> None:
+    pending = {db.table_name: [{"PutRequest": {"Item": item}} for item in batch]}
+    for attempt in range(8):
+        pending = db.client.batch_write_item(RequestItems=pending).get("UnprocessedItems") or {}
+        if not pending:
+            return
+        time.sleep(min(0.05 * 2**attempt, 2))
+    raise RuntimeError(f"{sum(map(len, pending.values()))} items were never written")
+
+
+def _write(db: Dynamo, items: list[dict]) -> None:
+    """BatchWriteItem de a 25, con varios lotes en vuelo a la vez.
+
+    Los lotes son independientes (ningún ítem se repite), y en paralelo es varias veces más
+    rápido: cada llamada paga la latencia de su escritura, y con 4 GSIs por ítem son ~50
+    llamadas seguidas. El cliente de boto3 es thread-safe.
+    """
+    batches = [items[start : start + BATCH_SIZE] for start in range(0, len(items), BATCH_SIZE)]
+    with ThreadPoolExecutor(max_workers=WRITE_WORKERS) as pool:
+        list(pool.map(lambda batch: _write_batch(db, batch), batches))
+
+
+def seed(db: Dynamo | None = None, *, now: datetime | None = None) -> bool:
+    """Siembra la tabla. Devuelve `False` si ya estaba sembrada y no hizo nada."""
+    db = db or get_dynamo()
+    ensure_table(db)
+    if _already_seeded(db):
+        print("Data already present, skipping seed.")
+        return False
+
+    now = now or datetime.now(timezone.utc)
+    rng = random.Random(RANDOM_SEED)
+
+    libraries, genres, books = _build_catalog()
+    copies = _build_copies(rng, libraries, books)
+    staff, customers = _build_users(libraries)
+    # Las sedes del README: ahí se concentran las reservas vivas de la demo.
+    demo_library_ids = {libraries[key].id for key in ("central", "norte", "sur")}
+    reservations, copies = _build_reservations(rng, now, customers, copies, demo_library_ids)
+    users = staff + customers
+
+    created_at = now
+    books = [dataclasses.replace(b, created_at=created_at, updated_at=created_at) for b in books]
+
+    items: list[dict] = []
+    items += [_items.library_item(lib) for lib in libraries.values()]
+    items += [_items.genre_item(g) for g in genres.values()]
+    items += [_items.genre_alias_item(g.name, g.id) for g in genres.values()]
+    items += [_items.author_item(Author(id=i, name=n)) for i, (_, n) in enumerate(AUTHORS, start=1)]
+    for book in books:
+        items += _items.book_items(book)
+    items += [_items.copy_item(c) for c in copies]
+    items += [_items.user_item(u) for u in users]
+    items += [_items.user_alias_item(u.email, u.id) for u in users]
+    for r in reservations:
+        items += [_items.reservation_item(r), _items.copy_reservation_item(r.physical_book_id, r.id)]
+    _write(db, items)
+
+    # Los contadores, en el último id usado: el siguiente alta por la API es N+1 y no pisa
+    # nada. Es la parte que no se puede olvidar (ROADMAP §9).
+    totals = {
+        "author": len(AUTHORS),
+        "genre": len(genres),
+        "library": len(libraries),
+        "user": len(users),
+        "physical_book": len(copies),
+        "reservation": len(reservations),
+    }
+    assert set(totals) == set(_items.COUNTERS)
+    _write(db, [{**keys.counter(name), "seq": total} for name, total in totals.items()])
+
+    # Último: recién ahora la tabla cuenta como sembrada.
+    _write(db, [{**keys.seed_marker(), "seeded_at": keys.iso(now)}])
+
+    open_reservations = sum(1 for r in reservations if r.is_open)
+    print(
+        "Sample data loaded:\n"
+        f"  {len(libraries)} sedes\n"
+        f"  {len(AUTHORS)} autores, {len(genres)} géneros, {len(books)} libros\n"
+        f"  {len(copies)} ejemplares\n"
+        f"  {len(staff)} usuarios de staff, {len(customers)} lectores\n"
+        f"  {len(reservations)} reservas ({open_reservations} abiertas)\n"
+        f"Seeded users share the password {SEED_PASSWORD!r}."
+    )
+    return True
 
 
 if __name__ == "__main__":

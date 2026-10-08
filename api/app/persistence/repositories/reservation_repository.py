@@ -20,7 +20,7 @@ from ..dynamo import Dynamo
 from ..entities import PhysicalBookStatus, Reservation
 from ..errors import ConditionFailedError
 from .. import keys
-from . import _support as s
+from . import _items, _support as s
 
 _NEW = "attribute_not_exists(PK)"
 _OPEN = "attribute_not_exists(cancelled_at) AND attribute_not_exists(returned_at)"
@@ -149,16 +149,7 @@ class ReservationRepository:
             library_id=int(copy["library_id"]),
             isbn=copy["isbn"],
         )
-        reservation_item = {
-            **keys.reservation(
-                reservation_id,
-                created.user_id,
-                created.library_id,
-                created.reserved_at,
-                open_until=created.expires_at,
-            ),
-            **s.to_item(created),
-        }
+        reservation_item = _items.reservation_item(created)
         s.run_transaction(
             self.db,
             [
@@ -174,7 +165,7 @@ class ReservationRepository:
                     values={":available": PhysicalBookStatus.available.value},
                 ),
                 s.tx_put(reservation_item, condition=_NEW),
-                s.tx_put(keys.copy_reservation(created.physical_book_id, reservation_id)),
+                s.tx_put(_items.copy_reservation_item(created.physical_book_id, reservation_id)),
             ],
             failed_error=f"Physical book {created.physical_book_id} is not available",
         )

@@ -6,18 +6,20 @@ boto3, que apuntaría a la cuenta real si hubiera credenciales en el entorno.
 
 from __future__ import annotations
 
+import os
 import uuid
 
 import pytest
 from botocore.exceptions import ClientError, EndpointConnectionError
 
-from app.config import settings
 from app.persistence.dynamo import Dynamo, connect
 from app.persistence.table import drop_table, ensure_table
 
-# Dentro del contenedor `api` el endpoint viene en `DYNAMO_ENDPOINT_URL`; desde el host,
-# DynamoDB Local del compose queda en el 8001.
-ENDPOINT = settings.dynamo_endpoint_url or "http://localhost:8001"
+# DynamoDB Local **en memoria** (`dynamodb-test` del compose), aparte del de desarrollo:
+# el persistente fsynca cada escritura y sembrar tarda minutos; este, medio segundo. Además
+# la suite nunca toca la tabla con tus datos. Dentro del contenedor `api` el endpoint viene en
+# `DYNAMO_TEST_ENDPOINT_URL`; desde el host queda en el 8002.
+ENDPOINT = os.environ.get("DYNAMO_TEST_ENDPOINT_URL") or "http://localhost:8002"
 
 
 def temporary_dynamo(*, create_table: bool):
@@ -38,8 +40,8 @@ def temporary_dynamo(*, create_table: bool):
         handle.client.list_tables(Limit=1)
     except (EndpointConnectionError, ClientError, OSError):
         pytest.fail(
-            f"no DynamoDB reachable at {ENDPOINT}: run `docker compose up -d dynamodb` "
-            "(or set DYNAMO_ENDPOINT_URL)",
+            f"no DynamoDB reachable at {ENDPOINT}: run `docker compose up -d dynamodb-test` "
+            "(or set DYNAMO_TEST_ENDPOINT_URL)",
             pytrace=False,
         )
     try:

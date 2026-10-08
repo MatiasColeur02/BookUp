@@ -4,7 +4,7 @@ from ..dynamo import Dynamo
 from ..entities import Genre
 from ..errors import AlreadyExistsError, ConditionFailedError
 from .. import keys
-from . import _support as s
+from . import _items, _support as s
 
 _NEW = "attribute_not_exists(PK)"
 _EXISTS = "attribute_exists(PK)"
@@ -49,13 +49,8 @@ class GenreRepository:
         s.run_transaction(
             self.db,
             [
-                s.tx_put(
-                    {**keys.genre_name(created.name), "genre_id": created.id}, condition=_NEW
-                ),
-                s.tx_put(
-                    {**keys.genre(created.id, created.name), **s.to_item(created)},
-                    condition=_NEW,
-                ),
+                s.tx_put(_items.genre_alias_item(created.name, created.id), condition=_NEW),
+                s.tx_put(_items.genre_item(created), condition=_NEW),
             ],
             exists_error=f"Genre {created.name!r} already exists",
         )
@@ -74,9 +69,7 @@ class GenreRepository:
                 self.db,
                 [
                     s.tx_delete(keys.key(keys.genre_name(current.name)[keys.PK])),
-                    s.tx_put(
-                        {**keys.genre_name(name), "genre_id": genre_id}, condition=_NEW
-                    ),
+                    s.tx_put(_items.genre_alias_item(name, genre_id), condition=_NEW),
                     s.tx_update(
                         keys.key(keys.genre_pk(genre_id)),
                         set_={"name": name, keys.GSI1_SK: keys.genre(genre_id, name)[keys.GSI1_SK]},

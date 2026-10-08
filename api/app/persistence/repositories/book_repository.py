@@ -19,19 +19,11 @@ from ..dynamo import Dynamo
 from ..entities import Author, Book, Genre
 from ..errors import ConditionFailedError
 from .. import keys
-from . import _catalog_bridge, _support as s
+from . import _catalog_bridge, _items, _support as s
 
 _SCALARS = {"title", "language", "pages", "synopsis", "cover_key"}
 _NEW = "attribute_not_exists(PK)"
 _EXISTS = "attribute_exists(#pk)"
-
-
-def _author_link(isbn: str, author: Author) -> dict[str, Any]:
-    return {**keys.book_author(isbn, author.id), "author_id": author.id, "author_name": author.name}
-
-
-def _genre_link(isbn: str, genre: Genre) -> dict[str, Any]:
-    return {**keys.book_genre(isbn, genre.id), "genre_id": genre.id, "genre_name": genre.name}
 
 
 class BookRepository:
@@ -78,14 +70,9 @@ class BookRepository:
         authors = list({a.id: a for a in book.authors}.values())
         genres = list({g.id: g for g in book.genres}.values())
         ops = (
-            [
-                s.tx_put(
-                    {**keys.book(book.isbn, book.title), **s.to_item(_stamped(book), exclude=("authors", "genres"))},
-                    condition=_NEW,
-                )
-            ]
-            + [s.tx_put(_author_link(book.isbn, a)) for a in authors]
-            + [s.tx_put(_genre_link(book.isbn, g)) for g in genres]
+            [s.tx_put(_items.book_item(_stamped(book)), condition=_NEW)]
+            + [s.tx_put(_items.author_link_item(book.isbn, a)) for a in authors]
+            + [s.tx_put(_items.genre_link_item(book.isbn, g)) for g in genres]
         )
         if len(ops) > s.TRANSACTION_LIMIT:
             raise ValueError(f"A book can have at most {s.TRANSACTION_LIMIT - 1} authors plus genres")
@@ -122,14 +109,14 @@ class BookRepository:
             current.authors,
             changes.get("authors"),
             keys.book_author,
-            _author_link,
+            _items.author_link_item,
         )
         ops += _diff_links(
             isbn,
             current.genres,
             changes.get("genres"),
             keys.book_genre,
-            _genre_link,
+            _items.genre_link_item,
         )
         if len(ops) > s.TRANSACTION_LIMIT:
             raise ValueError("Too many author/genre changes for a single update")

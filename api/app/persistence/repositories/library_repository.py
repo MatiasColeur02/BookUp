@@ -7,7 +7,7 @@ from ..dynamo import Dynamo
 from ..entities import Library
 from ..errors import ConditionFailedError
 from .. import keys
-from . import _support as s
+from . import _items, _support as s
 
 _FIELDS = {f.name for f in dataclasses.fields(Library)} - {"id"}
 
@@ -42,7 +42,7 @@ class LibraryRepository:
     def create(self, library: Library) -> Library:
         created = dataclasses.replace(library, id=s.next_id(self.db, "library"))
         self.db.table.put_item(
-            Item={**keys.library(created.id, created.name), **s.to_item(created)},
+            Item=_items.library_item(created),
             ConditionExpression="attribute_not_exists(PK)",
         )
         return created

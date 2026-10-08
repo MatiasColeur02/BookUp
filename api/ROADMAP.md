@@ -537,7 +537,7 @@ nada de lo que existe.
 | **2** | Entidades | `entities.py` con las dataclasses y los enums | `schemas.py` importa de ahí y `pytest` sigue en verde con Postgres |
 | **3** ✅ | Repositories | los 7 reescritos + tests de repositorio propios (nuevos) | cada método probado contra DynamoDB Local |
 | **4** ✅ | Services | los 8 migrados, incluidas las 5 transacciones de §4.2 | los tests de reserva/ejemplar en verde, incluidos los de concurrencia |
-| **5** | Seed | `seed.py` reescrito, con contadores y desnormalización | `python -m app.seed` dos veces = mismo resultado, sin duplicar |
+| **5** ✅ | Seed | `seed.py` reescrito, con contadores y desnormalización | `python -m app.seed` dos veces = mismo resultado, sin duplicar |
 | **6** | OpenSearch | `search.py`, `indexer.py`, `reindex.py`, los 3 endpoints migrados | `GET /books` con filtros combinados devuelve lo mismo que con Postgres |
 | **7** | Limpieza | borrar `models.py`, `database.py`, `alembic/`, dependencias | `grep -r sqlalchemy api/` no devuelve nada |
 | **8** | Docs | `README.md`, `CLAUDE.md`, `openapi.yml` (sin cambios de contrato, sí de notas) | las secciones de §10 actualizadas |
@@ -605,6 +605,27 @@ nada de lo que existe.
 >   candado real es la condición de la escritura. `physical_book_service` dejó de depender
 >   de `reservation_service` (cerrar la reserva de un ejemplar perdido ahora es del repo).
 > - `docker-compose`: la API espera a `dynamodb-init` (`service_completed_successfully`).
+
+> **Fase 5 hecha.** `python -m app.seed` siembra DynamoDB: mismo dataset (10 sedes, 53 autores,
+> 16 géneros, 71 libros, 398 ejemplares, 193 reservas, 32 usuarios), mismo RNG, misma password.
+> Qué hay que saber:
+>
+> - **Formato de ítems compartido**: nuevo `repositories/_items.py` con cómo se ve cada entidad
+>   en la tabla (campos desnormalizados incluidos). Lo usan los repositories y el seed, así no
+>   hay dos copias del formato que se desincronicen.
+> - **Contadores en N + centinela al final.** El seed deja `COUNTER#*` en el último id usado
+>   (el primer `POST /authors` da el 54 y no pisa a García Márquez; hay test de cada entidad) y
+>   escribe `SEED#META` último, así una corrida interrumpida se puede repetir.
+> - **Se niega a mezclarse**: si la tabla tiene contadores pero no centinela (alguien usó la
+>   API sin sembrar), falla con `SeedConflictError` en vez de pisar `USER#1`.
+> - **Escribe en paralelo** (8 lotes de 25 a la vez): DynamoDB Local persistente tarda ~0,7 s
+>   por escritura y sembrar en serie eran 35–120 s.
+> - **No indexa en OpenSearch**: eso será `app.reindex` (fase 6), que se llama después del seed.
+> - **Nuevo servicio `dynamodb-test`** (DynamoDB Local *en memoria*, puerto 8002) para `pytest`:
+>   la suite pasó de 3,5 a ~2 minutos y ya no toca la tabla `bookup` con tus datos. La suite
+>   necesita `docker compose up -d dynamodb-test`.
+> - La fecha de las reservas es relativa a "ahora"; `seed(now=...)` la fija para los tests.
+>   Lo único que no es idéntico entre corridas es el hash bcrypt de los passwords (sal nueva).
 
 **El punto de no retorno es la fase 4.** Hasta la 3 conviven los dos mundos; a partir de ahí
 los services solo hablan DynamoDB.

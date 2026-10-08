@@ -7,7 +7,7 @@ from ..dynamo import Dynamo
 from ..entities import User
 from ..errors import ConditionFailedError
 from .. import keys
-from . import _support as s
+from . import _items, _support as s
 
 _FIELDS = {f.name for f in dataclasses.fields(User)} - {"id"}
 _NEW = "attribute_not_exists(PK)"
@@ -46,11 +46,8 @@ class UserRepository:
         s.run_transaction(
             self.db,
             [
-                s.tx_put({**keys.user_email(created.email), "user_id": created.id}, condition=_NEW),
-                s.tx_put(
-                    {**keys.user(created.id, created.name), **s.to_item(created)},
-                    condition=_NEW,
-                ),
+                s.tx_put(_items.user_alias_item(created.email, created.id), condition=_NEW),
+                s.tx_put(_items.user_item(created), condition=_NEW),
             ],
             exists_error=f"User with email {created.email} already exists",
         )
@@ -90,7 +87,7 @@ class UserRepository:
         if updated.email != current.email:
             ops += [
                 s.tx_delete(keys.key(keys.user_email(current.email)[keys.PK])),
-                s.tx_put({**keys.user_email(updated.email), "user_id": user_id}, condition=_NEW),
+                s.tx_put(_items.user_alias_item(updated.email, user_id), condition=_NEW),
             ]
         s.run_transaction(
             self.db,

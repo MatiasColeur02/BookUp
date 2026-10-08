@@ -94,6 +94,21 @@ services:
       timeout: 5s
       retries: 10
 
+  # DynamoDB Local **en memoria**, solo para `pytest`. Dos razones: (1) velocidad: el de
+  # arriba persiste en SQLite con un fsync por escritura, y sembrar 1.200 ítems tarda de 35 s a
+  # 2 min; en memoria, medio segundo, y cada test crea y borra una tabla con 4 GSIs.
+  # (2) aislamiento: la suite nunca toca la tabla `bookup` con tus datos de desarrollo.
+  dynamodb-test:
+    image: amazon/dynamodb-local
+    command: -jar DynamoDBLocal.jar -sharedDb -inMemory
+    ports:
+      - "8002:8000"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -s -o /dev/null http://localhost:8000/"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
   # One-shot: crea la tabla `bookup` y sus 4 GSIs (reemplaza a `alembic upgrade head`).
   # Mismo patrón que `storage-init`. Es idempotente, así que re-correrlo no cuesta nada.
   # El índice de OpenSearch lo crea la fase 6, no esto.
@@ -152,6 +167,8 @@ services:
       DYNAMO_TABLE: bookup
       DYNAMO_ENDPOINT_URL: http://dynamodb:8000
       AWS_REGION: us-east-1
+      # Donde corre `pytest` (ver `dynamodb-test`); la API no lo usa.
+      DYNAMO_TEST_ENDPOINT_URL: http://dynamodb-test:8000
       # Sin consumidores hasta la fase 6.
       OPENSEARCH_URL: http://search:9200
       OPENSEARCH_INDEX: bookup-books
@@ -179,6 +196,8 @@ services:
       # La tabla tiene que existir antes de que la API reciba tráfico.
       dynamodb-init:
         condition: service_completed_successfully
+      dynamodb-test:
+        condition: service_healthy
     volumes:
       - ./api:/app
     command: >

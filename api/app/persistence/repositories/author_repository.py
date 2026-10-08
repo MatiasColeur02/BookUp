@@ -4,7 +4,7 @@ from ..dynamo import Dynamo
 from ..entities import Author
 from ..errors import ConditionFailedError
 from .. import keys
-from . import _support as s
+from . import _items, _support as s
 
 _EXISTS = "attribute_exists(#pk)"
 _PK = {"#pk": keys.PK}
@@ -41,7 +41,7 @@ class AuthorRepository:
     def create(self, author: Author) -> Author:
         created = Author(name=author.name, id=s.next_id(self.db, "author"))
         self.db.table.put_item(
-            Item={**keys.author(created.id, created.name), **s.to_item(created)},
+            Item=_items.author_item(created),
             ConditionExpression="attribute_not_exists(PK)",
         )
         return created

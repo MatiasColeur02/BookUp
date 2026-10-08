@@ -6,7 +6,7 @@ from ..dynamo import Dynamo
 from ..entities import Library, PhysicalBook, PhysicalBookStatus
 from ..errors import ConditionFailedError
 from .. import keys
-from . import _support as s
+from . import _items, _support as s
 from .library_repository import LibraryRepository
 from .reservation_repository import ReservationRepository
 
@@ -105,10 +105,7 @@ class PhysicalBookRepository:
             library_city=library.city,
             book_title=book["title"],
         )
-        item = {
-            **keys.copy(created.id, created.isbn, created.library_id, created.status.value),
-            **s.to_item(created),
-        }
+        item = _items.copy_item(created)
         s.run_transaction(
             self.db,
             [
