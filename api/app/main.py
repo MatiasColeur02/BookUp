@@ -14,6 +14,7 @@ from .controllers import (
     reservation_controller,
     user_controller,
 )
+from .persistence.errors import ConditionFailedError
 from .services.errors import ConflictError, ForbiddenError, NotFoundError, UnauthorizedError
 
 app = FastAPI(title="BookUp API", version="0.1.0")
@@ -60,6 +61,13 @@ def handle_not_found(request: Request, exc: NotFoundError) -> JSONResponse:
 
 @app.exception_handler(ConflictError)
 def handle_conflict(request: Request, exc: ConflictError) -> JSONResponse:
+    return JSONResponse(status_code=409, content={"detail": str(exc)})
+
+
+@app.exception_handler(ConditionFailedError)
+def handle_condition_failed(request: Request, exc: ConditionFailedError) -> JSONResponse:
+    # Red de seguridad: un service que no atrapó la escritura condicional que perdió igual
+    # contesta 409 (el contrato) y no 500. Cubre también `AlreadyExistsError`.
     return JSONResponse(status_code=409, content={"detail": str(exc)})
 
 

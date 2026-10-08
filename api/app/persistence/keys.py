@@ -49,6 +49,10 @@ LIST_AUTHORS = "AUTHORS"
 LIST_GENRES = "GENRES"
 LIST_LIBRARIES = "LIBRARIES"
 LIST_USERS = "USERS"
+# Listados sin filtro de ejemplares y de reservas (`GET /physical-books`, `GET /reservations`
+# de un sysadmin). Sin esto la única forma de listarlos enteros sería un Scan de la tabla.
+LIST_COPIES = "COPIES"
+LIST_RESERVATIONS = "RESERVATIONS"
 
 # Valor fijo de GSI4PK: todas las reservas abiertas comparten partición del índice.
 OPEN = "OPEN"
@@ -180,6 +184,7 @@ def user(user_id: int, name: str) -> dict[str, str]:
 def copy(copy_id: int, isbn: str, library_id: int, status: str) -> dict[str, str]:
     """Ejemplar. Cambiar `status` obliga a reescribir `GSI2SK` y `GSI3SK`.
 
+    - GSI1: la lista de todos los ejemplares, por id.
     - GSI2: PK = el libro, SK = `<status>#LIB#<sede>#<id>` → los disponibles de un libro
       salen agrupados por sede con un `begins_with(SK, "available#")`.
     - GSI3: PK = la sede, SK = `COPY#<status>#<isbn>#<id>` → los ejemplares de una sede,
@@ -189,6 +194,8 @@ def copy(copy_id: int, isbn: str, library_id: int, status: str) -> dict[str, str
         copy_pk(copy_id),
         META,
         **{
+            GSI1_PK: LIST_COPIES,
+            GSI1_SK: pad(copy_id),
             GSI2_PK: book_pk(isbn),
             GSI2_SK: f"{status}#LIB#{pad(library_id)}#{pad(copy_id)}",
             GSI3_PK: library_pk(library_id),
@@ -211,10 +218,13 @@ def reservation(
     por eso no existe en el índice. Al cerrar una existente, además de reescribir el
     ítem, la expresión de update hace `REMOVE` de `GSI4_ATTRIBUTES`.
 
-    GSI2 agrupa por usuario (`list_all(user_id=...)`); GSI3 por sede.
+    GSI1 es la lista de todas, por id; GSI2 agrupa por usuario
+    (`list_all(user_id=...)`); GSI3 por sede.
     """
     sort = f"RES#{iso(reserved_at)}#{pad(reservation_id)}"
     attrs = {
+        GSI1_PK: LIST_RESERVATIONS,
+        GSI1_SK: pad(reservation_id),
         GSI2_PK: user_pk(user_id),
         GSI2_SK: sort,
         GSI3_PK: library_pk(library_id),

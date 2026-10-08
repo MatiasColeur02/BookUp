@@ -535,7 +535,7 @@ nada de lo que existe.
 |---|---|---|---|
 | **1** ✅ | Infra local | `docker-compose` con DynamoDB Local + OpenSearch, `dynamo.py`, `keys.py`, `table.py` | `docker compose up` levanta todo y `ensure_table()` crea tabla y 4 GSIs |
 | **2** | Entidades | `entities.py` con las dataclasses y los enums | `schemas.py` importa de ahí y `pytest` sigue en verde con Postgres |
-| **3** | Repositories | los 7 reescritos + tests de repositorio propios (nuevos) | cada método probado contra DynamoDB Local |
+| **3** ✅ | Repositories | los 7 reescritos + tests de repositorio propios (nuevos) | cada método probado contra DynamoDB Local |
 | **4** | Services | los 8 migrados, incluidas las 5 transacciones de §4.2 | los tests de reserva/ejemplar en verde, incluidos los de concurrencia |
 | **5** | Seed | `seed.py` reescrito, con contadores y desnormalización | `python -m app.seed` dos veces = mismo resultado, sin duplicar |
 | **6** | OpenSearch | `search.py`, `indexer.py`, `reindex.py`, los 3 endpoints migrados | `GET /books` con filtros combinados devuelve lo mismo que con Postgres |
@@ -552,6 +552,34 @@ nada de lo que existe.
 > `DELETE /physical-books`) necesita una partición por ejemplar. Se escribe en la misma
 > transacción que la reserva (fase 4). Los tests de `table.py` corren contra DynamoDB
 > Local y se saltean solos si no hay uno.
+
+> **Fase 3 hecha.** Los repositories nuevos viven en `persistence/dynamo_repositories/` (los
+> de SQLAlchemy siguen en `repositories/` hasta la fase 4; en la 7 se borra el viejo y se
+> mueve este). Desvíos y decisiones:
+>
+> - **Errores propios de persistencia** (`persistence/errors.py`): `persistence` no puede
+>   importar `ConflictError` de `services`. Levanta `ConditionFailedError` /
+>   `AlreadyExistsError`, `main.py` los mapea a 409 como red de seguridad, y un service que
+>   quiera un mensaje propio los atrapa. La traducción de boto3 sigue estando en un solo
+>   lugar (`_support.run_transaction`), como pide §9.
+> - **Las 5 transiciones de §4.2 ya están** en `ReservationRepository` (`create`,
+>   `mark_picked_up`, `cancel`, `mark_returned`, `expire`) y en
+>   `PhysicalBookRepository.update_status(lost)`, con sus tests de concurrencia. La fase 4
+>   queda en cablear los services y en los tests HTTP.
+> - `update(id, **cambios)` en cada repository (un `None` borra el atributo) reemplaza a la
+>   mutación en el lugar; `count_*` → `has_*`.
+> - **Omitidos a propósito**: `BookRepository.list_filtered/search/available_cities` (van a
+>   OpenSearch en la fase 6), `list_all/count_all` del libro y `AuthorRepository.get_by_name`
+>   (ningún service los usa y DynamoDB no tiene índice por nombre).
+> - **Dos listas nuevas en GSI1** (`COPIES`, `RESERVATIONS`): sin ellas, `GET /physical-books`
+>   y `GET /reservations` de un sysadmin sin filtros serían un Scan de la tabla.
+> - El renombre de autor/género escribe primero el nombre canónico y después cascadea (no al
+>   revés, como decía §4.3): un nombre de género repetido tiene que fallar *antes* de tocar
+>   ningún libro. Repetir el update completa una cascada interrumpida.
+> - `TransactWriteItems` pide `TableName` en **cada** operación (el ejemplo de §4.2 lo omite);
+>   `run_transaction` lo completa.
+> - Las lecturas de la tabla base son fuertes; las de GSI no pueden serlo, así que
+>   `has_books`/`has_physical_books`/`available_by_book` pueden ir unos ms atrás en AWS.
 
 **El punto de no retorno es la fase 4.** Hasta la 3 conviven los dos mundos; a partir de ahí
 los services solo hablan DynamoDB.

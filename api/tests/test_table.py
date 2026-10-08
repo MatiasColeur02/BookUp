@@ -1,49 +1,19 @@
 """`persistence/table.py` contra DynamoDB Local.
 
-Se saltea solo si no hay un DynamoDB al que conectarse, así la suite sigue corriendo sin
-Docker mientras la API esté sobre Postgres. Dentro del contenedor `api` el endpoint ya
-viene en `DYNAMO_ENDPOINT_URL`; desde el host, DynamoDB Local del compose queda en
-`http://localhost:8001`.
-
-Nunca se conecta a AWS: sin endpoint explícito usa el de localhost, no el default de
-boto3, que apuntaría a la cuenta real si hubiera credenciales en el entorno.
+Se saltea solo si no hay un DynamoDB al que conectarse (ver `dynamo_support.py`).
 """
 
-import uuid
-
 import pytest
-from botocore.exceptions import ClientError, EndpointConnectionError
 
-from app.config import settings
 from app.persistence import keys
-from app.persistence.dynamo import connect
-from app.persistence.table import (
-    INDEXES,
-    TableSchemaError,
-    drop_table,
-    ensure_table,
-)
+from app.persistence.table import INDEXES, TableSchemaError, ensure_table
 
-ENDPOINT = settings.dynamo_endpoint_url or "http://localhost:8001"
+from .dynamo_support import temporary_dynamo
 
 
 @pytest.fixture()
 def dynamo():
-    handle = connect(
-        f"bookup-test-{uuid.uuid4().hex[:12]}",
-        endpoint_url=ENDPOINT,
-        # DynamoDB Local acepta cualquier credencial, pero boto3 exige alguna.
-        access_key_id="local",
-        secret_access_key="local",
-    )
-    try:
-        handle.client.list_tables(Limit=1)
-    except (EndpointConnectionError, ClientError, OSError):
-        pytest.skip(f"no DynamoDB reachable at {ENDPOINT}")
-    try:
-        yield handle
-    finally:
-        drop_table(handle)
+    yield from temporary_dynamo(create_table=False)
 
 
 def test_ensure_table_creates_table_and_four_gsis(dynamo):
