@@ -1,180 +1,189 @@
-from sqlalchemy import and_, func, or_, select
-from sqlalchemy.orm import Session
+"""Acceso a datos del catálogo sobre DynamoDB.
 
-from ..models import Author, Book, Library, PhysicalBook, PhysicalBookStatus, book_authors, book_genres
+Un libro es una **partición**: el ítem `META` más un ítem por autor y por género
+(*adjacency list*, ROADMAP §3.1), con el nombre desnormalizado. Leerlo entero es un solo
+`Query` con `PK = BOOK#<isbn>`.
+
+Lo que **no** está acá: `list_filtered`, `search` y `available_cities`. Eran las queries
+con `EXISTS`/`ILIKE` y DynamoDB no las puede servir (filtros combinables + texto libre);
+la fase 6 las mueve a OpenSearch (`persistence/search.py`).
+"""
+
+from __future__ import annotations
+
+import dataclasses
+from typing import Any
+
+from ..dynamo import Dynamo
+from ..entities import Author, Book, Genre
+from ..errors import ConditionFailedError
+from .. import keys
+from . import _support as s
+
+_SCALARS = {"title", "language", "pages", "synopsis", "cover_key"}
+_NEW = "attribute_not_exists(PK)"
+_EXISTS = "attribute_exists(#pk)"
 
 
-def _like_pattern(query: str) -> str:
-    """Patrón de un ILIKE con los comodines del usuario neutralizados.
+def _author_link(isbn: str, author: Author) -> dict[str, Any]:
+    return {**keys.book_author(isbn, author.id), "author_id": author.id, "author_name": author.name}
 
-    `%` y `_` son comodines de LIKE, así que sin escaparlos buscar «%» matchea el
-    catálogo entero y «100_» matchea «1000». No es inyección —el patrón viaja como
-    parámetro— pero sí es una búsqueda que devuelve cualquier cosa y que recorre toda la
-    tabla. Se escapa también la propia `\\` para que no se pueda anular el escape.
-    """
-    escaped = query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-    return f"%{escaped}%"
+
+def _genre_link(isbn: str, genre: Genre) -> dict[str, Any]:
+    return {**keys.book_genre(isbn, genre.id), "genre_id": genre.id, "genre_name": genre.name}
 
 
 class BookRepository:
-    """Data access for the book catalog.
-
-    ``search`` uses a plain ILIKE scan for the MVP; in the target AWS
-    architecture this query is replaced by a call to a managed search
-    engine (OpenSearch) kept in sync with this table.
-    """
-
-    def __init__(self, db: Session):
+    def __init__(self, db: Dynamo):
         self.db = db
 
-    def list_all(self, limit: int = 100, offset: int = 0) -> list[Book]:
-        stmt = select(Book).order_by(Book.title).limit(limit).offset(offset)
-        return list(self.db.scalars(stmt).all())
-
-    def count_all(self) -> int:
-        return self.db.scalar(select(func.count()).select_from(Book))
-
-    def _filters(
-        self,
-        *,
-        query: str | None,
-        author_ids: list[int],
-        genre_ids: list[int],
-        cities: list[str],
-    ) -> list:
-        """Condiciones de `list_filtered`, todas como EXISTS.
-
-        Con EXISTS y no con JOIN a propósito: un libro con tres autores haría tres filas
-        y habría que andar deduplicando la página y el `COUNT`. Un EXISTS deja una fila
-        por libro y el conteo sale directo.
-
-        Dentro de un filtro los valores suman (OR: "novela **o** cuento"); entre filtros
-        se acumulan (AND: "novela, **y** en Rosario"). Es lo que espera cualquiera que
-        haya usado filtros de una tienda.
-        """
-        conditions = []
-
-        if query:
-            pattern = _like_pattern(query)
-            author_match = (
-                select(1)
-                .select_from(book_authors.join(Author, Author.id == book_authors.c.author_id))
-                .where(book_authors.c.isbn == Book.isbn, Author.name.ilike(pattern, escape="\\"))
-                .exists()
-            )
-            conditions.append(
-                or_(
-                    Book.title.ilike(pattern, escape="\\"),
-                    Book.isbn.ilike(pattern, escape="\\"),
-                    Book.synopsis.ilike(pattern, escape="\\"),
-                    author_match,
-                )
-            )
-
-        if author_ids:
-            conditions.append(
-                select(1)
-                .select_from(book_authors)
-                .where(
-                    book_authors.c.isbn == Book.isbn,
-                    book_authors.c.author_id.in_(author_ids),
-                )
-                .exists()
-            )
-
-        if genre_ids:
-            conditions.append(
-                select(1)
-                .select_from(book_genres)
-                .where(book_genres.c.isbn == Book.isbn, book_genres.c.genre_id.in_(genre_ids))
-                .exists()
-            )
-
-        if cities:
-            # "En esta ciudad" significa reservable hoy: al menos un ejemplar
-            # `available` en una sede de esa ciudad. Por eso el resultado cambia con
-            # cada reserva, y el controller lo cachea con el TTL de disponibilidad.
-            conditions.append(
-                select(1)
-                .select_from(PhysicalBook.__table__.join(Library, Library.id == PhysicalBook.library_id))
-                .where(
-                    PhysicalBook.isbn == Book.isbn,
-                    PhysicalBook.status == PhysicalBookStatus.available,
-                    Library.city.in_(cities),
-                )
-                .exists()
-            )
-
-        return conditions
-
-    def list_filtered(
-        self,
-        *,
-        query: str | None = None,
-        author_ids: list[int] | None = None,
-        genre_ids: list[int] | None = None,
-        cities: list[str] | None = None,
-        limit: int = 20,
-        offset: int = 0,
-    ) -> tuple[list[Book], int]:
-        """Una página del catálogo filtrado, más el total que matchea (no el de la página)."""
-        conditions = self._filters(
-            query=query,
-            author_ids=author_ids or [],
-            genre_ids=genre_ids or [],
-            cities=cities or [],
+    def _partition(self, isbn: str) -> list[dict[str, Any]]:
+        return s.query_all(
+            self.db,
+            ConsistentRead=True,
+            KeyConditionExpression="PK = :pk",
+            ExpressionAttributeValues={":pk": keys.book_pk(isbn)},
         )
-        where = and_(*conditions) if conditions else None
 
-        stmt = select(Book).order_by(Book.title).limit(limit).offset(offset)
-        count_stmt = select(func.count()).select_from(Book)
-        if where is not None:
-            stmt = stmt.where(where)
-            count_stmt = count_stmt.where(where)
-
-        return list(self.db.scalars(stmt).all()), self.db.scalar(count_stmt)
-
-    def available_cities(self) -> list[str]:
-        """Ciudades con al menos un ejemplar disponible, para poblar el filtro."""
-        stmt = (
-            select(Library.city)
-            .join(PhysicalBook, PhysicalBook.library_id == Library.id)
-            .where(PhysicalBook.status == PhysicalBookStatus.available)
-            .distinct()
-            .order_by(Library.city)
+    @staticmethod
+    def _assemble(items: list[dict[str, Any]]) -> Book | None:
+        meta = next((i for i in items if i[keys.SK] == keys.META), None)
+        if meta is None:
+            return None
+        authors = sorted(
+            (
+                Author(id=int(i["author_id"]), name=i["author_name"])
+                for i in items
+                if i[keys.SK].startswith(keys.AUTHOR_LINK_PREFIX)
+            ),
+            key=lambda a: a.id,
         )
-        return list(self.db.scalars(stmt).all())
-
-    def search(self, query: str, limit: int = 50) -> list[Book]:
-        pattern = _like_pattern(query)
-        stmt = (
-            select(Book)
-            .outerjoin(Book.authors)
-            .where(
-                or_(
-                    Book.title.ilike(pattern, escape="\\"),
-                    Book.isbn.ilike(pattern, escape="\\"),
-                    Book.synopsis.ilike(pattern, escape="\\"),
-                    Author.name.ilike(pattern, escape="\\"),
-                )
-            )
-            .limit(limit)
+        genres = sorted(
+            (
+                Genre(id=int(i["genre_id"]), name=i["genre_name"])
+                for i in items
+                if i[keys.SK].startswith(keys.GENRE_LINK_PREFIX)
+            ),
+            key=lambda g: g.id,
         )
-        return list(self.db.scalars(stmt).unique().all())
+        return s.from_item(Book, meta, authors=authors, genres=genres)
 
     def get(self, isbn: str) -> Book | None:
-        return self.db.get(Book, isbn)
+        return self._assemble(self._partition(isbn))
 
     def create(self, book: Book) -> Book:
-        self.db.add(book)
-        self.db.flush()
-        return book
+        """Alta del libro con sus autores y géneros, todo o nada."""
+        # Un id repetido sería escribir dos veces el mismo ítem, y la transacción lo rechaza.
+        authors = list({a.id: a for a in book.authors}.values())
+        genres = list({g.id: g for g in book.genres}.values())
+        ops = (
+            [
+                s.tx_put(
+                    {**keys.book(book.isbn, book.title), **s.to_item(_stamped(book), exclude=("authors", "genres"))},
+                    condition=_NEW,
+                )
+            ]
+            + [s.tx_put(_author_link(book.isbn, a)) for a in authors]
+            + [s.tx_put(_genre_link(book.isbn, g)) for g in genres]
+        )
+        if len(ops) > s.TRANSACTION_LIMIT:
+            raise ValueError(f"A book can have at most {s.TRANSACTION_LIMIT - 1} authors plus genres")
+        s.run_transaction(self.db, ops, exists_error=f"Book {book.isbn} already exists")
+        return self.get(book.isbn)
+
+    def update(self, isbn: str, **changes: Any) -> Book:
+        """Actualización parcial. Un escalar en `None` borra el atributo; `authors` y
+        `genres` (listas de entidades) **reemplazan** la asociación entera."""
+        unknown = set(changes) - _SCALARS - {"authors", "genres"}
+        if unknown:
+            raise TypeError(f"Unknown Book fields: {sorted(unknown)}")
+        current = self.get(isbn)
+        if current is None:
+            raise ConditionFailedError(f"Book {isbn} does not exist")
+
+        scalars = {k: v for k, v in changes.items() if k in _SCALARS}
+        set_ = {k: v for k, v in scalars.items() if v is not None}
+        set_["updated_at"] = s.now()
+        if "title" in scalars:
+            set_[keys.GSI1_SK] = keys.book(isbn, scalars["title"])[keys.GSI1_SK]
+
+        ops = [
+            s.tx_update(
+                keys.key(keys.book_pk(isbn)),
+                set_=set_,
+                remove=[k for k, v in scalars.items() if v is None],
+                condition=_EXISTS,
+                names={"#pk": keys.PK},
+            )
+        ]
+        ops += _diff_links(
+            isbn,
+            current.authors,
+            changes.get("authors"),
+            keys.book_author,
+            _author_link,
+        )
+        ops += _diff_links(
+            isbn,
+            current.genres,
+            changes.get("genres"),
+            keys.book_genre,
+            _genre_link,
+        )
+        if len(ops) > s.TRANSACTION_LIMIT:
+            raise ValueError("Too many author/genre changes for a single update")
+        s.run_transaction(self.db, ops, failed_error=f"Book {isbn} does not exist")
+
+        if "title" in scalars and scalars["title"] != current.title:
+            copies = self._copies(isbn)
+            s.cascade_set(self.db, s.index_keys(copies), {"book_title": scalars["title"]})
+        return self.get(isbn)
+
+    def _copies(self, isbn: str) -> list[dict[str, Any]]:
+        return s.query_all(
+            self.db,
+            IndexName=keys.GSI2,
+            KeyConditionExpression="GSI2PK = :book",
+            ExpressionAttributeValues={":book": keys.book_pk(isbn)},
+        )
 
     def delete(self, book: Book) -> None:
-        self.db.delete(book)
-        self.db.flush()
+        """Borra la partición entera: `META` y los enlaces a autores y géneros."""
+        items = self._partition(book.isbn)
+        ops = [s.tx_delete(keys.key(i[keys.PK], i[keys.SK])) for i in items]
+        s.run_in_batches(self.db, ops)
 
-    def count_physical_books(self, isbn: str) -> int:
-        return self.db.scalar(
-            select(func.count()).select_from(PhysicalBook).where(PhysicalBook.isbn == isbn)
+    def has_physical_books(self, isbn: str) -> bool:
+        return s.exists_any(
+            self.db,
+            IndexName=keys.GSI2,
+            KeyConditionExpression="GSI2PK = :book",
+            ExpressionAttributeValues={":book": keys.book_pk(isbn)},
         )
+
+
+def _stamped(book: Book) -> Book:
+    stamp = s.now()
+    return dataclasses.replace(book, created_at=stamp, updated_at=stamp)
+
+
+def _diff_links(isbn, current, new, key_fn, link_fn) -> list[dict[str, Any]]:
+    """Ops para pasar de los enlaces actuales a los nuevos: borra los que sobran y suma
+    los que faltan. Los que se mantienen no se tocan."""
+    if new is None:
+        return []
+    current_ids = {e.id for e in current}
+    new_by_id = {e.id: e for e in new}
+    ops = [
+        s.tx_delete(keys.key(*_link_key(key_fn(isbn, entity_id))))
+        for entity_id in current_ids - new_by_id.keys()
+    ]
+    ops += [
+        s.tx_put(link_fn(isbn, entity)) for entity_id, entity in new_by_id.items()
+        if entity_id not in current_ids
+    ]
+    return ops
+
+
+def _link_key(item: dict[str, str]) -> tuple[str, str]:
+    return item[keys.PK], item[keys.SK]
