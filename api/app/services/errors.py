@@ -12,3 +12,8 @@ class UnauthorizedError(Exception):
 
 class ForbiddenError(Exception):
     """Raised when the caller is known but not allowed to perform the operation."""
+
+
+class AuthUnavailableError(Exception):
+    """Raised when the caller cannot be verified because the identity provider (the
+    Cognito JWKS) does not answer. Not the caller's fault: a 503, not a 401."""
