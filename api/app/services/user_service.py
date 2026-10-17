@@ -2,7 +2,7 @@ from ..persistence.dynamo import Dynamo
 from ..persistence.entities import User, UserRole
 from ..persistence.errors import AlreadyExistsError, ConditionFailedError
 from ..persistence.repositories import LibraryRepository, UserRepository
-from .auth_service import hash_password
+from .auth_service import hash_password, normalize_email
 from .errors import ConflictError, ForbiddenError, NotFoundError
 
 
@@ -31,14 +31,19 @@ def create_user(
     db: Dynamo,
     *,
     email: str,
-    password: str,
+    password: str | None,
     name: str,
     language: str = "es",
     role: UserRole = UserRole.customer,
     library_id: int | None = None,
+    cognito_sub: str | None = None,
 ) -> User:
     """Create a user. Self-registration always lands on the `customer` default;
-    only `POST /users/staff` (sysadmin-only) passes a different `role`."""
+    only `POST /users/staff` (sysadmin-only) passes a different `role`.
+
+    `password` is `None` for a user whose identity lives in Cognito: then `cognito_sub`
+    links it, and there is no local hash to log in with."""
+    email = normalize_email(email)
     repo = UserRepository(db)
     if repo.get_by_email(email) is not None:
         raise ConflictError(f"User with email {email} already exists")
@@ -48,15 +53,36 @@ def create_user(
         return repo.create(
             User(
                 email=email,
-                password_hash=hash_password(password),
+                password_hash=hash_password(password) if password is not None else None,
                 name=name,
                 language=language,
                 role=role,
                 library_id=library_id,
+                cognito_sub=cognito_sub,
             )
         )
     except AlreadyExistsError as exc:  # someone registered the same email meanwhile
         raise ConflictError(f"User with email {email} already exists") from exc
+
+
+def register_cognito_user(db: Dynamo, *, email: str, name: str, cognito_sub: str) -> User:
+    """Self-registration through the Hosted UI (the Post Confirmation trigger): a `customer`.
+
+    Idempotent on the sub, because Cognito retries the trigger when it fails or is slow: if
+    the user already exists, it is returned untouched.
+    """
+    repo = UserRepository(db)
+    existing = repo.get_by_cognito_sub(cognito_sub)
+    if existing is not None:
+        return existing
+    try:
+        return create_user(db, email=email, password=None, name=name, cognito_sub=cognito_sub)
+    except ConflictError:
+        # A retry that ran concurrently already created it: same outcome.
+        existing = repo.get_by_cognito_sub(cognito_sub)
+        if existing is not None:
+            return existing
+        raise
 
 
 def update_user(

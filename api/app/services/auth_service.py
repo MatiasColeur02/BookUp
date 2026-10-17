@@ -33,6 +33,14 @@ _JWKS_LIFESPAN_SECONDS = 24 * 60 * 60
 _JWKS_TIMEOUT_SECONDS = 3
 
 
+def normalize_email(email: str) -> str:
+    """El email, como se guarda y se busca. En minúsculas en **todos** los caminos (registro
+    local, alta de personal, trigger de Cognito, seed): Cognito lo trata sin distinguir
+    mayúsculas y el alias `USEREMAIL#<email>` sí distingue, así que sin esto `Ana@x.com` y
+    `ana@x.com` serían una cuenta en Cognito y dos en la base."""
+    return email.strip().lower()
+
+
 def hash_password(password: str) -> str:
     return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
 
@@ -42,7 +50,7 @@ def verify_password(password: str, password_hash: str) -> bool:
 
 
 def authenticate(db: Dynamo, *, email: str, password: str) -> User:
-    user = UserRepository(db).get_by_email(email)
+    user = UserRepository(db).get_by_email(normalize_email(email))
     # Same error for "no such email" and "wrong password", so the endpoint does
     # not leak which emails are registered. A user without a hash (created through
     # Cognito) has no local password at all.

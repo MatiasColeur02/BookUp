@@ -286,6 +286,24 @@ class UserCreate(BaseModel):
         return _validate_password(value)
 
 
+class CognitoSignUp(BaseModel):
+    """Los atributos que trae el trigger *Post Confirmation* (`app/cognito_triggers.py`).
+
+    Cognito acepta hasta 2048 caracteres por atributo: estos son los mismos topes que el
+    registro local, para que ningún valor llegue a la base sin techo por este camino.
+    """
+
+    email: EmailStr
+    name: _text(150)
+    # Un UUID; el tope es holgado y solo evita una clave de kilobytes en el alias.
+    sub: _text(128)
+
+    @field_validator("email")
+    @classmethod
+    def check_email(cls, value: str) -> str:
+        return _validate_email_length(value)
+
+
 class UserStaffCreate(BaseModel):
     """Alta de personal (`librarian`/`sysadmin`); solo para sysadmins."""
 
