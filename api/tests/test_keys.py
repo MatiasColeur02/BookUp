@@ -109,3 +109,10 @@ def test_book_links_are_inverted_by_gsi2():
     assert link[keys.SK].startswith(keys.AUTHOR_LINK_PREFIX)
     assert link[keys.GSI2_PK] == keys.author_pk(4)
     assert link[keys.GSI2_SK] == keys.book_pk("9780307474728")
+
+
+def test_user_aliases_do_not_collide():
+    """El email y el sub viven en particiones distintas aunque el valor coincida."""
+    value = "ana@example.com"
+    assert keys.user_email(value)[keys.PK] != keys.user_sub(value)[keys.PK]
+    assert keys.user_sub("abc") == {keys.PK: "USERSUB#abc", keys.SK: keys.META}

@@ -3,7 +3,7 @@ from datetime import datetime, timedelta, timezone
 import jwt
 
 from app.config import settings
-from app.persistence.entities import UserRole
+from app.persistence.entities import User, UserRole
 from app.persistence.repositories import UserRepository
 from tests.conftest import PASSWORD
 
@@ -27,6 +27,13 @@ def test_login_returns_a_token(client, make_user):
 def test_login_with_wrong_password(client, make_user):
     user = make_user()
     response = client.post("/auth/login", json={"email": user.email, "password": "wrongpassword"})
+    assert response.status_code == 401
+
+
+def test_login_of_a_user_without_local_password(client, db):
+    """Un usuario creado por Cognito no tiene `password_hash`: en modo local no entra."""
+    user = UserRepository(db).create(User(email="cognito@example.com", name="C", role=UserRole.customer))
+    response = client.post("/auth/login", json={"email": user.email, "password": PASSWORD})
     assert response.status_code == 401
 
 

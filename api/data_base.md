@@ -150,8 +150,9 @@ Una tabla, `bookup`, con `PK` y `SK` genéricos (ambos `String`) y modo On-Deman
 | Ejemplar | `COPY#<id>` | `META` | `id`, `isbn`, `library_id`, `status`, `open_reservation_id` | **`library_name`, `library_city`, `book_title`** |
 | Reserva | `RES#<id>` | `META` | `id`, `user_id`, `physical_book_id`, `reserved_at`, `expires_at`, `picked_up`, `cancelled_at`, `returned_at` | **`library_id`, `isbn`** |
 | Enlace ejemplar→reserva | `COPY#<id>` | `RES#<id>` | — | — |
-| Usuario | `USER#<id>` | `META` | `id`, `email`, `password_hash`, `name`, `language`, `role`, `library_id` | — |
+| Usuario | `USER#<id>` | `META` | `id`, `email`, `password_hash` (solo `AUTH_MODE=local`), `name`, `language`, `role`, `library_id`, `cognito_sub` | — |
 | Alias de email | `USEREMAIL#<email>` | `META` | `user_id` | unicidad y login |
+| Alias de sub de Cognito | `USERSUB#<sub>` | `META` | `user_id` | unicidad y lookup del access token |
 | Alias de género | `GENRENAME#<name>` | `META` | `genre_id` | unicidad |
 | Contador | `COUNTER#<entidad>` | `META` | `seq` | — |
 | Marca del seed | `SEED` | `META` | `seeded_at` | — |
@@ -190,6 +191,7 @@ Detalles que importan:
 | :--- | :--- |
 | Detalle de un libro | `Query` `PK = BOOK#<isbn>` (lectura fuerte) |
 | Login por email | `GetItem` del alias `USEREMAIL#<email>` → `GetItem` del usuario |
+| Usuario de un access token de Cognito | `GetItem` del alias `USERSUB#<sub>` → `GetItem` del usuario |
 | Listar autores / géneros / sedes / usuarios | `Query` GSI1 por la lista correspondiente |
 | Disponibilidad de un libro por sede | `Query` GSI2 `begins_with("available#")` + `BatchGet` de las sedes |
 | Ejemplares de una sede, por estado | `Query` GSI3 `begins_with("COPY#<status>#")` |
@@ -202,7 +204,7 @@ Detalles que importan:
 ### 4.4 Lo que el motor relacional daba gratis
 
 *   **Ids autoincrementales**: un ítem `COUNTER#<entidad>` incrementado con `ADD seq :one`, atómico en el servidor. Las altas son operaciones de staff (raras) y las lecturas no tocan el contador. **El seed deja cada contador en el último id usado**; si no, el primer `POST` pisaría un registro sembrado.
-*   **Unicidad** (`users.email`, `genres.name`): un ítem *alias* cuya PK es el valor único, escrito con `attribute_not_exists(PK)` en la misma transacción que la entidad. Borrar un usuario o cambiar su email mueve el alias en la misma transacción, así el email viejo no queda bloqueado.
+*   **Unicidad** (`users.email`, `users.cognito_sub`, `genres.name`): un ítem *alias* cuya PK es el valor único, escrito con `attribute_not_exists(PK)` en la misma transacción que la entidad. Borrar un usuario o cambiar su email mueve el alias en la misma transacción, así el email viejo no queda bloqueado. El `cognito_sub` no cambia nunca: se escribe al crear el usuario o, una sola vez, al vincular uno existente (`set_cognito_sub`); borrar el usuario borra también su alias.
 *   **Transacciones**: las cinco transiciones que tocan ejemplar y reserva a la vez (`reservar`, `retirar`, `cancelar`, `devolver`, `marcar perdido`) más el vencimiento son un `TransactWriteItems` **condicionado**: no leen para después escribir, condicionan la escritura (`status = available`, «sigue abierta», `open_reservation_id = <esta reserva>`). Dos usuarios que reservan el mismo ejemplar a la vez: gana uno y el otro recibe un conflicto (409).
 *   **Integridad referencial**: las claves foráneas desaparecen. Nada impide un `COPY#` que apunte a un `BOOK#` borrado salvo los chequeos de los services (`has_*`) y las condiciones de las transacciones. Depende de que esa lógica esté bien escrita.
 *   **Migraciones**: no hay versionado de esquema. Cambiar la forma de un ítem es un backfill escrito a mano; `table.py` crea la tabla pero no versiona su evolución.

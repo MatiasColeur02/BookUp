@@ -47,6 +47,11 @@ def user_alias_item(email: str, user_id: int) -> dict[str, Any]:
     return {**keys.user_email(email), "user_id": user_id}
 
 
+def user_sub_alias_item(sub: str, user_id: int) -> dict[str, Any]:
+    """Alias de unicidad del `sub` de Cognito y lookup del token."""
+    return {**keys.user_sub(sub), "user_id": user_id}
+
+
 def book_item(book: Book) -> dict[str, Any]:
     """El ítem `META`. Autores y géneros van en ítems aparte (`*_link_item`)."""
     return {

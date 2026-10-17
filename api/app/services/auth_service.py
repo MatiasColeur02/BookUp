@@ -26,8 +26,13 @@ def verify_password(password: str, password_hash: str) -> bool:
 def authenticate(db: Dynamo, *, email: str, password: str) -> User:
     user = UserRepository(db).get_by_email(email)
     # Same error for "no such email" and "wrong password", so the endpoint does
-    # not leak which emails are registered.
-    if user is None or not verify_password(password, user.password_hash):
+    # not leak which emails are registered. A user without a hash (created through
+    # Cognito) has no local password at all.
+    if (
+        user is None
+        or user.password_hash is None
+        or not verify_password(password, user.password_hash)
+    ):
         raise UnauthorizedError("Invalid email or password")
     return user
 

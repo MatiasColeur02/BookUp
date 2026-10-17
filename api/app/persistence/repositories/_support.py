@@ -220,10 +220,17 @@ def tx_update(
     return {"Update": op}
 
 
-def tx_delete(key: dict[str, str], *, condition: str | None = None) -> dict[str, Any]:
+def tx_delete(
+    key: dict[str, str],
+    *,
+    condition: str | None = None,
+    values: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     op: dict[str, Any] = {"Key": key}
     if condition:
         op["ConditionExpression"] = condition
+    if values:
+        op["ExpressionAttributeValues"] = values
     return {"Delete": op}
 
 

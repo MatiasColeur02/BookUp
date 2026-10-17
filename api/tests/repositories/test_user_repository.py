@@ -109,3 +109,129 @@ def test_delete_frees_the_email_for_reuse(db):
     assert repo.get_by_email("ana@example.com") is None
     again = repo.create(new_user())  # no queda un alias huérfano bloqueándolo
     assert again.id != ana.id
+
+
+# ---------------------------------------------------------------------------
+# Cognito: `password_hash` opcional y el alias `USERSUB#<sub>`.
+# ---------------------------------------------------------------------------
+
+SUB = "0f3c2a9e-1111-4222-8333-444455556666"
+OTHER_SUB = "9a8b7c6d-aaaa-4bbb-8ccc-ddddeeeeffff"
+
+
+def test_a_user_without_password_hash_round_trips(db):
+    repo = UserRepository(db)
+    ana = repo.create(User(email="ana@example.com", name="Ana", role=UserRole.customer))
+
+    assert ana.password_hash is None and ana.cognito_sub is None
+    assert repo.get(ana.id) == ana
+
+
+def test_create_with_cognito_sub_resolves_by_sub(db):
+    repo = UserRepository(db)
+    ana = repo.create(new_user(cognito_sub=SUB))
+
+    assert ana.cognito_sub == SUB
+    assert repo.get_by_cognito_sub(SUB) == ana
+    assert repo.get_by_cognito_sub(OTHER_SUB) is None
+
+
+def test_two_users_cannot_have_the_same_sub(db):
+    repo = UserRepository(db)
+    repo.create(new_user(cognito_sub=SUB))
+
+    with pytest.raises(AlreadyExistsError):
+        repo.create(new_user("otra@example.com", name="Otra", cognito_sub=SUB))
+
+    # La transacción entera se cayó: ni el usuario ni su alias de email quedaron.
+    assert [u.name for u in repo.list_all()] == ["Ana"]
+    assert repo.get_by_email("otra@example.com") is None
+
+
+def test_set_cognito_sub_links_an_existing_user(db):
+    repo = UserRepository(db)
+    ana = repo.create(new_user())
+
+    linked = repo.set_cognito_sub(ana.id, SUB)
+
+    assert linked.cognito_sub == SUB
+    assert repo.get(ana.id) == linked
+    assert repo.get_by_cognito_sub(SUB) == linked
+
+
+def test_set_cognito_sub_is_idempotent(db):
+    repo = UserRepository(db)
+    ana = repo.create(new_user())
+    first = repo.set_cognito_sub(ana.id, SUB)
+
+    assert repo.set_cognito_sub(ana.id, SUB) == first
+
+
+def test_set_cognito_sub_does_not_replace_another_sub(db):
+    repo = UserRepository(db)
+    ana = repo.create(new_user(cognito_sub=SUB))
+
+    with pytest.raises(ConditionFailedError):
+        repo.set_cognito_sub(ana.id, OTHER_SUB)
+
+    assert repo.get(ana.id).cognito_sub == SUB
+    assert repo.get_by_cognito_sub(OTHER_SUB) is None
+
+
+def test_set_cognito_sub_taken_by_another_user_changes_nothing(db):
+    repo = UserRepository(db)
+    ana = repo.create(new_user(cognito_sub=SUB))
+    bruno = repo.create(new_user("bruno@example.com", name="Bruno"))
+
+    with pytest.raises(AlreadyExistsError):
+        repo.set_cognito_sub(bruno.id, SUB)
+
+    assert repo.get(bruno.id).cognito_sub is None
+    assert repo.get_by_cognito_sub(SUB).id == ana.id
+
+
+def test_set_cognito_sub_of_a_missing_user(db):
+    with pytest.raises(ConditionFailedError):
+        UserRepository(db).set_cognito_sub(404, SUB)
+    assert UserRepository(db).get_by_cognito_sub(SUB) is None
+
+
+def test_update_cannot_touch_the_cognito_sub(db):
+    repo = UserRepository(db)
+    ana = repo.create(new_user())
+
+    with pytest.raises(TypeError):
+        repo.update(ana.id, cognito_sub=SUB)
+
+
+def test_update_keeps_the_sub_alias(db):
+    repo = UserRepository(db)
+    ana = repo.create(new_user(cognito_sub=SUB))
+
+    repo.update(ana.id, email="nueva@example.com", name="Ana María")
+
+    assert repo.get_by_cognito_sub(SUB).email == "nueva@example.com"
+
+
+def test_delete_frees_the_sub(db):
+    repo = UserRepository(db)
+    ana = repo.create(new_user(cognito_sub=SUB))
+
+    repo.delete(ana)
+
+    assert repo.get(ana.id) is None
+    assert repo.get_by_cognito_sub(SUB) is None
+    assert repo.get_by_email("ana@example.com") is None
+    again = repo.create(new_user(cognito_sub=SUB))  # sin alias huérfano que lo bloquee
+    assert repo.get_by_cognito_sub(SUB) == again
+
+
+def test_delete_with_a_stale_user_that_was_linked_meanwhile_changes_nothing(db):
+    repo = UserRepository(db)
+    stale = repo.create(new_user())
+    repo.set_cognito_sub(stale.id, SUB)
+
+    with pytest.raises(ConditionFailedError):
+        repo.delete(stale)  # sin el sub: borrarlo dejaría el alias `USERSUB#` huérfano
+
+    assert repo.get_by_cognito_sub(SUB).id == stale.id

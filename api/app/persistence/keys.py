@@ -262,6 +262,11 @@ def user_email(email: str) -> dict[str, str]:
     return _item(f"USEREMAIL#{email}", META)
 
 
+def user_sub(sub: str) -> dict[str, str]:
+    """Alias de unicidad y lookup del `sub` de Cognito: lo que trae el access token."""
+    return _item(f"USERSUB#{sub}", META)
+
+
 def genre_name(name: str) -> dict[str, str]:
     """Alias de unicidad del nombre de un género."""
     return _item(f"GENRENAME#{name}", META)

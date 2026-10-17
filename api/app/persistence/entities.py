@@ -107,12 +107,16 @@ class User:
     """Un usuario de la plataforma: lector (customer) o personal de una sede."""
 
     email: str
-    password_hash: str
     name: str
     role: UserRole
+    # Solo en `AUTH_MODE=local`: con Cognito la contraseña la guarda Cognito, no la base.
+    password_hash: str | None = None
     language: str = "es"
     # Solo para `librarian`: la sede que administra.
     library_id: int | None = None
+    # El `sub` del User Pool de Cognito (`AUTH_MODE=cognito`). Se escribe junto con su alias
+    # `USERSUB#<sub>`, así que no se cambia con `update` sino con `set_cognito_sub`.
+    cognito_sub: str | None = None
     id: int | None = None
 
 
