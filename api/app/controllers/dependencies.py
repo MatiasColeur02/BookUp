@@ -10,13 +10,18 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from ..persistence.dynamo import Dynamo, get_db
 from ..persistence.entities import User, UserRole
-from ..persistence.repositories import UserRepository
 from ..services import auth_service
 from ..services.errors import ForbiddenError, UnauthorizedError
 
 # auto_error=False so a missing header raises our own UnauthorizedError and gets
 # the same JSON error shape as the rest of the API.
-_bearer = HTTPBearer(auto_error=False, description="JWT emitido por `POST /auth/login`")
+_bearer = HTTPBearer(
+    auto_error=False,
+    description=(
+        "JWT emitido por `POST /auth/login` (`AUTH_MODE=local`) o access token del User Pool "
+        "de Cognito (`AUTH_MODE=cognito`)"
+    ),
+)
 
 
 def get_current_user(
@@ -26,8 +31,8 @@ def get_current_user(
     if credentials is None:
         raise UnauthorizedError("Missing bearer token")
 
-    payload = auth_service.decode_token(credentials.credentials)
-    user = UserRepository(db).get(int(payload["sub"]))
+    claims = auth_service.decode_token(credentials.credentials)
+    user = auth_service.resolve_user(db, claims)
     if user is None:
         # Valid signature, but the user was deleted after the token was issued.
         raise UnauthorizedError("Invalid token")

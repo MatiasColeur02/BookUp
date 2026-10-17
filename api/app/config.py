@@ -1,11 +1,24 @@
+from typing import Literal
+
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
     cors_origins: list[str] = ["http://localhost:5173"]
 
-    # Default only good enough for local development: override JWT_SECRET in
-    # every deployed environment.
+    # Quién emite los tokens (`COGNITO_ROADMAP.md` §4). `local`: la API misma, con
+    # `POST /auth/login` y HS256 (desarrollo y tests, sin AWS). `cognito`: el User Pool, y la
+    # API solo valida el access token contra su JWKS.
+    auth_mode: Literal["local", "cognito"] = "local"
+    # Solo con `auth_mode=cognito`. El issuer y la URL del JWKS se derivan de estos (ver las
+    # properties de abajo): una variable menos que puede quedar desalineada.
+    cognito_region: str = "us-east-1"
+    cognito_user_pool_id: str = ""
+    cognito_app_client_id: str = ""
+
+    # Solo con `auth_mode=local`. Default only good enough for local development:
+    # override JWT_SECRET in every deployed environment.
     jwt_secret: str = "dev-secret-change-me"
     jwt_algorithm: str = "HS256"
     jwt_expire_minutes: int = 60
@@ -68,7 +81,30 @@ class Settings(BaseSettings):
     aws_access_key_id: str = ""
     aws_secret_access_key: str = ""
 
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    # `hide_input_in_errors`: un error de validación no imprime el resto de la config, que
+    # trae secretos (`JWT_SECRET`, las credenciales de AWS) y terminaría en los logs.
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore", hide_input_in_errors=True)
+
+    @model_validator(mode="after")
+    def _check_cognito(self) -> "Settings":
+        # Mejor no arrancar que rechazar cada request con un 401 sin explicación.
+        if self.auth_mode == "cognito":
+            missing = [
+                name.upper()
+                for name in ("cognito_user_pool_id", "cognito_app_client_id")
+                if not getattr(self, name)
+            ]
+            if missing:
+                raise ValueError(f"AUTH_MODE=cognito requires {', '.join(missing)}")
+        return self
+
+    @property
+    def cognito_issuer(self) -> str:
+        return f"https://cognito-idp.{self.cognito_region}.amazonaws.com/{self.cognito_user_pool_id}"
+
+    @property
+    def cognito_jwks_url(self) -> str:
+        return f"{self.cognito_issuer}/.well-known/jwks.json"
 
 
 settings = Settings()

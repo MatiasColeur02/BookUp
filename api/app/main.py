@@ -16,7 +16,13 @@ from .controllers import (
 )
 from .persistence import search
 from .persistence.errors import ConditionFailedError, SearchUnavailableError
-from .services.errors import ConflictError, ForbiddenError, NotFoundError, UnauthorizedError
+from .services.errors import (
+    AuthUnavailableError,
+    ConflictError,
+    ForbiddenError,
+    NotFoundError,
+    UnauthorizedError,
+)
 
 app = FastAPI(title="BookUp API", version="0.1.0")
 
@@ -86,6 +92,13 @@ def handle_unauthorized(request: Request, exc: UnauthorizedError) -> JSONRespons
         content={"detail": str(exc)},
         headers={"WWW-Authenticate": "Bearer"},
     )
+
+
+@app.exception_handler(AuthUnavailableError)
+def handle_auth_unavailable(request: Request, exc: AuthUnavailableError) -> JSONResponse:
+    # El JWKS de Cognito no contesta: el token puede ser válido. Un 401 haría que el
+    # frontend tire la sesión por un problema que no es de quien llama.
+    return JSONResponse(status_code=503, content={"detail": str(exc)}, headers={"Retry-After": "5"})
 
 
 @app.exception_handler(ForbiddenError)
