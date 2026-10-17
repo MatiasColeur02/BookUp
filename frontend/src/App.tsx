@@ -1,4 +1,4 @@
-import { Link, NavLink, Navigate, Route, Routes } from "react-router-dom";
+import { Link, NavLink, Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { AdminLayout } from "./components/admin/AdminLayout";
 import { ApiStatus } from "./components/ApiStatus";
 import { AuthorsAdmin } from "./components/admin/AuthorsAdmin";
@@ -9,6 +9,7 @@ import { MaintenanceView } from "./components/admin/MaintenanceView";
 import { PhysicalBooksAdmin } from "./components/admin/PhysicalBooksAdmin";
 import { UsersAdmin } from "./components/admin/UsersAdmin";
 import { CatalogView } from "./components/CatalogView";
+import { HostedUiRedirect } from "./components/HostedUiRedirect";
 import { LibrarianPanel } from "./components/LibrarianPanel";
 import { LibrariesView } from "./components/LibrariesView";
 import { LoginForm } from "./components/LoginForm";
@@ -18,6 +19,7 @@ import { ProfileView } from "./components/ProfileView";
 import { RegisterForm } from "./components/RegisterForm";
 import { RequireRole } from "./components/RequireRole";
 import { useSession } from "./context/SessionContext";
+import { isCognito, startLogin, startSignup } from "./lib/auth";
 
 function navClass({ isActive }: { isActive: boolean }) {
   return isActive ? "active" : "";
@@ -29,9 +31,25 @@ function navClass({ isActive }: { isActive: boolean }) {
  */
 function SessionMenu() {
   const { user, loading } = useSession();
+  const location = useLocation();
 
   if (loading) return <span className="muted">Cargando sesión...</span>;
   if (user) return null;
+
+  if (isCognito) {
+    // Directo a la Hosted UI, volviendo a la pantalla en la que estaba.
+    const here = `${location.pathname}${location.search}`;
+    return (
+      <div className="session">
+        <button type="button" className="btn btn-ghost" onClick={() => startLogin(here)}>
+          Ingresar
+        </button>
+        <button type="button" className="btn btn-primary" onClick={() => startSignup(here)}>
+          Crear cuenta
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className="session">
@@ -96,8 +114,15 @@ export default function App() {
         <Routes>
           <Route path="/" element={<CatalogView />} />
           <Route path="/sedes" element={<LibrariesView />} />
-          <Route path="/login" element={<LoginForm />} />
-          <Route path="/registro" element={<RegisterForm />} />
+          {/* Con Cognito no hay formularios propios: las rutas salen a la Hosted UI. */}
+          <Route
+            path="/login"
+            element={isCognito ? <HostedUiRedirect page="login" /> : <LoginForm />}
+          />
+          <Route
+            path="/registro"
+            element={isCognito ? <HostedUiRedirect page="signup" /> : <RegisterForm />}
+          />
           <Route
             path="/mis-reservas"
             element={

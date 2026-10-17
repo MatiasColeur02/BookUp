@@ -8,6 +8,7 @@ import type { ThemePreference } from "../lib/theme";
 import { useSession } from "../context/SessionContext";
 import { useTheme } from "../context/ThemeContext";
 import { LIMITS } from "../lib/limits";
+import { isCognito, startForgotPassword } from "../lib/auth";
 import { ErrorBanner } from "./ErrorBanner";
 import { roleLabel } from "../lib/roles";
 import type { Library, UserUpdate } from "../types";
@@ -184,18 +185,33 @@ export function ProfileView() {
                 ))}
               </select>
             </label>
-            <label>
-              Nueva contraseña
-              <input
-                type="password"
-                value={password}
-                onChange={(event) => setPassword(event.target.value)}
-                autoComplete="new-password"
-                minLength={LIMITS.user.passwordMin}
-                maxLength={LIMITS.user.passwordMax}
-                placeholder="Dejala vacía para no cambiarla"
-              />
-            </label>
+            {isCognito ? (
+              // La contraseña la guarda Cognito: la API rechaza cambiarla (422). Se cambia
+              // en la Hosted UI, que manda un código al email y vuelve logueado acá.
+              <div>
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={() => startForgotPassword("/perfil")}
+                >
+                  Cambiar contraseña
+                </button>
+                <p className="hint">Te mandamos un código a {user.email} para elegir una nueva.</p>
+              </div>
+            ) : (
+              <label>
+                Nueva contraseña
+                <input
+                  type="password"
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                  autoComplete="new-password"
+                  minLength={LIMITS.user.passwordMin}
+                  maxLength={LIMITS.user.passwordMax}
+                  placeholder="Dejala vacía para no cambiarla"
+                />
+              </label>
+            )}
             <div className="actions">
               <button type="button" className="btn btn-ghost" onClick={handleLogout}>
                 Cerrar sesión

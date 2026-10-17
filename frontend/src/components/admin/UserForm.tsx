@@ -4,6 +4,7 @@ import { useToast } from "../../context/ToastContext";
 import { roleLabel } from "../../lib/roles";
 import type { Library, User, UserRole, UserUpdate } from "../../types";
 import { LIMITS } from "../../lib/limits";
+import { isCognito } from "../../lib/auth";
 import { ErrorBanner } from "../ErrorBanner";
 
 const ROLES: UserRole[] = ["customer", "librarian", "sysadmin"];
@@ -105,19 +106,28 @@ export function UserForm({ user, libraries, onSaved, onCancel }: Props) {
         />
       </label>
 
-      <label>
-        {editing ? "Nueva contraseña" : "Contraseña"}
-        <input
-          type="password"
-          value={password}
-          onChange={(event) => setPassword(event.target.value)}
-          autoComplete="new-password"
-          minLength={LIMITS.user.passwordMin}
-          maxLength={LIMITS.user.passwordMax}
-          placeholder={editing ? "Dejala vacía para no cambiarla" : "Al menos 8 caracteres"}
-          required={!editing}
-        />
-      </label>
+      {/* Con Cognito la contraseña de alguien existente no se toca desde acá (la API da
+          422): cada persona la cambia en la Hosted UI. En el alta es la temporal. */}
+      {!(isCognito && editing) && (
+        <label>
+          {editing ? "Nueva contraseña" : isCognito ? "Contraseña temporal" : "Contraseña"}
+          <input
+            type="password"
+            value={password}
+            onChange={(event) => setPassword(event.target.value)}
+            autoComplete="new-password"
+            minLength={LIMITS.user.passwordMin}
+            maxLength={LIMITS.user.passwordMax}
+            placeholder={editing ? "Dejala vacía para no cambiarla" : "Al menos 8 caracteres"}
+            required={!editing}
+          />
+          {isCognito && (
+            <span className="field-hint">
+              La persona la va a tener que cambiar la primera vez que ingrese.
+            </span>
+          )}
+        </label>
+      )}
 
       <label>
         Idioma
