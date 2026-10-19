@@ -29,6 +29,8 @@ api/
     config.py               # settings (DYNAMO_TABLE, OPENSEARCH_URL, REDIS_URL, CORS, etc.)
     cache.py                 # cache de lecturas sobre Redis
     storage.py                # portadas de libros sobre S3 (URLs firmadas)
+    identity.py               # alta y baja de cuentas en Cognito (solo AUTH_MODE=cognito)
+    cognito_triggers.py       # Lambda del trigger Post Confirmation (registro → User customer)
     indexer.py                # stream de DynamoDB -> índice de búsqueda (Lambda / poller local)
     reindex.py                # reconstruye el índice de búsqueda entero
     persistence/              # capa de datos: no sabe nada de HTTP
@@ -53,13 +55,16 @@ api/
       user_controller.py
       schemas.py
     seed.py                    # carga de datos de ejemplo
+    seed_cognito.py            # crea en Cognito las cuentas de los usuarios sembrados
   tests/                      # tests con pytest (contra DynamoDB Local y OpenSearch)
 frontend/
   src/
     api.ts                     # cliente HTTP hacia la API
     types.ts                    # tipos que reflejan los esquemas del backend
     components/                  # SearchBar, BookResults, ReservationForm, ...
+    lib/auth.ts                  # ingreso por la Hosted UI de Cognito (VITE_AUTH_MODE=cognito)
     App.tsx
+auth-bridge/                   # Lambda: puente HTTPS entre la Hosted UI de Cognito y el frontend
 docker-compose.yml
 ```
 
@@ -171,6 +176,9 @@ docker compose up -d dynamodb-test search
 cd api && pytest
 ```
 
+El puente de Cognito (`auth-bridge/`) es solo biblioteca estándar y tiene su propia suite, sin
+servicios: `cd auth-bridge && pytest`.
+
 ### Frontend sin Docker
 
 ```bash
@@ -191,52 +199,91 @@ escribir. Solo el listado del catálogo (`GET /books`, `/books/search`, `/books/
 aparecer en él. Si el índice no está disponible esos tres endpoints dan 503 y el resto sigue.
 
 Salvo el catálogo, las sedes (lectura) y el auto-registro, todo pide un JWT en
-`Authorization: Bearer <token>`. La columna "Acceso" indica qué rol lo puede usar.
+`Authorization: Bearer <token>`. La columna "Acceso" indica qué rol lo puede usar, y la
+columna "Modo", con qué `AUTH_MODE` existe el endpoint (ver [Autenticación](#autenticación-local-o-cognito)):
+quién emite el token cambia, pero los roles y lo que cada uno puede hacer, no.
 
-| Método | Ruta                              | Descripción                                    | Acceso |
-|--------|------------------------------------|-------------------------------------------------|--------|
-| POST   | `/auth/login`                      | Obtener un token                                | público |
-| GET    | `/auth/me`                         | Usuario autenticado                             | autenticado |
-| GET    | `/health`                          | Health check                                    | público |
-| GET    | `/books?q=&author_id=&genre_id=&city=&limit=&offset=` | Catálogo paginado, con búsqueda y filtros combinables (índice de búsqueda: ~1 s de retraso, 503 si no está) | público |
-| GET    | `/books/cities`                    | Ciudades con stock disponible (opciones del filtro) | público |
-| POST   | `/books`                           | Alta de un libro (ISBN-13 validado)             | librarian o sysadmin |
-| GET    | `/books/search?q=`                 | Búsqueda unificada por título/autor/ISBN/sinopsis (índice de búsqueda) | público |
-| GET    | `/books/{isbn}`                    | Detalle de un libro (de la base: consistente)   | público |
-| PATCH  | `/books/{isbn}`                    | Actualización parcial de un libro               | librarian o sysadmin |
-| DELETE | `/books/{isbn}`                    | Baja de un libro (409 si tiene ejemplares)      | librarian o sysadmin |
-| POST   | `/books/{isbn}/cover-upload`       | URL firmada para subir la portada a S3          | librarian o sysadmin |
-| PUT    | `/books/{isbn}/cover`              | Confirmar la portada subida                     | librarian o sysadmin |
-| DELETE | `/books/{isbn}/cover`              | Quitar la portada (borra el objeto del bucket)  | librarian o sysadmin |
-| GET    | `/books/{isbn}/availability`       | Disponibilidad por biblioteca (stock cruzado)   | público |
-| GET    | `/authors`, `/authors/{id}`        | Autores del catálogo                            | público |
-| POST/PATCH/DELETE | `/authors[/{id}]`       | ABM de autores (409 al borrar si tiene libros)  | librarian o sysadmin |
-| GET    | `/genres`, `/genres/{id}`          | Géneros del catálogo                            | público |
-| POST/PATCH/DELETE | `/genres[/{id}]`        | ABM de géneros (nombre único)                   | librarian o sysadmin |
-| GET    | `/physical-books?isbn=&library_id=&status=` | Ejemplares físicos, filtrables         | público |
-| GET    | `/physical-books/{id}`             | Detalle de un ejemplar                          | público |
-| POST   | `/physical-books`                  | Alta de un ejemplar en una sede                 | sysadmin, o el librarian de esa sede |
-| PATCH  | `/physical-books/{id}/status`      | Marcar `lost` / volver a `available`            | sysadmin, o el librarian de esa sede |
-| DELETE | `/physical-books/{id}`             | Baja de un ejemplar (409 si tiene reservas)     | sysadmin, o el librarian de esa sede |
-| GET    | `/libraries`                       | Listado de bibliotecas/sedes                    | público |
-| POST   | `/libraries`                       | Alta de biblioteca                              | sysadmin |
-| GET    | `/libraries/{id}`                  | Detalle de una sede                             | público |
-| PATCH  | `/libraries/{id}`                  | Actualización parcial de una sede               | sysadmin, o el librarian de esa sede |
-| DELETE | `/libraries/{id}`                  | Baja de una sede (409 si tiene ejemplares)      | sysadmin |
-| POST   | `/reservations`                    | Reservar un ejemplar disponible (a nombre del usuario del token) | autenticado |
-| GET    | `/reservations?library_id=&is_open=` | Listado de reservas                           | sysadmin (todas), librarian (su sede), customer (las propias) |
-| GET    | `/reservations/{id}`               | Detalle de una reserva                          | dueño, librarian de la sede, o sysadmin |
-| PATCH  | `/reservations/{id}`               | Extender el vencimiento                         | librarian de la sede, o sysadmin |
-| PATCH  | `/reservations/{id}/pickup`        | Marcar la reserva como retirada en la sede      | librarian de la sede, o sysadmin |
-| PATCH  | `/reservations/{id}/return`        | Registrar la devolución del ejemplar            | librarian de la sede, o sysadmin |
-| POST   | `/reservations/{id}/cancel`        | Cancelar una reserva no retirada                | dueño, librarian de la sede, o sysadmin |
-| POST   | `/reservations/expire`             | Vencer las reservas no retiradas (idempotente)  | sysadmin |
-| POST   | `/users`                           | Auto-registro (rol `customer` fijo)             | público |
-| POST   | `/users/staff`                     | Alta de librarian/sysadmin                      | sysadmin |
-| GET    | `/users`                           | Listado de usuarios                             | sysadmin |
-| GET    | `/users/{id}`                      | Detalle de un usuario                           | el propio usuario, o sysadmin |
-| PATCH  | `/users/{id}`                      | Actualización parcial (`role`/`library_id` solo sysadmin) | el propio usuario, o sysadmin |
-| DELETE | `/users/{id}`                      | Baja de un usuario                              | el propio usuario, o sysadmin |
+| Método | Ruta                              | Descripción                                    | Acceso | Modo |
+|--------|------------------------------------|-------------------------------------------------|--------|------|
+| POST   | `/auth/login`                      | Obtener un token                                | público | solo `local` |
+| GET    | `/auth/me`                         | Usuario autenticado                             | autenticado | ambos |
+| GET    | `/health`                          | Health check                                    | público | ambos |
+| GET    | `/books?q=&author_id=&genre_id=&city=&limit=&offset=` | Catálogo paginado, con búsqueda y filtros combinables (índice de búsqueda: ~1 s de retraso, 503 si no está) | público | ambos |
+| GET    | `/books/cities`                    | Ciudades con stock disponible (opciones del filtro) | público | ambos |
+| POST   | `/books`                           | Alta de un libro (ISBN-13 validado)             | librarian o sysadmin | ambos |
+| GET    | `/books/search?q=`                 | Búsqueda unificada por título/autor/ISBN/sinopsis (índice de búsqueda) | público | ambos |
+| GET    | `/books/{isbn}`                    | Detalle de un libro (de la base: consistente)   | público | ambos |
+| PATCH  | `/books/{isbn}`                    | Actualización parcial de un libro               | librarian o sysadmin | ambos |
+| DELETE | `/books/{isbn}`                    | Baja de un libro (409 si tiene ejemplares)      | librarian o sysadmin | ambos |
+| POST   | `/books/{isbn}/cover-upload`       | URL firmada para subir la portada a S3          | librarian o sysadmin | ambos |
+| PUT    | `/books/{isbn}/cover`              | Confirmar la portada subida                     | librarian o sysadmin | ambos |
+| DELETE | `/books/{isbn}/cover`              | Quitar la portada (borra el objeto del bucket)  | librarian o sysadmin | ambos |
+| GET    | `/books/{isbn}/availability`       | Disponibilidad por biblioteca (stock cruzado)   | público | ambos |
+| GET    | `/authors`, `/authors/{id}`        | Autores del catálogo                            | público | ambos |
+| POST/PATCH/DELETE | `/authors[/{id}]`       | ABM de autores (409 al borrar si tiene libros)  | librarian o sysadmin | ambos |
+| GET    | `/genres`, `/genres/{id}`          | Géneros del catálogo                            | público | ambos |
+| POST/PATCH/DELETE | `/genres[/{id}]`        | ABM de géneros (nombre único)                   | librarian o sysadmin | ambos |
+| GET    | `/physical-books?isbn=&library_id=&status=` | Ejemplares físicos, filtrables         | público | ambos |
+| GET    | `/physical-books/{id}`             | Detalle de un ejemplar                          | público | ambos |
+| POST   | `/physical-books`                  | Alta de un ejemplar en una sede                 | sysadmin, o el librarian de esa sede | ambos |
+| PATCH  | `/physical-books/{id}/status`      | Marcar `lost` / volver a `available`            | sysadmin, o el librarian de esa sede | ambos |
+| DELETE | `/physical-books/{id}`             | Baja de un ejemplar (409 si tiene reservas)     | sysadmin, o el librarian de esa sede | ambos |
+| GET    | `/libraries`                       | Listado de bibliotecas/sedes                    | público | ambos |
+| POST   | `/libraries`                       | Alta de biblioteca                              | sysadmin | ambos |
+| GET    | `/libraries/{id}`                  | Detalle de una sede                             | público | ambos |
+| PATCH  | `/libraries/{id}`                  | Actualización parcial de una sede               | sysadmin, o el librarian de esa sede | ambos |
+| DELETE | `/libraries/{id}`                  | Baja de una sede (409 si tiene ejemplares)      | sysadmin | ambos |
+| POST   | `/reservations`                    | Reservar un ejemplar disponible (a nombre del usuario del token) | autenticado | ambos |
+| GET    | `/reservations?library_id=&is_open=` | Listado de reservas                           | sysadmin (todas), librarian (su sede), customer (las propias) | ambos |
+| GET    | `/reservations/{id}`               | Detalle de una reserva                          | dueño, librarian de la sede, o sysadmin | ambos |
+| PATCH  | `/reservations/{id}`               | Extender el vencimiento                         | librarian de la sede, o sysadmin | ambos |
+| PATCH  | `/reservations/{id}/pickup`        | Marcar la reserva como retirada en la sede      | librarian de la sede, o sysadmin | ambos |
+| PATCH  | `/reservations/{id}/return`        | Registrar la devolución del ejemplar            | librarian de la sede, o sysadmin | ambos |
+| POST   | `/reservations/{id}/cancel`        | Cancelar una reserva no retirada                | dueño, librarian de la sede, o sysadmin | ambos |
+| POST   | `/reservations/expire`             | Vencer las reservas no retiradas (idempotente)  | sysadmin | ambos |
+| POST   | `/users`                           | Auto-registro (rol `customer` fijo)             | público | solo `local` |
+| POST   | `/users/staff`                     | Alta de librarian/sysadmin                      | sysadmin | ambos ¹ |
+| GET    | `/users`                           | Listado de usuarios                             | sysadmin | ambos |
+| GET    | `/users/{id}`                      | Detalle de un usuario                           | el propio usuario, o sysadmin | ambos |
+| PATCH  | `/users/{id}`                      | Actualización parcial (`role`/`library_id` solo sysadmin) | el propio usuario, o sysadmin | ambos ² |
+| DELETE | `/users/{id}`                      | Baja de un usuario                              | el propio usuario, o sysadmin | ambos ³ |
+
+¹ Con `cognito` además crea la cuenta en el User Pool, y la contraseña es **temporal**: se
+cambia en el primer ingreso. ² Con `cognito`, mandar `password` da 422: la contraseña se cambia
+en la Hosted UI («olvidé mi contraseña»). ³ Con `cognito` borra primero la cuenta de Cognito y
+después el usuario.
+
+## Autenticación: local o Cognito
+
+La API tiene dos modos, elegidos con `AUTH_MODE`. El diseño completo, con las limitaciones de
+AWS Academy que lo explican, está en [`COGNITO_ROADMAP.md`](COGNITO_ROADMAP.md).
+
+| | `local` (default) | `cognito` |
+|---|---|---|
+| Para qué | `docker compose up` y `pytest`, sin AWS | El despliegue en AWS |
+| Quién emite el token | La API: `POST /auth/login`, HS256 con `JWT_SECRET` | El User Pool de Cognito, en su Hosted UI |
+| Cómo lo valida la API | Firma con `JWT_SECRET` | RS256 contra el JWKS del pool, `iss`, `token_use = access`, `client_id` |
+| Registro de lectores | `POST /users` | Hosted UI + una Lambda *Post Confirmation* que crea el `User` (`customer`) |
+| Alta de personal | `POST /users/staff` | `POST /users/staff`, que además crea la cuenta en Cognito |
+| Contraseñas | bcrypt en el ítem `User` | Las guarda Cognito; la API no ve ninguna |
+| Frontend (`VITE_AUTH_MODE`) | Formularios propios de ingreso y registro | Redirige a la Hosted UI |
+
+**Lo que no cambia entre los dos es la autorización.** Cognito solo resuelve la identidad (el
+`sub` y el email): el rol y la sede siguen en el ítem `User` de DynamoDB, la API lo recarga en
+cada request, y `require_roles` y los chequeos de sede son el mismo código en los dos modos.
+Cambiar el rol de alguien vale desde su request siguiente, sin volver a ingresar.
+
+**El puente HTTPS.** En AWS Academy el frontend vive en el website endpoint de S3 (HTTP) y no
+hay certificados propios, pero Cognito solo acepta callbacks HTTPS. Por eso la Hosted UI
+vuelve a una Lambda detrás de un API Gateway ([`auth-bridge/`](auth-bridge/README.md)), que
+canjea el código por tokens con el client secret y redirige al frontend con **solo el access
+token** en el fragmento de la URL. El logout pasa por el mismo puente, para que también muera
+la sesión de Cognito.
+
+Los usuarios sembrados se crean en Cognito con `python -m app.seed_cognito` (después de
+`app.seed`), con la misma contraseña `bookup123`. **Estado**: el modo `cognito` está
+implementado y probado con Cognito stubeado; la infraestructura en AWS (User Pool, Lambdas,
+API Gateway) todavía no existe.
 
 ## Cache
 
@@ -285,8 +332,8 @@ caracteres y devolver un 422 recién al enviar.
 | Texto larguísimo (nombres, sinopsis) | `max_length` en los esquemas Pydantic. Sin él, un nombre de 5.000 caracteres llega a la capa de datos (un ítem de DynamoDB admite 400 KB) y sale como **500**; con él es un 422 |
 | Portada enorme | Doble barrera: el tamaño declarado al pedir la URL firmada, y el tamaño **real** del objeto (un `HEAD`) al confirmarla. Lo que no cumple se borra del bucket y nunca llega a la fila |
 | Cuerpo de request gigante | Middleware de 1 MB por `Content-Length`, antes de leer el cuerpo (413) |
-| Fuerza bruta sobre el login | Rate limit por IP y por cuenta sobre Redis (429 + `Retry-After`) |
-| Alta masiva de cuentas | Rate limit por IP en `POST /users` |
+| Fuerza bruta sobre el login | Rate limit por IP y por cuenta sobre Redis (429 + `Retry-After`). Con Cognito, el bloqueo de la Hosted UI |
+| Alta masiva de cuentas | Rate limit por IP en `POST /users`. Con Cognito, la verificación de email de la Hosted UI |
 | Reserva que retiene un ejemplar para siempre | `expires_at` tiene techo (365 días), no solo piso |
 | Contraseña que bcrypt truncaría | Se rechaza lo que pase de 72 bytes en vez de truncarlo en silencio |
 
@@ -347,17 +394,17 @@ Detalles que no son obvios:
 
 ## Frontend
 
-SPA con React Router y sesión propia (JWT en `localStorage`). Cada pantalla se
-muestra según el rol del token; detalle y decisiones en
-[`frontend/ROADMAP.md`](frontend/ROADMAP.md).
+SPA con React Router. La sesión es el access token en `localStorage`, venga de
+`POST /auth/login` (modo local) o de la Hosted UI de Cognito; los datos del usuario y su rol
+salen siempre de `GET /auth/me`, y cada pantalla se muestra según ese rol.
 
 | Pantalla | Acceso |
 |---|---|
 | Catálogo: buscar, ver disponibilidad por sede y reservar | público (reservar pide sesión) |
 | Sedes: listado con dirección, horarios y contacto | público |
-| Ingresar / Crear cuenta | público |
+| Ingresar / Crear cuenta (formularios propios, o la Hosted UI de Cognito) | público |
 | Mis reservas: seguimiento y cancelación | autenticado |
-| Mi perfil: datos, contraseña y baja de cuenta | autenticado |
+| Mi perfil: datos, contraseña (con Cognito, un link a la Hosted UI) y baja de cuenta | autenticado |
 | Panel bibliotecario: retiro, devolución, cancelación y extensión | librarian (su sede) / sysadmin |
 | Gestión → Libros, Autores, Géneros | librarian / sysadmin |
 | Gestión → Ejemplares | librarian (su sede) / sysadmin |
@@ -392,16 +439,21 @@ descriptos en la propuesta:
   (Redshift/Athena sobre S3), separado de la base operativa.
 - **API pública**: API Gateway con autenticación, rate limiting y métricas
   para exponer el catálogo a bibliotecas externas.
-- **Portal de bibliotecarios**: la API ya emite y valida sus propios JWT
-  (`POST /auth/login`, HS256 con `JWT_SECRET`) y aplica roles
-  `customer`/`librarian`/`sysadmin`. En la arquitectura target ese emisor lo
-  reemplaza Cognito: el resto de la autorización por rol ya está en su lugar.
+- **Identidad**: Cognito. El código ya está (`AUTH_MODE=cognito`): la API valida los
+  access tokens del User Pool contra su JWKS, el registro es la Hosted UI más una Lambda
+  *Post Confirmation*, y el alta y la baja de personal llaman a la API de administración
+  de Cognito. La autorización por rol (`customer`/`librarian`/`sysadmin`) y por sede sigue
+  en DynamoDB, igual que en local. Falta la infraestructura: el User Pool y su app client,
+  las dos Lambdas (`auth-bridge/` y el trigger) y el API Gateway del puente
+  ([`COGNITO_ROADMAP.md`](COGNITO_ROADMAP.md) §8). Con un frontend HTTPS (CloudFront con
+  certificado), el puente deja de hacer falta y Cognito redirige directo al frontend.
 - **Redes**: VPC con subnets públicas (ALB/API Gateway, CloudFront) y privadas
   (VPC endpoint de DynamoDB, OpenSearch, tareas de cómputo).
 
 ## Próximos pasos
 
-- Migrar la emisión de tokens propia a Cognito.
+- Crear la infraestructura de Cognito y probar el modo `cognito` de punta a punta en AWS
+  (fases 7 y 8 de [`COGNITO_ROADMAP.md`](COGNITO_ROADMAP.md)).
 - Definir el pipeline ETL hacia el data warehouse. Con DynamoDB deja de ser opcional: no hay
   consultas ad-hoc sobre el modelo operativo, y la analítica sale de ahí (Glue → Athena/Redshift).
 - Infraestructura como código (Terraform/CDK) para el despliegue en AWS.

@@ -9,6 +9,7 @@ import {
   type ReactNode,
 } from "react";
 import { api } from "../api";
+import { isCognito, logoutUrl } from "../lib/auth";
 import { clearToken, getToken, setToken, subscribe } from "../lib/session";
 import type { User } from "../types";
 
@@ -17,7 +18,15 @@ interface Session {
   token: string | null;
   /** `true` mientras se resuelve la sesión guardada contra `GET /auth/me`. */
   loading: boolean;
+  /**
+   * Solo con `VITE_AUTH_MODE=local`. Con Cognito no hay contraseña que mandar: el ingreso es
+   * `startLogin` (`lib/auth.ts`), que sale a la Hosted UI.
+   */
   login: (email: string, password: string) => Promise<User>;
+  /**
+   * Cierra la sesión. Con Cognito además navega al `/logout` de la Hosted UI, así su cookie
+   * también muere y el próximo «Ingresar» pide la contraseña: la página se va.
+   */
   logout: () => void;
   /** Refresca el `User` del contexto (después de editar el perfil, por ejemplo). */
   refresh: () => Promise<void>;
@@ -79,6 +88,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   }, [token]);
 
   const login = useCallback(async (email: string, password: string) => {
+    if (isCognito) throw new Error("login() is local-mode only; use startLogin()");
     const { access_token } = await api.auth.login({ email, password });
     setToken(access_token);
     const me = await api.auth.me();
@@ -91,6 +101,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const logout = useCallback(() => {
     clearToken();
     setUser(null);
+    if (isCognito) window.location.assign(logoutUrl());
   }, []);
 
   const refresh = useCallback(async () => {

@@ -187,6 +187,9 @@ services:
       # Índice de búsqueda del catálogo: lo alimenta el servicio `indexer`.
       OPENSEARCH_URL: http://search:9200
       OPENSEARCH_INDEX: bookup-books
+      # Emisor de tokens: la API misma (`POST /auth/login`), sin AWS. En AWS es `cognito`
+      # (ver `COGNITO_ROADMAP.md` §4); acá queda explícito para que no dependa del default.
+      AUTH_MODE: local
       JWT_SECRET: dev-secret-change-me
       JWT_ALGORITHM: HS256
       JWT_EXPIRE_MINUTES: 60
@@ -219,6 +222,8 @@ services:
     build: ./frontend
     environment:
       VITE_API_URL: http://localhost:8000
+      # Formularios propios de ingreso y registro, contra `POST /auth/login` de la API.
+      VITE_AUTH_MODE: local
     ports:
       - "5173:5173"
     depends_on:

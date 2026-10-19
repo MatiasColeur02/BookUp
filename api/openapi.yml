@@ -14,6 +14,21 @@ info:
     índice de búsqueda que se alimenta del stream de la tabla, así que es **eventualmente
     consistente**: un cambio tarda en aparecer ~1 segundo. Si el índice no está disponible,
     esos tres endpoints dan 503 y el resto de la API sigue funcionando.
+
+
+    **Autenticación.** Quién emite el token depende de `AUTH_MODE`:
+
+    - `local` (desarrollo y tests): la API misma, con `POST /auth/login` (JWT HS256 firmado
+      con `JWT_SECRET`). El auto-registro es `POST /users`.
+
+    - `cognito` (AWS): un User Pool de Cognito. El token se obtiene en la Hosted UI y llega al
+      navegador por el puente HTTPS (`auth-bridge/`); la API solo lo **valida** (RS256 contra
+      el JWKS del pool). En este modo `POST /auth/login` y `POST /users` **no se montan**
+      (404): el registro es la Hosted UI más el trigger Post Confirmation.
+
+    En los dos modos el rol y la sede salen del `User` de la base en cada request, no del
+    token. Este documento describe la unión de los dos modos; `/docs` y `/openapi.json` de una
+    instancia en marcha muestran solo los endpoints de su modo. Ver `COGNITO_ROADMAP.md`.
   version: "0.1.0"
 servers:
   - url: http://localhost:8000
@@ -21,7 +36,8 @@ servers:
 
 tags:
   - name: auth
-    description: Login y datos del usuario autenticado
+    description: >
+      Login (solo `AUTH_MODE=local`) y datos del usuario autenticado
   - name: catalog
     description: >
       Catálogo de libros. Lectura pública; la escritura requiere
@@ -55,8 +71,12 @@ paths:
   /auth/login:
     post:
       tags: [auth]
-      summary: Obtener un token de acceso
+      summary: Obtener un token de acceso (solo `AUTH_MODE=local`)
       description: >
+        **Solo con `AUTH_MODE=local`**; con `AUTH_MODE=cognito` no existe (404) y el token
+        lo da la Hosted UI de Cognito.
+
+
         Valida email + password y devuelve un JWT firmado (HS256) con el id, el
         rol y la sede del usuario. Responde 401 tanto si el email no existe como
         si la password es incorrecta, para no filtrar qué emails están
@@ -1272,8 +1292,12 @@ paths:
   /users:
     post:
       tags: [users]
-      summary: Crear un usuario
+      summary: Crear un usuario (solo `AUTH_MODE=local`)
       description: >
+        **Solo con `AUTH_MODE=local`**; con `AUTH_MODE=cognito` no existe (404): el lector se
+        registra en la Hosted UI y el trigger Post Confirmation crea su `User` (`customer`).
+
+
         Auto-registro público: crea un usuario con rol `customer` fijo. Para
         dar de alta `librarian`/`sysadmin` está `POST /users/staff`. Falla con
         409 si el email ya está registrado, y con 429 si se superó el límite de
@@ -1328,6 +1352,13 @@ paths:
         asignar `library_id`. `library_id` solo es válido junto con
         `role=librarian` (409 en cualquier otra combinación) y la sede tiene que
         existir (404).
+
+
+        Con `AUTH_MODE=cognito` además crea la cuenta en el User Pool (sin email de
+        invitación y con el email ya verificado), y `password` es **temporal**: la Hosted UI
+        obliga a cambiarla en el primer ingreso. Si el `User` no se puede crear, la cuenta
+        de Cognito se borra. 422 si Cognito rechaza la contraseña por su política; 503 si
+        Cognito no contesta.
       operationId: createStaffUser
       security:
         - bearerAuth: []
@@ -1354,6 +1385,8 @@ paths:
           $ref: "#/components/responses/Conflict"
         "422":
           $ref: "#/components/responses/ValidationError"
+        "503":
+          $ref: "#/components/responses/IdentityUnavailable"
 
   /users/{user_id}:
     get:
@@ -1386,6 +1419,12 @@ paths:
         para el propio usuario o para un `sysadmin`, pero `role` y `library_id`
         solo los puede tocar un `sysadmin` (403 en caso contrario). Bajar a un
         `librarian` a otro rol limpia su `library_id` automáticamente.
+
+
+        Con `AUTH_MODE=cognito` la contraseña la guarda Cognito: enviar `password` da 422
+        y se cambia desde la Hosted UI («olvidé mi contraseña»). El resto de los campos
+        funciona igual, y un cambio de `role` o `library_id` vale desde el request
+        siguiente, sin volver a ingresar.
       operationId: updateUser
       security:
         - bearerAuth: []
@@ -1417,7 +1456,11 @@ paths:
     delete:
       tags: [users]
       summary: Eliminar un usuario
-      description: Accesible para el propio usuario o para un `sysadmin`.
+      description: >
+        Accesible para el propio usuario o para un `sysadmin`. Con `AUTH_MODE=cognito`
+        borra primero la cuenta del User Pool y después el `User`: si lo segundo falla, la
+        persona ya no puede ingresar y reintentar el `DELETE` termina el trabajo. 503 si
+        Cognito no contesta (y entonces no se borró nada).
       operationId: deleteUser
       security:
         - bearerAuth: []
@@ -1432,6 +1475,8 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+        "503":
+          $ref: "#/components/responses/IdentityUnavailable"
 
 components:
   securitySchemes:
@@ -1440,8 +1485,21 @@ components:
       scheme: bearer
       bearerFormat: JWT
       description: >
-        JWT emitido por `POST /auth/login`, enviado en el header
-        `Authorization` con el prefijo `Bearer`.
+        JWT enviado en el header `Authorization` con el prefijo `Bearer`. Quién lo emite
+        depende de `AUTH_MODE`:
+
+
+        - `local`: `POST /auth/login` (HS256, firmado con `JWT_SECRET`); el `sub` es el id
+          del usuario.
+
+        - `cognito`: el **access token** del User Pool, obtenido en la Hosted UI. Se valida
+          la firma RS256 contra el JWKS del pool, `iss`, `exp`, `token_use == "access"` y
+          `client_id`. Un **id token** se rechaza con 401: no es una credencial para llamar
+          APIs. Si el JWKS no se puede bajar, 503 (el token puede ser válido).
+
+
+        En los dos modos el usuario se recarga de la base en cada request: un token de un
+        usuario borrado da 401, y el rol y la sede son los de la base, no los del token.
 
   parameters:
     IsbnPath:
@@ -1503,6 +1561,18 @@ components:
             type: object
             properties:
               detail: { type: string, example: The search index is not reachable }
+    IdentityUnavailable:
+      description: >
+        Solo con `AUTH_MODE=cognito`: la API de administración de Cognito no contesta (alta
+        de personal, baja de usuarios). Conviene reintentar tras `Retry-After`.
+      headers:
+        Retry-After:
+          description: Segundos sugeridos antes de reintentar.
+          schema: { type: integer, example: 5 }
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorDetail"
     NotFound:
       description: El recurso solicitado no existe
       content:
@@ -1535,7 +1605,8 @@ components:
     TooManyRequests:
       description: >
         Se superó el límite de intentos de la ventana. Aplica a los endpoints públicos
-        sin sesión (`POST /auth/login` y `POST /users`). El header `Retry-After` indica
+        sin sesión (`POST /auth/login` y `POST /users`), que solo existen con
+        `AUTH_MODE=local`: con Cognito, el bloqueo por intentos fallidos lo hace la Hosted UI. El header `Retry-After` indica
         en cuántos segundos se libera. Si el cache está apagado o caído, el límite no se
         aplica: es fail-open a propósito.
       headers:

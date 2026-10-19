@@ -46,7 +46,27 @@ La regla de dónde vive cada chequeo:
 - **Reglas de rol puras** → `controllers/dependencies.py` (`require_roles(...)`, `require_self_or_sysadmin`), como `Depends` del endpoint. No necesitan cargar el recurso.
 - **Reglas que dependen de los datos del recurso** (p. ej. "un `librarian` solo opera sobre su propia sede") → en el service, junto a la entidad que igual hay que cargar: `_assert_can_manage` en `library_service` y `reservation_service`. La reserva lleva copiada la `library_id` del ejemplar, así que autorizar no necesita leer el ejemplar. Por eso esos services reciben un `editor`/`viewer` (un `User` del dominio, no nada de HTTP) y lanzan `ForbiddenError`.
 
-`get_current_user` decodifica el JWT y recarga el `User` de la base en cada request, así que un token de un usuario borrado da 401 aunque la firma siga siendo válida.
+`get_current_user` decodifica el JWT y recarga el `User` de la base en cada request, así que un token de un usuario borrado da 401 aunque la firma siga siendo válida, y un cambio de rol o de sede vale desde el request siguiente.
+
+### Autenticación: dos modos (`AUTH_MODE`)
+
+Diseño completo en `COGNITO_ROADMAP.md` (raíz). El modo solo cambia **cómo se obtiene y valida el token** y **quién crea la identidad**; la autorización (rol y sede en el `User` de DynamoDB) es el mismo código en los dos.
+
+| | `local` (default: compose y tests) | `cognito` (AWS) |
+|---|---|---|
+| Emisor | La API: `POST /auth/login`, HS256 con `JWT_SECRET` | El User Pool (Hosted UI), vía el puente `auth-bridge/` |
+| Validación (`auth_service.decode_token`) | Firma y `exp` | RS256 contra el JWKS del pool (cacheado), `iss`, `exp`, `token_use == "access"`, `client_id` |
+| `sub` → `User` | id entero | alias `USERSUB#<sub>` (`UserRepository.get_by_cognito_sub`) |
+| Auto-registro | `POST /users` | Hosted UI + trigger Post Confirmation (`app/cognito_triggers.py`) |
+| `POST /users/staff` | Crea el `User` | `identity.create_user` (contraseña **temporal**) + `User`; si el `User` falla, borra la cuenta de Cognito |
+| `PATCH /users/{id}` con `password` | Cambia el hash | 422: se cambia en la Hosted UI |
+| `DELETE /users/{id}` | Borra el `User` | Primero Cognito, después el `User` |
+
+- Los endpoints de un solo modo se **montan o no** en `main.create_app()` (no un 404 a mano): `/docs` muestra la API real del modo. Con `AUTH_MODE=cognito` y sin `COGNITO_USER_POOL_ID`/`COGNITO_APP_CLIENT_ID`, `Settings` falla y la API no arranca.
+- **Las llamadas a Cognito viven en `app/identity.py`**, hermano de `storage.py`: `services` y `persistence` no ven boto3 ni Cognito, el controller orquesta y el service recibe `cognito_sub` como un valor más. Errores: `IdentityUnavailableError` → 503 (`main.py`); un JWKS que no contesta → `AuthUnavailableError` → 503, no 401 (el token puede ser válido).
+- El email se normaliza a minúsculas (`auth_service.normalize_email`) en **todos** los caminos —trigger, staff, seed—: Cognito lo trata case-insensitive y el alias `USEREMAIL#` no.
+- `python -m app.seed_cognito` (después de `app.seed`, contra el pool y la tabla reales) crea las cuentas de los usuarios sembrados y vincula su `sub`. Idempotente.
+- Tests de Cognito: `tests/test_auth_cognito.py` (par RSA y JWKS falsos), `tests/test_users_cognito.py`, `tests/test_cognito_triggers.py`, `tests/test_seed_cognito.py`, con Cognito stubeado por `tests/fake_identity.py`. Ninguno necesita AWS. El puente tiene su propia suite: `cd auth-bridge && pytest` (solo biblioteca estándar).
 
 ### Validación de entrada y límites
 
@@ -94,6 +114,7 @@ afuera del login).
   chequeo por cuenta hecho antes, cualquiera dejaba al dueño afuera errándole diez veces
   la contraseña. Contando solo fallos, la contraseña correcta siempre entra.
 - **Auto-registro**: por IP. `POST /users/staff` no se frena, ya pide token de sysadmin.
+- **Solo en `AUTH_MODE=local`**: con Cognito, login y auto-registro no existen en la API, y el bloqueo por intentos fallidos lo hace la Hosted UI.
 
 ### Cache
 
@@ -183,7 +204,7 @@ La base es **DynamoDB, tabla única `bookup`**, más un índice de **OpenSearch*
 
 ### Estado conocido / desalineado
 
-- La autenticación es un JWT propio (HS256, `pyjwt`) emitido por `POST /auth/login`, no Cognito todavía: en la arquitectura target lo reemplaza Cognito (ver README raíz, sección "De este MVP a la arquitectura en AWS"). El secreto sale de `JWT_SECRET` y tiene un default solo apto para desarrollo.
+- **Autenticación: el código de Cognito está, la infraestructura no.** Con `AUTH_MODE=local` (el default, y lo que usan el compose y la suite) la API emite su propio JWT (HS256, `pyjwt`) con `POST /auth/login`; el secreto sale de `JWT_SECRET` y tiene un default solo apto para desarrollo. Con `AUTH_MODE=cognito` el emisor es un User Pool y la API solo valida. Ese modo está probado con Cognito stubeado, pero **nunca corrió contra AWS**: faltan el User Pool, el app client, las dos Lambdas (puente y trigger) y el API Gateway del puente (`COGNITO_ROADMAP.md` fases 7 y 8, §8).
+- Sin refresh token en el navegador: con Cognito, la sesión dura lo que el access token (60 min) y después se vuelve a pasar por la Hosted UI (sin contraseña mientras viva su cookie). Ver `COGNITO_ROADMAP.md` §9.
 - **Falta, y es trabajo de infraestructura (no hay IaC todavía)**: la DLQ y `BisectBatchOnFunctionError` del event source mapping de la Lambda del indexador (un evento que falla siempre congela el shard), y la firma SigV4 del cliente de OpenSearch para un dominio gestionado de AWS (en local no aplica y no está probado). En AWS la tabla se crea por IaC con PITR activado, no con `table.py`.
 - `table.py` no versiona: si la tabla existe con otros índices, `ensure_table()` falla en vez de repararla. Cambiar la forma de un ítem o un GSI es un backfill escrito a mano.
-- El README raíz menciona `frontend/ROADMAP.md`, que no existe en el repo.
