@@ -103,10 +103,20 @@ function takePending(): Pending | null {
   }
 }
 
+/**
+ * 128 bits aleatorios en hex. No `crypto.randomUUID()`: solo existe en contextos seguros
+ * (HTTPS o localhost), y en AWS Academy el frontend se sirve por HTTP desde el website de S3.
+ * `getRandomValues` está disponible en HTTP y es el mismo generador criptográfico.
+ */
+function randomState(): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+}
+
 /** Una pantalla de la Hosted UI con un `state` nuevo para esta vuelta. */
 function hostedUiUrl(page: "oauth2/authorize" | "signup" | "forgotPassword", returnTo: string): string {
   const { domain, clientId, callbackUrl } = cognitoConfig();
-  const state = crypto.randomUUID();
+  const state = randomState();
   savePending({ state, returnTo: safeReturnTo(returnTo) });
   const params = new URLSearchParams({
     response_type: "code",

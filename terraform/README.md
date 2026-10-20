@@ -136,7 +136,10 @@ Vite hornea las URLs en el build, así que va después del apply:
 terraform output -raw frontend_env > ../frontend/.env.production
 cd ../frontend
 npm install && npm run build
-aws s3 sync dist/ "s3://$(cd ../terraform && terraform output -raw frontend_bucket)" --delete
+BUCKET=$(cd ../terraform && terraform output -raw frontend_bucket)
+aws s3 sync dist/ "s3://$BUCKET" --delete --exclude index.html
+# index.html sin cache: si no, el navegador puede seguir pidiendo el bundle anterior.
+aws s3 cp dist/index.html "s3://$BUCKET/index.html" --cache-control no-cache
 ```
 
 ### 5. Verificación
