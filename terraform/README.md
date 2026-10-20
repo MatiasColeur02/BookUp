@@ -7,14 +7,15 @@ Despliega BookUp completo en una cuenta de AWS Academy (Learner Lab). Qué se cr
 
 ```
 terraform/
-  versions.tf               # Terraform y providers (aws ~> 6.0, archive, random)
-  providers.tf              # provider aws con default_tags
-  variables.tf              # parámetros del despliegue (todos con default)
-  locals.tf                 # sufijo único, AZs, tags, rutas del repo
-  data.tf                   # LabRole, cuenta, AZs disponibles
-  main.tf                   # composición de los módulos
-  outputs.tf                # URLs, ids de Cognito y el .env del frontend
-  terraform.tfvars.example
+  organization/             # configuración raíz: lo que Terraform ejecuta
+    versions.tf             # Terraform, providers (aws ~> 6.0, archive, random) y backend S3
+    providers.tf            # provider aws con default_tags
+    variables.tf            # parámetros del despliegue (todos con default)
+    locals.tf               # sufijo único, AZs, tags, rutas del repo
+    data.tf                 # LabRole, cuenta, AZs disponibles
+    main.tf                 # composición de los módulos
+    outputs.tf              # URLs, ids de Cognito y el .env del frontend
+    terraform.tfvars.example
   modules/
     network/                # VPC (módulo externo), security groups, gateway endpoints
     storage/                # buckets S3 frontend y covers
@@ -58,7 +59,7 @@ vez en `main.tf` (`local.shared_environment`) y la API le agrega lo suyo con `me
 | `run_seed` | `true` | Cargar los datos de demo al final del apply |
 | `covers_noncurrent_days` | `30` | Días que se conservan las versiones anteriores de las portadas |
 
-Lista completa con descripciones en [`variables.tf`](variables.tf).
+Lista completa con descripciones en [`variables.tf`](organization/variables.tf).
 
 ## Funciones de Terraform usadas
 
@@ -111,7 +112,7 @@ aws sts get-caller-identity    # tiene que mostrar el rol voclabs
 ### 2. Configuración (opcional)
 
 ```bash
-cd terraform
+cd terraform/organization
 cp terraform.tfvars.example terraform.tfvars   # ajustar si hace falta
 ```
 
@@ -119,12 +120,20 @@ En una Mac con Apple Silicon conviene `api_cpu_architecture = "ARM64"`.
 
 ### 3. Despliegue
 
+El state vive en un bucket S3 (backend remoto). El bucket se nombra por convención
+`bookup-tfstate-<account_id>`; crealo una vez (o dejá que lo cree el pipeline):
+
 ```bash
-terraform init
+ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+aws s3 mb "s3://bookup-tfstate-$ACCOUNT_ID" --region us-east-1
+
+terraform init -backend-config="bucket=bookup-tfstate-$ACCOUNT_ID"
 terraform validate
 terraform plan -out tfplan
 terraform apply tfplan
 ```
+
+Para solo validar/planear sin tocar el backend: `terraform init -backend=false` (y `validate`).
 
 Tarda ~20 minutos; lo más lento es ElastiCache (~10 min). Si se corta
 (credenciales vencidas), renovarlas y volver a correr `terraform apply`: converge.
@@ -134,10 +143,10 @@ Tarda ~20 minutos; lo más lento es ElastiCache (~10 min). Si se corta
 Vite hornea las URLs en el build, así que va después del apply:
 
 ```bash
-terraform output -raw frontend_env > ../frontend/.env.production
-cd ../frontend
+terraform output -raw frontend_env > ../../frontend/.env.production
+cd ../../frontend
 npm install && npm run build
-BUCKET=$(cd ../terraform && terraform output -raw frontend_bucket)
+BUCKET=$(cd ../terraform/organization && terraform output -raw frontend_bucket)
 aws s3 sync dist/ "s3://$BUCKET" --delete --exclude index.html
 # index.html sin cache: si no, el navegador puede seguir pidiendo el bundle anterior.
 aws s3 cp dist/index.html "s3://$BUCKET/index.html" --cache-control no-cache
@@ -160,6 +169,35 @@ terraform destroy
 ```
 
 Los buckets y el repositorio de ECR se borran aunque tengan contenido (`force_destroy`).
+
+## Pipeline de GitHub Actions
+
+El workflow [`terraform-deploy.yml`](../.github/workflows/terraform-deploy.yml) ejecuta
+Terraform sobre `terraform/organization`. Está partido en dos para ser seguro y barato:
+
+| Disparador | Job | Pasos | ¿Credenciales? |
+|---|---|---|---|
+| `pull_request` (automático) | `validate` | `init -backend=false` → `validate` | No. No toca AWS: el check del PR queda verde sin depender de nadie. |
+| `workflow_dispatch` (botón "Run workflow") | `plan-apply` | crea el bucket de state → `init` (backend S3) → `validate` → `plan` → `apply` | Sí: las del Learner Lab, cargadas como *secrets* del repo. `apply` solo corre si se tilda la opción al disparar. |
+
+Así se cubren los cuatro comandos (`init`, `validate`, `plan`, `apply`) sin que el PR
+dispare infraestructura real: el `apply` es deliberado (botón + tilde), nunca automático.
+
+### Cómo deployar desde el pipeline
+
+1. Iniciar el Learner Lab y copiar el bloque de **AWS Details → AWS CLI**.
+2. En el repo: **Settings → Secrets and variables → Actions → New repository secret**, y cargar
+   los tres valores del lab como secrets:
+   - `AWS_ACCESS_KEY_ID`
+   - `AWS_SECRET_ACCESS_KEY`
+   - `AWS_SESSION_TOKEN`
+
+   (Vencen con la sesión del lab; si vencen, se vuelven a pegar.)
+3. **Actions → Terraform Deploy → Run workflow**. Dejar `apply` sin tildar para solo ver el
+   `plan`, o tildarlo para desplegar de verdad.
+
+El state se guarda en `s3://bookup-tfstate-<account_id>` (versionado, privado, con bloqueo
+nativo de S3), que el propio workflow crea si no existe.
 
 ## Problemas conocidos
 

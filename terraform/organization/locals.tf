@@ -15,6 +15,6 @@ locals {
     ManagedBy   = "terraform"
   }
 
-  repo_root      = abspath("${path.root}/..")
+  repo_root      = abspath("${path.root}/../..")
   api_source_dir = "${local.repo_root}/api"
 }
