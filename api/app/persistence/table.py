@@ -181,6 +181,7 @@ def main() -> None:
         region=settings.aws_region,
         access_key_id=settings.aws_access_key_id,
         secret_access_key=settings.aws_secret_access_key,
+        session_token=settings.aws_session_token,
     )
     created = ensure_table(dynamo)
     names = ", ".join(name for name, _, _ in INDEXES)

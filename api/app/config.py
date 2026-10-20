@@ -80,6 +80,9 @@ class Settings(BaseSettings):
     # función (Lambda), que es la cadena default de boto3.
     aws_access_key_id: str = ""
     aws_secret_access_key: str = ""
+    # Lambda sí define las tres en el entorno (credenciales temporales del rol): sin el token,
+    # pasar solo la key y el secreto da `UnrecognizedClientException`.
+    aws_session_token: str = ""
 
     # `hide_input_in_errors`: un error de validación no imprime el resto de la config, que
     # trae secretos (`JWT_SECRET`, las credenciales de AWS) y terminaría en los logs.

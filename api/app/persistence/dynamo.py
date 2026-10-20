@@ -46,6 +46,7 @@ def connect(
     region: str = "us-east-1",
     access_key_id: str = "",
     secret_access_key: str = "",
+    session_token: str = "",
 ) -> Dynamo:
     """Arma un `Dynamo` contra un endpoint y una tabla dados. No toca la red."""
     kwargs: dict[str, Any] = {
@@ -58,6 +59,7 @@ def connect(
     if access_key_id and secret_access_key:
         kwargs["aws_access_key_id"] = access_key_id
         kwargs["aws_secret_access_key"] = secret_access_key
+        kwargs["aws_session_token"] = session_token or None
 
     # Una `Session` propia y no el default de boto3: crear recursos desde varios threads
     # sobre la sesión compartida es una carrera conocida.
@@ -92,6 +94,7 @@ def get_dynamo() -> Dynamo:
             region=settings.aws_region,
             access_key_id=settings.aws_access_key_id,
             secret_access_key=settings.aws_secret_access_key,
+            session_token=settings.aws_session_token,
         )
     return dynamo
 

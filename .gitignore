@@ -219,3 +219,13 @@ __marimo__/
 node_modules/
 dist/
 .env
+
+# Terraform (el state tiene el client secret de Cognito)
+terraform/.terraform/
+terraform/.build/
+*.tfstate
+*.tfstate.*
+*.tfplan
+terraform/terraform.tfvars
+crash.log
+frontend/.env.production

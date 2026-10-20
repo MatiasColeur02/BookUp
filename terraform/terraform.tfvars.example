@@ -1,0 +1,22 @@
+# Copiar a terraform.tfvars y ajustar. Todos tienen default: el archivo es opcional.
+
+aws_region  = "us-east-1"
+project     = "bookup"
+environment = "dev"
+
+# Vacío = sufijo aleatorio. Fijarlo (p. ej. "grupo6") deja nombres de bucket predecibles.
+name_suffix = ""
+
+# true = 1 NAT (~USD 1/día). false = uno por zona, como en la receta original.
+single_nat_gateway = true
+
+api_desired_count = 2
+# ARM64 si se aplica desde una Mac con Apple Silicon (el docker build no emula).
+api_cpu_architecture = "X86_64"
+
+redis_replicas = 1
+
+# true solo si la cuenta nunca tuvo un dominio de OpenSearch en VPC.
+create_opensearch_service_linked_role = false
+
+run_seed = true

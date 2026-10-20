@@ -46,7 +46,7 @@ def is_enabled() -> bool:
     return bool(settings.s3_bucket)
 
 
-def _credentials() -> dict[str, str]:
+def _credentials() -> dict[str, str | None]:
     """Credenciales explícitas si están en el entorno; si no, la cadena default de boto3.
 
     En AWS lo correcto es no configurar ninguna y dejar que las tome del rol de la tarea
@@ -56,6 +56,7 @@ def _credentials() -> dict[str, str]:
         return {
             "aws_access_key_id": settings.aws_access_key_id,
             "aws_secret_access_key": settings.aws_secret_access_key,
+            "aws_session_token": settings.aws_session_token or None,
         }
     return {}
 
