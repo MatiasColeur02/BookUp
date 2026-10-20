@@ -77,22 +77,16 @@ variable "redis_replicas" {
   default     = 1
 }
 
-variable "opensearch_instance_type" {
-  description = "Tipo de instancia del dominio de OpenSearch."
-  type        = string
-  default     = "t3.small.search"
-}
-
-variable "opensearch_volume_size" {
-  description = "Disco del nodo de OpenSearch, en GB."
+variable "search_cpu" {
+  description = "CPU de la tarea de OpenSearch (el Learner Lab no permite dominios gestionados)."
   type        = number
-  default     = 10
+  default     = 1024
 }
 
-variable "create_opensearch_service_linked_role" {
-  description = "Crear el service-linked role de OpenSearch (necesario para un dominio en VPC). false si la cuenta ya lo tiene."
-  type        = bool
-  default     = false
+variable "search_memory" {
+  description = "Memoria de la tarea de OpenSearch, en MiB. La mitad es heap de la JVM."
+  type        = number
+  default     = 2048
 }
 
 # --- Cómputo -----------------------------------------------------------------

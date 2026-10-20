@@ -125,9 +125,24 @@ def process(db: Dynamo, index: OpenSearchIndex, records: list[dict[str, Any]]) -
     return touched
 
 
+_index_ensured = False
+
+
 def handler(event: dict[str, Any], context: Any = None) -> dict[str, int]:
-    """Punto de entrada de la Lambda."""
-    touched = process(get_dynamo(), search.get_index(), event.get("Records", []))
+    """Punto de entrada de la Lambda.
+
+    Crea el índice con su mapping antes del primer `upsert` del contenedor. Sin esto, si el
+    índice todavía no existe (tabla recién sembrada, el seed escribe antes de reindexar),
+    OpenSearch lo crea solo con mapping dinámico: `title_sort` y `available_cities` quedan
+    como `text` y el listado y las ciudades fallan. En local no pasa porque `run()` reindexa
+    (y crea el índice) antes de seguir el stream.
+    """
+    global _index_ensured
+    index = search.get_index()
+    if not _index_ensured:
+        index.ensure_index()
+        _index_ensured = True
+    touched = process(get_dynamo(), index, event.get("Records", []))
     return {"indexed": touched}
 
 

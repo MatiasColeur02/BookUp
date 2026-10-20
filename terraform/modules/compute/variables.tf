@@ -26,6 +26,14 @@ variable "app_security_group_id" {
   type = string
 }
 
+variable "cluster_id" {
+  type = string
+}
+
+variable "cluster_name" {
+  type = string
+}
+
 variable "task_role_arn" {
   description = "Rol de ejecución y de tarea (LabRole)."
   type        = string

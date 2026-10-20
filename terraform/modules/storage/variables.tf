@@ -10,3 +10,7 @@ variable "suffix" {
 variable "force_destroy" {
   type = bool
 }
+
+variable "region" {
+  type = string
+}

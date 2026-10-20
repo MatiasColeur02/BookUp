@@ -229,3 +229,4 @@ terraform/.build/
 terraform/terraform.tfvars
 crash.log
 frontend/.env.production
+terraform/tfplan

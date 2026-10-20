@@ -16,7 +16,5 @@ api_cpu_architecture = "X86_64"
 
 redis_replicas = 1
 
-# true solo si la cuenta nunca tuvo un dominio de OpenSearch en VPC.
-create_opensearch_service_linked_role = false
 
 run_seed = true

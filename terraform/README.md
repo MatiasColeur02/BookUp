@@ -18,7 +18,8 @@ terraform/
   modules/
     network/                # VPC (módulo externo), security groups, gateway endpoints
     storage/                # buckets S3 frontend y covers
-    database/               # DynamoDB, ElastiCache Redis, OpenSearch
+    database/               # DynamoDB, ElastiCache Redis
+    search/                 # OpenSearch en Fargate detrás de un NLB interno
     lambda_package/         # build del zip de api/ para Lambda (build.sh)
     auth/                   # Cognito, Lambda post-confirmation, puente HTTPS (API Gateway + Lambda)
     indexer/                # Lambda indexadora + event source mapping + DLQ
@@ -31,12 +32,13 @@ terraform/
 |---|---|---|---|
 | `terraform-aws-modules/vpc/aws` (`~> 6.0`) | **Externo** (Registry) | VPC, 6 subnets, IGW, NAT, route tables | CIDR, AZs → ids de subnets |
 | `network` | Propio | Envuelve el módulo externo + 5 security groups + reglas + endpoints S3/DynamoDB | `vpc_cidr`, `azs`, `single_nat_gateway` → `vpc_id`, subnets, `security_group_ids` |
-| `storage` | Propio | 2 buckets (ownership, cifrado, acceso público, policy), website, CORS | `suffix` → `frontend_url`, nombres de bucket |
-| `database` | Propio | Tabla DynamoDB con 4 GSIs y stream, replication group de Redis, dominio de OpenSearch | subnets de datos, SGs → `table_name`, `table_stream_arn`, `redis_url`, `opensearch_url` |
+| `storage` | Propio | 2 buckets (alta/baja por CLI) con ownership, cifrado, acceso público, policy, website y CORS | `suffix` → `frontend_url`, nombres de bucket |
+| `database` | Propio | Tabla DynamoDB con 4 GSIs y stream, replication group de Redis | subnets de datos, SG → `table_name`, `table_stream_arn`, `redis_url` |
+| `search` | Propio | NLB interno, target group, task definition y servicio de Fargate con OpenSearch | subnets privadas, SGs, cluster → `url` (espera a que el servicio esté sano) |
 | `lambda_package` | Propio, reutilizable | `terraform_data` que corre `build.sh` + `archive_file` | `source_dir` → `zip_path`, `zip_hash` |
 | `auth` | Propio | User Pool, dominio, app client, 2 Lambdas, HTTP API con 2 rutas, permisos de invocación | `frontend_url`, zip de la API → `user_pool_id`, `client_id`, `cognito_domain`, URLs del puente |
 | `indexer` | Propio | Lambda en VPC, SQS DLQ, event source mapping | zip, `stream_arn`, entorno → `dlq_url` |
-| `compute` | Propio | ECR + lifecycle, push de la imagen, ALB/TG/listener, cluster, task definition, servicio, seed | subnets, SGs, entorno → `api_url`, `image_uri` |
+| `compute` | Propio | ECR + lifecycle, push de la imagen, ALB/TG/listener, task definition, servicio, seed | subnets, SGs, cluster, entorno → `api_url`, `image_uri`, `reindex_command` |
 
 `lambda_package` se usa una vez y su zip lo consumen dos módulos (`auth` e `indexer`), que
 corren el mismo código de `api/`. El entorno común de la API y del indexador se arma una sola
@@ -52,7 +54,7 @@ vez en `main.tf` (`local.shared_environment`) y la API le agrega lo suyo con `me
 | `api_desired_count` | `2` | Tareas de Fargate de la API |
 | `api_cpu_architecture` | `X86_64` | `ARM64` si se aplica desde una Mac con Apple Silicon (el build no emula) |
 | `redis_replicas` | `1` | Réplicas de Redis; con 0 se apaga Multi-AZ |
-| `create_opensearch_service_linked_role` | `false` | Crear el service-linked role de OpenSearch (ver Problemas conocidos) |
+| `search_cpu` / `search_memory` | `1024` / `2048` | Tamaño de la tarea de OpenSearch (la mitad de la memoria es heap) |
 | `run_seed` | `true` | Cargar los datos de demo al final del apply |
 
 Lista completa con descripciones en [`variables.tf`](variables.tf).
@@ -65,9 +67,9 @@ Lista completa con descripciones en [`variables.tf`](variables.tf).
 | `coalesce`, `lower` | `locals.tf` | Usar `name_suffix` o, si está vacío, el sufijo aleatorio |
 | `slice` | `locals.tf` | Tomar las primeras `az_count` zonas disponibles |
 | `substr` | `network/main.tf`, `compute/ecr.tf` | Nombre de subnet por zona (`1a`) y tag corto de la imagen |
-| `jsonencode` | `storage`, `database`, `compute`, `main.tf` | Bucket policy, access policy de OpenSearch, container definitions, `CORS_ORIGINS` |
+| `jsonencode` | `storage`, `database`, `compute`, `main.tf` | Bucket policy, policy de ECR, container definitions, `CORS_ORIGINS` |
 | `merge` | `main.tf` | Entorno de la API = entorno común + variables propias |
-| `format` | `database/outputs.tf` | Armar `rediss://host:puerto/0` |
+| `format`, `floor` | `database/outputs.tf`, `search/main.tf` | Armar `rediss://host:puerto/0`; heap de la JVM = mitad de la memoria |
 | `sha1`, `filesha1`, `fileset`, `sort`, `join` | `compute/ecr.tf`, `lambda_package` | Hash del código: cambia → nueva imagen / nuevo zip |
 | `fileexists`, `timestamp` | `lambda_package` | Rearmar el zip si falta el directorio de build |
 | `distinct`, `concat`, `flatten`, `values` | `database/dynamodb.tf` | Lista de atributos de la tabla a partir de los GSIs |
@@ -81,8 +83,8 @@ Lista completa con descripciones en [`variables.tf`](variables.tf).
 | Meta-argumento | Dónde | Para qué |
 |---|---|---|
 | `for_each` | security groups y reglas, buckets y sus configuraciones, gateway endpoints, rutas del API Gateway | Un recurso por elemento de un mapa/conjunto, sin repetir bloques |
-| `count` | `aws_iam_service_linked_role.opensearch`, `terraform_data.seed` | Recursos opcionales encendidos por una variable booleana |
-| `depends_on` | bucket policy → public access block; servicio ECS → listener; task definition → push de la imagen; `archive_file` → build; dominio → service-linked role; seed → servicio | Dependencias que no surgen de una referencia |
+| `count` | `terraform_data.seed` | Recurso opcional encendido por `run_seed` |
+| `depends_on` | bucket policy → public access block; servicio ECS → listener; task definition → push de la imagen; `archive_file` → build; servicio de OpenSearch → listener; output `search.url` → servicio sano; seed → servicio | Dependencias que no surgen de una referencia |
 | `lifecycle` | `create_before_destroy` en security groups y target group; `ignore_changes = [schema]` en el User Pool | Reemplazos sin corte; no recrear el pool (borraría las cuentas) |
 
 También se usan bloques `dynamic` (atributos y GSIs de DynamoDB, schema de Cognito) y
@@ -123,7 +125,7 @@ terraform plan -out tfplan
 terraform apply tfplan
 ```
 
-Tarda ~25 minutos; lo más lento es OpenSearch (~15 min) y ElastiCache (~10 min). Si se corta
+Tarda ~20 minutos; lo más lento es ElastiCache (~10 min). Si se corta
 (credenciales vencidas), renovarlas y volver a correr `terraform apply`: converge.
 
 ### 4. Frontend
@@ -157,9 +159,16 @@ Los buckets y el repositorio de ECR se borran aunque tengan contenido (`force_de
 
 ## Problemas conocidos
 
-- **Service-linked role de OpenSearch.** Un dominio en VPC lo necesita. Si el apply falla con
-  *"Before you can proceed, you must enable a service-linked role"*, correr con
-  `create_opensearch_service_linked_role = true`. Si dice que el rol ya existe, dejarlo en `false`.
+- **OpenSearch no es el servicio gestionado.** El Learner Lab deniega `es:CreateDomain` y Cloud
+  Map, así que OpenSearch corre como contenedor en Fargate (la misma imagen del docker-compose)
+  detrás de un NLB interno. El índice está en el disco efímero de la tarea: si la tarea se
+  reemplaza, el catálogo queda vacío hasta correr `terraform output -raw reindex_command | sh`.
+  La fuente de verdad es DynamoDB, así que no se pierde nada.
+- **Los buckets se crean con la CLI.** El recurso `aws_s3_bucket` lee la configuración de Object
+  Lock en cada refresh y el Learner Lab la deniega con una SCP
+  (`s3:GetBucketObjectLockConfiguration`). Por eso el bucket lo crea y lo borra un
+  `terraform_data` (`modules/storage/bucket.sh`, idempotente) y el resto de su configuración
+  (website, policy, CORS, cifrado) son recursos nativos.
 - **El state tiene el client secret de Cognito.** `terraform.tfstate` está en `.gitignore`;
   nunca se commitea. Para compartirlo, el backend S3 comentado en `versions.tf`.
 - **Costo.** NAT, ALB, Fargate, ElastiCache y OpenSearch cobran por hora (~USD 4,5/día en total). Hacer

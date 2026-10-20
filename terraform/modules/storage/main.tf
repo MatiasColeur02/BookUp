@@ -8,26 +8,51 @@ locals {
   }
 }
 
-resource "aws_s3_bucket" "this" {
+# El bucket se crea con la CLI y no con aws_s3_bucket: ese recurso lee la configuración de
+# Object Lock en cada refresh, y el Learner Lab la deniega con una SCP
+# (s3:GetBucketObjectLockConfiguration). El resto de la configuración sí son recursos nativos.
+resource "terraform_data" "bucket" {
   for_each = local.buckets
 
-  bucket        = each.value
-  force_destroy = var.force_destroy
+  input = {
+    name          = each.value
+    arn           = "arn:aws:s3:::${each.value}"
+    region        = var.region
+    force_destroy = var.force_destroy
+  }
+
+  provisioner "local-exec" {
+    command = "${path.module}/bucket.sh create"
+    environment = {
+      BUCKET = self.input.name
+      REGION = self.input.region
+    }
+  }
+
+  provisioner "local-exec" {
+    when    = destroy
+    command = "${path.module}/bucket.sh delete"
+    environment = {
+      BUCKET        = self.input.name
+      REGION        = self.input.region
+      FORCE_DESTROY = tostring(self.input.force_destroy)
+    }
+  }
 }
 
 resource "aws_s3_bucket_ownership_controls" "this" {
-  for_each = aws_s3_bucket.this
+  for_each = terraform_data.bucket
 
-  bucket = each.value.id
+  bucket = each.value.output.name
   rule {
     object_ownership = "BucketOwnerEnforced"
   }
 }
 
 resource "aws_s3_bucket_server_side_encryption_configuration" "this" {
-  for_each = aws_s3_bucket.this
+  for_each = terraform_data.bucket
 
-  bucket = each.value.id
+  bucket = each.value.output.name
   rule {
     apply_server_side_encryption_by_default {
       sse_algorithm = "AES256"
@@ -36,9 +61,9 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "this" {
 }
 
 resource "aws_s3_bucket_public_access_block" "this" {
-  for_each = aws_s3_bucket.this
+  for_each = terraform_data.bucket
 
-  bucket                  = each.value.id
+  bucket                  = each.value.output.name
   block_public_acls       = true
   ignore_public_acls      = true
   block_public_policy     = false
@@ -46,9 +71,9 @@ resource "aws_s3_bucket_public_access_block" "this" {
 }
 
 resource "aws_s3_bucket_policy" "public_read" {
-  for_each = aws_s3_bucket.this
+  for_each = terraform_data.bucket
 
-  bucket = each.value.id
+  bucket = each.value.output.name
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{
@@ -56,7 +81,7 @@ resource "aws_s3_bucket_policy" "public_read" {
       Effect    = "Allow"
       Principal = "*"
       Action    = "s3:GetObject"
-      Resource  = "${each.value.arn}/*"
+      Resource  = "${each.value.output.arn}/*"
     }]
   })
 
@@ -65,7 +90,7 @@ resource "aws_s3_bucket_policy" "public_read" {
 }
 
 resource "aws_s3_bucket_website_configuration" "frontend" {
-  bucket = aws_s3_bucket.this["frontend"].id
+  bucket = terraform_data.bucket["frontend"].output.name
 
   index_document {
     suffix = "index.html"
@@ -79,7 +104,7 @@ resource "aws_s3_bucket_website_configuration" "frontend" {
 
 # El PUT de la portada va directo del browser al bucket: sin CORS el browser lo bloquea.
 resource "aws_s3_bucket_cors_configuration" "covers" {
-  bucket = aws_s3_bucket.this["covers"].id
+  bucket = terraform_data.bucket["covers"].output.name
 
   cors_rule {
     allowed_headers = ["*"]

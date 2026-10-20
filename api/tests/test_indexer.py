@@ -186,6 +186,22 @@ def test_the_lambda_entry_point_processes_the_records_of_the_event(db, make, sea
     assert indexer.handler({"Records": []}) == {"indexed": 0}
 
 
+def test_the_lambda_creates_the_index_before_its_first_write(db, make, search_index, monkeypatch):
+    # Sin esto OpenSearch crea el índice solo, con mapping dinámico, y el listado se rompe.
+    make.book()
+    monkeypatch.setattr(indexer, "get_dynamo", lambda: db)
+    monkeypatch.setattr(indexer, "_index_ensured", False)
+    order = []
+    ensure, upsert = search_index.ensure_index, search_index.upsert
+    monkeypatch.setattr(search_index, "ensure_index", lambda: (order.append("ensure"), ensure())[1])
+    monkeypatch.setattr(search_index, "upsert", lambda docs: (order.append("upsert"), upsert(docs))[1])
+
+    indexer.handler({"Records": [record("INSERT", f"BOOK#{ISBN}")]})
+    indexer.handler({"Records": [record("MODIFY", f"BOOK#{ISBN}")]})
+
+    assert order == ["ensure", "upsert", "upsert"]
+
+
 # -- de punta a punta, con el stream real de DynamoDB Local -------------------------------
 
 

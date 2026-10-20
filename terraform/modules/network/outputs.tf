@@ -15,6 +15,6 @@ output "database_subnet_ids" {
 }
 
 output "security_group_ids" {
-  description = "Mapa componente → id del security group (alb, app, lambda, redis, opensearch)."
+  description = "Mapa componente → id del security group (alb, app, lambda, redis, search_nlb, search)."
   value       = { for name, sg in aws_security_group.this : name => sg.id }
 }

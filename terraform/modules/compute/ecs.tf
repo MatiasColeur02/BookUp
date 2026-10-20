@@ -1,7 +1,3 @@
-resource "aws_ecs_cluster" "this" {
-  name = "${var.name_prefix}-cluster"
-}
-
 resource "aws_cloudwatch_log_group" "api" {
   name              = "/ecs/${var.name_prefix}-api"
   retention_in_days = var.log_retention_days
@@ -53,7 +49,7 @@ resource "aws_ecs_task_definition" "api" {
 
 resource "aws_ecs_service" "api" {
   name            = "${var.name_prefix}-api"
-  cluster         = aws_ecs_cluster.this.id
+  cluster         = var.cluster_id
   task_definition = aws_ecs_task_definition.api.arn
   desired_count   = var.desired_count
   launch_type     = "FARGATE"

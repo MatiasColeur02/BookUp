@@ -34,6 +34,11 @@ output "ecr_image" {
   value = module.compute.image_uri
 }
 
+output "reindex_command" {
+  description = "Reconstruye el índice de OpenSearch (necesario si la tarea de búsqueda se reemplazó)."
+  value       = module.compute.reindex_command
+}
+
 output "indexer_dlq_url" {
   value = module.indexer.dlq_url
 }

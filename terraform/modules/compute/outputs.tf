@@ -10,8 +10,14 @@ output "image_uri" {
   value = local.image_uri
 }
 
-output "cluster_name" {
-  value = aws_ecs_cluster.this.name
+output "reindex_command" {
+  description = "Reconstruye el índice de OpenSearch desde DynamoDB (p. ej. si la tarea de búsqueda se reemplazó)."
+  value = join(" ", [
+    "aws ecs run-task --region ${var.region} --cluster ${var.cluster_name}",
+    "--task-definition ${aws_ecs_task_definition.api.family} --launch-type FARGATE",
+    "--network-configuration '${local.network_config}'",
+    "--overrides '${local.one_shot_overrides.reindex}'",
+  ])
 }
 
 output "service_name" {

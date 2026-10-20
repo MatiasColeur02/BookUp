@@ -6,7 +6,8 @@ locals {
     app        = "Tareas de ECS de la API"
     lambda     = "Lambda indexadora"
     redis      = "ElastiCache Redis"
-    opensearch = "Dominio de OpenSearch"
+    search_nlb = "NLB interno de OpenSearch"
+    search     = "Tarea de Fargate de OpenSearch"
   }
 
   ingress_rules = {
@@ -22,16 +23,20 @@ locals {
     redis_from_lambda = {
       sg = "redis", port = 6379, cidr = null, source = "lambda"
     }
-    opensearch_from_app = {
-      sg = "opensearch", port = 443, cidr = null, source = "app"
+    search_nlb_from_app = {
+      sg = "search_nlb", port = var.search_port, cidr = null, source = "app"
     }
-    opensearch_from_lambda = {
-      sg = "opensearch", port = 443, cidr = null, source = "lambda"
+    search_nlb_from_lambda = {
+      sg = "search_nlb", port = var.search_port, cidr = null, source = "lambda"
+    }
+    # Tráfico y health checks del NLB.
+    search_from_nlb = {
+      sg = "search", port = var.search_port, cidr = null, source = "search_nlb"
     }
   }
 
-  # Solo los que inician conexiones necesitan salida.
-  egress_groups = toset(["alb", "app", "lambda"])
+  # Solo los que inician conexiones necesitan salida (search: bajar la imagen por el NAT).
+  egress_groups = toset(["alb", "app", "lambda", "search_nlb", "search"])
 }
 
 resource "aws_security_group" "this" {

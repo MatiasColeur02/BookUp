@@ -1,9 +1,9 @@
 output "frontend_bucket" {
-  value = aws_s3_bucket.this["frontend"].id
+  value = terraform_data.bucket["frontend"].output.name
 }
 
 output "covers_bucket" {
-  value = aws_s3_bucket.this["covers"].id
+  value = terraform_data.bucket["covers"].output.name
 }
 
 output "frontend_url" {
