@@ -47,6 +47,8 @@ module "storage" {
   suffix        = local.suffix
   region        = var.aws_region
   force_destroy = var.force_destroy_buckets
+
+  covers_noncurrent_days = var.covers_noncurrent_days
 }
 
 module "database" {

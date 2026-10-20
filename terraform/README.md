@@ -32,7 +32,7 @@ terraform/
 |---|---|---|---|
 | `terraform-aws-modules/vpc/aws` (`~> 6.0`) | **Externo** (Registry) | VPC, 6 subnets, IGW, NAT, route tables | CIDR, AZs → ids de subnets |
 | `network` | Propio | Envuelve el módulo externo + 5 security groups + reglas + endpoints S3/DynamoDB | `vpc_cidr`, `azs`, `single_nat_gateway` → `vpc_id`, subnets, `security_group_ids` |
-| `storage` | Propio | 2 buckets (alta/baja por CLI) con ownership, cifrado, acceso público, policy, website y CORS | `suffix` → `frontend_url`, nombres de bucket |
+| `storage` | Propio | 2 buckets (alta/baja por CLI) con ownership, cifrado, acceso público, policy, website, CORS, y versionado + lifecycle en covers | `suffix` → `frontend_url`, nombres de bucket |
 | `database` | Propio | Tabla DynamoDB con 4 GSIs y stream, replication group de Redis | subnets de datos, SG → `table_name`, `table_stream_arn`, `redis_url` |
 | `search` | Propio | NLB interno, target group, task definition y servicio de Fargate con OpenSearch | subnets privadas, SGs, cluster → `url` (espera a que el servicio esté sano) |
 | `lambda_package` | Propio, reutilizable | `terraform_data` que corre `build.sh` + `archive_file` | `source_dir` → `zip_path`, `zip_hash` |
@@ -56,6 +56,7 @@ vez en `main.tf` (`local.shared_environment`) y la API le agrega lo suyo con `me
 | `redis_replicas` | `1` | Réplicas de Redis; con 0 se apaga Multi-AZ |
 | `search_cpu` / `search_memory` | `1024` / `2048` | Tamaño de la tarea de OpenSearch (la mitad de la memoria es heap) |
 | `run_seed` | `true` | Cargar los datos de demo al final del apply |
+| `covers_noncurrent_days` | `30` | Días que se conservan las versiones anteriores de las portadas |
 
 Lista completa con descripciones en [`variables.tf`](variables.tf).
 

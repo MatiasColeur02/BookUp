@@ -14,3 +14,8 @@ variable "force_destroy" {
 variable "region" {
   type = string
 }
+
+variable "covers_noncurrent_days" {
+  description = "Días que se conserva una versión anterior de una portada antes de borrarse."
+  type        = number
+}

@@ -115,6 +115,44 @@ resource "aws_s3_bucket_cors_configuration" "covers" {
   }
 }
 
+# Versionado de las portadas: reemplazar o borrar una portada no pierde la imagen anterior.
+# La API borra el objeto viejo al reemplazar; con versionado eso deja un delete marker y la
+# versión previa queda como no-actual hasta que la expira la regla de lifecycle de abajo.
+resource "aws_s3_bucket_versioning" "covers" {
+  bucket = terraform_data.bucket["covers"].output.name
+
+  versioning_configuration {
+    status = "Enabled"
+  }
+}
+
+resource "aws_s3_bucket_lifecycle_configuration" "covers" {
+  bucket = terraform_data.bucket["covers"].output.name
+
+  rule {
+    id     = "expire-noncurrent-covers"
+    status = "Enabled"
+    filter {}
+
+    noncurrent_version_expiration {
+      noncurrent_days = var.covers_noncurrent_days
+    }
+
+    # Delete markers que ya no tapan ninguna versión.
+    expiration {
+      expired_object_delete_marker = true
+    }
+
+    # Un PUT firmado que el browser cortó a mitad no queda ocupando espacio.
+    abort_incomplete_multipart_upload {
+      days_after_initiation = 1
+    }
+  }
+
+  # Las reglas de lifecycle se evalúan sobre un bucket ya versionado.
+  depends_on = [aws_s3_bucket_versioning.covers]
+}
+
 locals {
   frontend_url = "http://${aws_s3_bucket_website_configuration.frontend.website_endpoint}"
 }

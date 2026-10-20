@@ -140,3 +140,14 @@ variable "force_destroy_buckets" {
   type        = bool
   default     = true
 }
+
+variable "covers_noncurrent_days" {
+  description = "Días que se conservan las versiones anteriores de las portadas (bucket versionado)."
+  type        = number
+  default     = 30
+
+  validation {
+    condition     = var.covers_noncurrent_days >= 1
+    error_message = "covers_noncurrent_days: al menos 1 día."
+  }
+}

@@ -37,7 +37,7 @@ Qué crea `terraform/` y cómo se conectan las piezas. Región `us-east-1`, cuen
 | Salida a Internet | 1 NAT Gateway (o uno por AZ con `single_nat_gateway = false`) | La API baja el JWKS de Cognito, llama a su API de administración y baja la imagen de ECR |
 | Endpoints de VPC | Gateway endpoints de S3 y DynamoDB | Ese tráfico no pasa por el NAT (es gratis) |
 | Frontend | Bucket S3 con website hosting, lectura pública | Sirve la SPA de React (HTTP) |
-| Portadas | Bucket S3 público de lectura, con CORS hacia el frontend | El browser sube la portada con un PUT firmado por la API y la muestra con `<img>` |
+| Portadas | Bucket S3 público de lectura, con CORS hacia el frontend y versionado (las versiones anteriores se borran a los 30 días) | El browser sube la portada con un PUT firmado por la API y la muestra con `<img>` |
 | API | ECR + ECS Fargate (2 tareas) detrás de un ALB HTTP:80 | FastAPI en `AUTH_MODE=cognito`; health check en `/health` |
 | Base de datos | DynamoDB, tabla única `bookup`, 4 GSIs, On-Demand, PITR, stream `NEW_AND_OLD_IMAGES` | Fuente de verdad de todo |
 | Búsqueda | OpenSearch 2.17 en Fargate (1 tarea) detrás de un NLB interno :9200 | Listado, búsqueda y filtros del catálogo. No es el servicio gestionado: el Learner Lab no lo permite. El índice es descartable y se reconstruye desde DynamoDB (`reindex_command`) |

@@ -22,10 +22,21 @@ case "$1" in
       exit 0
     fi
     if [ "$FORCE_DESTROY" = "true" ]; then
-      aws s3 rb "s3://$BUCKET" --region "$REGION" --force
-    else
-      aws s3 rb "s3://$BUCKET" --region "$REGION"
+      # `s3 rb --force` borra solo las versiones actuales: en un bucket versionado quedan
+      # las anteriores y los delete markers, y el bucket no se puede borrar. Se vacía todo
+      # por tandas (delete-objects acepta hasta 1000 claves; Versions + DeleteMarkers de una
+      # página de 500 entran siempre).
+      while :; do
+        BATCH=$(aws s3api list-object-versions --bucket "$BUCKET" --region "$REGION" \
+          --max-items 500 --output json \
+          --query '{Objects: [Versions, DeleteMarkers][][].{Key: Key, VersionId: VersionId}, Quiet: `true`}')
+        if [ "$(echo "$BATCH" | python3 -c 'import json,sys; print(len(json.load(sys.stdin)["Objects"]))')" = "0" ]; then
+          break
+        fi
+        aws s3api delete-objects --bucket "$BUCKET" --region "$REGION" --delete "$BATCH" >/dev/null
+      done
     fi
+    aws s3api delete-bucket --bucket "$BUCKET" --region "$REGION"
     ;;
   *)
     echo "usage: bucket.sh create|delete" >&2
