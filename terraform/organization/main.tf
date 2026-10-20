@@ -24,7 +24,7 @@ locals {
 }
 
 module "network" {
-  source = "./modules/network"
+  source = "../modules/network"
 
   name_prefix        = local.name_prefix
   region             = var.aws_region
@@ -41,7 +41,7 @@ resource "aws_ecs_cluster" "main" {
 }
 
 module "storage" {
-  source = "./modules/storage"
+  source = "../modules/storage"
 
   name_prefix   = local.name_prefix
   suffix        = local.suffix
@@ -52,7 +52,7 @@ module "storage" {
 }
 
 module "database" {
-  source = "./modules/database"
+  source = "../modules/database"
 
   name_prefix             = local.name_prefix
   subnet_ids              = module.network.database_subnet_ids
@@ -63,7 +63,7 @@ module "database" {
 }
 
 module "search" {
-  source = "./modules/search"
+  source = "../modules/search"
 
   name_prefix            = local.name_prefix
   region                 = var.aws_region
@@ -82,14 +82,14 @@ module "search" {
 
 # Un solo zip de api/ para las dos Lambdas que reutilizan su código.
 module "api_package" {
-  source = "./modules/lambda_package"
+  source = "../modules/lambda_package"
 
   name       = "api-lambda"
   source_dir = local.api_source_dir
 }
 
 module "auth" {
-  source = "./modules/auth"
+  source = "../modules/auth"
 
   name_prefix          = local.name_prefix
   suffix               = local.suffix
@@ -105,7 +105,7 @@ module "auth" {
 }
 
 module "indexer" {
-  source = "./modules/indexer"
+  source = "../modules/indexer"
 
   name_prefix        = local.name_prefix
   lambda_role_arn    = data.aws_iam_role.lab.arn
@@ -119,7 +119,7 @@ module "indexer" {
 }
 
 module "compute" {
-  source = "./modules/compute"
+  source = "../modules/compute"
 
   name_prefix           = local.name_prefix
   region                = var.aws_region

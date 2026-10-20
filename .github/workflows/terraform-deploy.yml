@@ -1,0 +1,115 @@
+name: Terraform Deploy
+
+# Dos disparadores:
+#  - pull_request: corre SOLO el job `validate` (init -backend=false + validate).
+#    No toca AWS, no necesita credenciales -> el check del PR queda verde siempre.
+#  - workflow_dispatch: el "boton manual" (pestania Actions -> Run workflow).
+#    Suma el job `plan-apply`, que SI usa las credenciales del Learner Lab
+#    (cargadas como secrets del repo) para init/validate/plan y, si se tilda
+#    la opcion `apply`, tambien apply.
+on:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      apply:
+        description: "Ejecutar apply (crea/modifica infra real en AWS). Sin tildar, llega hasta plan."
+        type: boolean
+        default: false
+
+# Permisos minimos: solo leer el codigo del repo.
+permissions:
+  contents: read
+
+env:
+  TF_IN_AUTOMATION: "true"
+  TF_WORKING_DIR: terraform/organization
+  TF_VERSION: "1.11.4"
+  AWS_REGION: us-east-1
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Siempre (PR y boton manual). init -backend=false + validate.
+  # No se conecta a AWS, asi que no depende de credenciales ni cuesta nada.
+  # ---------------------------------------------------------------------------
+  validate:
+    name: init + validate (sin credenciales)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ${{ env.TF_WORKING_DIR }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: terraform init (sin backend)
+        run: terraform init -backend=false -input=false
+
+      - name: terraform validate
+        run: terraform validate -no-color
+
+  # ---------------------------------------------------------------------------
+  # Solo por boton manual (workflow_dispatch). Despliega la arquitectura:
+  # init (backend S3) -> validate -> plan -> apply (apply solo si se tilda).
+  # Lee las credenciales del lab desde los secrets del repo.
+  # ---------------------------------------------------------------------------
+  plan-apply:
+    name: plan / apply (con credenciales del lab)
+    if: github.event_name == 'workflow_dispatch'
+    needs: validate
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ${{ env.TF_WORKING_DIR }}
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      AWS_SESSION_TOKEN: ${{ secrets.AWS_SESSION_TOKEN }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Verificar credenciales del lab
+        run: aws sts get-caller-identity
+
+      # El bucket del state no puede existir antes que Terraform, asi que lo
+      # crea este paso (idempotente). El nombre se deriva del account id del lab,
+      # para que sea globalmente unico sin pedir parametros.
+      - name: Asegurar bucket de state (idempotente)
+        id: backend
+        working-directory: ${{ github.workspace }}
+        run: |
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          BUCKET="bookup-tfstate-${ACCOUNT_ID}"
+          if ! aws s3api head-bucket --bucket "$BUCKET" 2>/dev/null; then
+            aws s3api create-bucket --bucket "$BUCKET" --region "$AWS_REGION"
+          fi
+          aws s3api put-bucket-versioning --bucket "$BUCKET" \
+            --versioning-configuration Status=Enabled
+          aws s3api put-public-access-block --bucket "$BUCKET" \
+            --public-access-block-configuration \
+            BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true
+          echo "bucket=$BUCKET" >> "$GITHUB_OUTPUT"
+
+      - name: terraform init (backend S3)
+        run: terraform init -input=false -backend-config="bucket=${{ steps.backend.outputs.bucket }}"
+
+      - name: terraform validate
+        run: terraform validate -no-color
+
+      - name: terraform plan
+        run: terraform plan -input=false -no-color -out=tfplan
+
+      # Solo si se tildo `apply` al disparar el workflow.
+      - name: terraform apply
+        if: ${{ inputs.apply }}
+        run: terraform apply -input=false -no-color tfplan
