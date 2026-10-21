@@ -5,6 +5,9 @@ Qué crea `terraform/` y cómo se conectan las piezas. Región `us-east-1`, cuen
 
 ## Diagrama
 
+**Diagrama de arquitectura actualizado:** [`docs/arquitectura.drawio.pdf`](docs/arquitectura.drawio.pdf).
+El diagrama de texto de abajo es una vista rápida de la misma arquitectura.
+
 ```
  Navegador
    │
