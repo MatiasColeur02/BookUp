@@ -5,29 +5,7 @@ Qué crea `terraform/` y cómo se conectan las piezas. Región `us-east-1`, cuen
 
 ## Diagrama
 
-```
- Navegador
-   │
-   ├─ HTTP ──► S3 frontend (website)        S3 covers (portadas) ◄── HTTP GET / PUT firmado
-   │
-   ├─ HTTPS ─► Cognito Hosted UI ── trigger ──► Lambda post-confirmation ──► DynamoDB
-   │
-   ├─ HTTPS ─► API Gateway /callback, /signed-out ──► Lambda auth-bridge
-   │
-   └─ HTTP ──► ALB :80
-                │
-┌─ VPC ─────────┼──────────────────────────────────────────────────────────────┐
-│ public        │                 NAT Gateway ──► Internet (JWKS, Cognito, ECR) │
-│               ▼                      ▲                                        │
-│ private   ECS Fargate (API) ─────────┘          Lambda indexer                │
-│               │  │  │                             │   │   ▲                   │
-│               │  │  └──► NLB ──► OpenSearch ◄─────┘   │   │                   │
-│ database      │  │       (Fargate)                    │   │                   │
-│               │  └─────► ElastiCache Redis ◄──────────┘   │                   │
-│               │                                           │ stream            │
-│               └──► gateway endpoints S3 / DynamoDB ──► DynamoDB ──────────────┘
-└───────────────────────────────────────────────────────────────────────────────┘
-```
+**Diagrama de arquitectura:** [`docs/arquitectura.drawio.pdf`](docs/arquitectura.drawio.pdf).
 
 ## Componentes
 
