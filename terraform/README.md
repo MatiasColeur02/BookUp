@@ -178,7 +178,7 @@ Terraform sobre `terraform/organization`. Está partido en dos para ser seguro y
 | Disparador | Job | Pasos | ¿Credenciales? |
 |---|---|---|---|
 | `pull_request` (automático) | `validate` | `init -backend=false` → `validate` | No. No toca AWS: el check del PR queda verde sin depender de nadie. |
-| `workflow_dispatch` (botón "Run workflow") | `plan-apply` | crea el bucket de state → `init` (backend S3) → `validate` → `plan` → `apply` | Sí: las del Learner Lab, cargadas como *secrets* del repo. `apply` solo corre si se tilda la opción al disparar. |
+| `workflow_dispatch` (botón "Run workflow") | `plan-apply` | crea el bucket de state → `init` (backend S3) → `validate` → `plan` → `apply` → build y subida del frontend al bucket | Sí: las del Learner Lab, cargadas como *secrets* del repo. `apply` solo corre si se tilda la opción al disparar. |
 
 Así se cubren los cuatro comandos (`init`, `validate`, `plan`, `apply`) sin que el PR
 dispare infraestructura real: el `apply` es deliberado (botón + tilde), nunca automático.
@@ -194,7 +194,9 @@ dispare infraestructura real: el `apply` es deliberado (botón + tilde), nunca a
 
    (Vencen con la sesión del lab; si vencen, se vuelven a pegar.)
 3. **Actions → Terraform Deploy → Run workflow**. Dejar `apply` sin tildar para solo ver el
-   `plan`, o tildarlo para desplegar de verdad.
+   `plan`, o tildarlo para desplegar de verdad. Con `apply` tildado, además de crear la
+   infraestructura, el workflow **compila el frontend y lo sube al bucket**, así que al
+   terminar la plataforma queda servida en `frontend_url` sin pasos manuales.
 
 El state se guarda en `s3://bookup-tfstate-<account_id>` (versionado, privado, con bloqueo
 nativo de S3), que el propio workflow crea si no existe.

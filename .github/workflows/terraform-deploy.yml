@@ -77,6 +77,7 @@ jobs:
         uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false # para leer `terraform output -raw` limpio al desplegar el frontend
 
       - name: Verificar credenciales del lab
         run: aws sts get-caller-identity
@@ -113,3 +114,32 @@ jobs:
       - name: terraform apply
         if: ${{ inputs.apply }}
         run: terraform apply -input=false -no-color tfplan
+
+      # Terraform crea el bucket del frontend; el pipeline lo llena con el sitio
+      # compilado. Vite hornea las URLs de API/Cognito en el build, por eso el
+      # frontend va DESPUES del apply (ver terraform/README.md, paso 4).
+      - name: Setup Node
+        if: ${{ inputs.apply }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Build y deploy del frontend
+        if: ${{ inputs.apply }}
+        working-directory: ${{ github.workspace }}
+        run: |
+          # URLs reales del despliegue -> .env.production (Vite las hornea en el build).
+          terraform -chdir=terraform/organization output -raw frontend_env > frontend/.env.production
+          BUCKET=$(terraform -chdir=terraform/organization output -raw frontend_bucket)
+          FRONTEND_URL=$(terraform -chdir=terraform/organization output -raw frontend_url)
+
+          cd frontend
+          npm ci
+          npm run build
+
+          # Assets con nombre hasheado -> se pueden cachear; index.html sin cache
+          # para que el navegador no siga pidiendo un bundle viejo.
+          aws s3 sync dist/ "s3://$BUCKET" --delete --exclude index.html
+          aws s3 cp dist/index.html "s3://$BUCKET/index.html" --cache-control no-cache
+
+          echo "Frontend desplegado en: $FRONTEND_URL"
