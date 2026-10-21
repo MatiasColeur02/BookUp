@@ -1,10 +1,13 @@
 # ALB público (HTTP: sin dominio ni certificado ACM en Academy) → tareas en subnets privadas.
+# Es la puerta de entrada pública de la API: tiene que ser internet-facing.
+#tfsec:ignore:aws-elb-alb-not-public
 resource "aws_lb" "api" {
-  name               = "${var.name_prefix}-alb"
-  load_balancer_type = "application"
-  internal           = false
-  subnets            = var.public_subnet_ids
-  security_groups    = [var.alb_security_group_id]
+  name                       = "${var.name_prefix}-alb"
+  load_balancer_type         = "application"
+  internal                   = false
+  subnets                    = var.public_subnet_ids
+  security_groups            = [var.alb_security_group_id]
+  drop_invalid_header_fields = true
 }
 
 resource "aws_lb_target_group" "api" {
@@ -31,6 +34,8 @@ resource "aws_lb_target_group" "api" {
   }
 }
 
+# Sin dominio propio no hay certificado ACM que validar en Academy: el listener queda en HTTP.
+#tfsec:ignore:aws-elb-http-not-used
 resource "aws_lb_listener" "http" {
   load_balancer_arn = aws_lb.api.arn
   port              = 80

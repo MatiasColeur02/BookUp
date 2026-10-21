@@ -31,6 +31,7 @@ resource "aws_lambda_function" "indexer" {
 resource "aws_sqs_queue" "dlq" {
   name                      = "${var.name_prefix}-indexer-dlq"
   message_retention_seconds = 1209600 # 14 días
+  sqs_managed_sse_enabled   = true
 }
 
 resource "aws_lambda_event_source_mapping" "stream" {

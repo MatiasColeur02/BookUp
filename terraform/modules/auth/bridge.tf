@@ -61,10 +61,28 @@ resource "aws_apigatewayv2_route" "bridge" {
   target    = "integrations/${aws_apigatewayv2_integration.bridge.id}"
 }
 
+resource "aws_cloudwatch_log_group" "bridge_access" {
+  name              = "/aws/apigateway/${var.name_prefix}-auth-bridge"
+  retention_in_days = var.log_retention_days
+}
+
 resource "aws_apigatewayv2_stage" "default" {
   api_id      = aws_apigatewayv2_api.bridge.id
   name        = "$default"
   auto_deploy = true
+
+  # Sin query string: el callback trae el authorization code en ?code=.
+  access_log_settings {
+    destination_arn = aws_cloudwatch_log_group.bridge_access.arn
+    format = jsonencode({
+      requestId = "$context.requestId"
+      ip        = "$context.identity.sourceIp"
+      time      = "$context.requestTime"
+      route     = "$context.routeKey"
+      status    = "$context.status"
+      latency   = "$context.integrationLatency"
+    })
+  }
 
   # Nadie legítimo llama al callback más de una vez por login.
   default_route_settings {
