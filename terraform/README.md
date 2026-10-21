@@ -32,18 +32,29 @@ terraform/
 | Módulo | Tipo | Recursos | Entradas principales → salidas |
 |---|---|---|---|
 | `terraform-aws-modules/vpc/aws` (`~> 6.0`) | **Externo** (Registry) | VPC, 6 subnets, IGW, NAT, route tables | CIDR, AZs → ids de subnets |
-| `network` | Propio | Envuelve el módulo externo + 5 security groups + reglas + endpoints S3/DynamoDB | `vpc_cidr`, `azs`, `single_nat_gateway` → `vpc_id`, subnets, `security_group_ids` |
-| `storage` | Propio | 2 buckets (alta/baja por CLI) con ownership, cifrado, acceso público, policy, website, CORS, y versionado + lifecycle en covers | `suffix` → `frontend_url`, nombres de bucket |
-| `database` | Propio | Tabla DynamoDB con 4 GSIs y stream, replication group de Redis | subnets de datos, SG → `table_name`, `table_stream_arn`, `redis_url` |
-| `search` | Propio | NLB interno, target group, task definition y servicio de Fargate con OpenSearch | subnets privadas, SGs, cluster → `url` (espera a que el servicio esté sano) |
-| `lambda_package` | Propio, reutilizable | `terraform_data` que corre `build.sh` + `archive_file` | `source_dir` → `zip_path`, `zip_hash` |
-| `auth` | Propio | User Pool, dominio, app client, 2 Lambdas, HTTP API con 2 rutas, permisos de invocación | `frontend_url`, zip de la API → `user_pool_id`, `client_id`, `cognito_domain`, URLs del puente |
-| `indexer` | Propio | Lambda en VPC, SQS DLQ, event source mapping | zip, `stream_arn`, entorno → `dlq_url` |
-| `compute` | Propio | ECR + lifecycle, push de la imagen, ALB/TG/listener, task definition, servicio, seed | subnets, SGs, cluster, entorno → `api_url`, `image_uri`, `reindex_command` |
+| [`network`](modules/network/README.md) | Propio | Envuelve el módulo externo + 5 security groups + reglas + endpoints S3/DynamoDB | `vpc_cidr`, `azs`, `single_nat_gateway` → `vpc_id`, subnets, `security_group_ids` |
+| [`storage`](modules/storage/README.md) | Propio | 2 buckets (alta/baja por CLI) con ownership, cifrado, acceso público, policy, website, CORS, y versionado + lifecycle en covers | `suffix` → `frontend_url`, nombres de bucket |
+| [`database`](modules/database/README.md) | Propio | Tabla DynamoDB con 4 GSIs y stream, replication group de Redis | subnets de datos, SG → `table_name`, `table_stream_arn`, `redis_url` |
+| [`search`](modules/search/README.md) | Propio | NLB interno, target group, task definition y servicio de Fargate con OpenSearch | subnets privadas, SGs, cluster → `url` (espera a que el servicio esté sano) |
+| [`lambda_package`](modules/lambda_package/README.md) | Propio, reutilizable | `terraform_data` que corre `build.sh` + `archive_file` | `source_dir` → `zip_path`, `zip_hash` |
+| [`auth`](modules/auth/README.md) | Propio | User Pool, dominio, app client, 2 Lambdas, HTTP API con 2 rutas, permisos de invocación | `frontend_url`, zip de la API → `user_pool_id`, `client_id`, `cognito_domain`, URLs del puente |
+| [`indexer`](modules/indexer/README.md) | Propio | Lambda en VPC, SQS DLQ, event source mapping | zip, `stream_arn`, entorno → `dlq_url` |
+| [`compute`](modules/compute/README.md) | Propio | ECR + lifecycle, push de la imagen, ALB/TG/listener, task definition, servicio, seed | subnets, SGs, cluster, entorno → `api_url`, `image_uri`, `reindex_command` |
 
 `lambda_package` se usa una vez y su zip lo consumen dos módulos (`auth` e `indexer`), que
 corren el mismo código de `api/`. El entorno común de la API y del indexador se arma una sola
 vez en `main.tf` (`local.shared_environment`) y la API le agrega lo suyo con `merge`.
+
+Cada módulo propio tiene un `README.md` con sus inputs, outputs y recursos, generado con
+[terraform-docs](https://terraform-docs.io) entre las marcas `<!-- BEGIN_TF_DOCS -->` y
+`<!-- END_TF_DOCS -->`. No se edita a mano: si cambian las variables o los outputs de un
+módulo, se regenera (lo mismo hace el workflow de docs en cada PR):
+
+```bash
+for d in terraform/modules/*/; do
+  terraform-docs markdown table --output-file README.md --output-mode inject "$d"
+done
+```
 
 ## Variables principales
 
@@ -200,6 +211,30 @@ dispare infraestructura real: el `apply` es deliberado (botón + tilde), nunca a
 
 El state se guarda en `s3://bookup-tfstate-<account_id>` (versionado, privado, con bloqueo
 nativo de S3), que el propio workflow crea si no existe.
+
+### Chequeos de cada PR
+
+Además del `validate`, cada PR corre tres workflows:
+
+| Workflow | Qué verifica |
+|---|---|
+| Terraform Format | `terraform fmt -check -recursive`: correr `terraform fmt -recursive` antes de pushear |
+| Terraform Security | Análisis estático con tfsec, con los hallazgos subidos a *Code scanning* |
+| Generate terraform docs | Regenera los README de `modules/` y los pushea a la rama del PR |
+
+El workflow de docs hace checkout de la rama del PR **en este repo**: un PR abierto desde un
+fork falla en el checkout. La rama se pushea acá y el PR se abre desde ella.
+
+Hallazgos de tfsec que se ignoran a propósito, con un `#tfsec:ignore` justificado al lado:
+
+| Regla | Recurso | Por qué |
+|---|---|---|
+| `aws-elb-alb-not-public` | `compute/alb.tf`, ALB | Es la entrada pública de la API |
+| `aws-elb-http-not-used` | `compute/alb.tf`, listener | Sin dominio propio no hay certificado ACM en Academy |
+
+El resto se resolvió en el código: la DLQ del indexador va cifrada (SSE-SQS), el ALB descarta
+headers inválidos, el stage del puente tiene access logs y los tags de ECR son inmutables (el
+tag es el hash del código, y `push_image.sh` no vuelve a subir un tag que ya existe).
 
 ## Problemas conocidos
 
