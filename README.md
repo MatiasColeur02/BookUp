@@ -457,3 +457,4 @@ descriptos en la propuesta:
 - Definir el pipeline ETL hacia el data warehouse. Con DynamoDB deja de ser opcional: no hay
   consultas ad-hoc sobre el modelo operativo, y la analítica sale de ahí (Glue → Athena/Redshift).
 - Infraestructura como código (Terraform/CDK) para el despliegue en AWS.
+
