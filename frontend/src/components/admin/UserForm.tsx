@@ -107,7 +107,7 @@ export function UserForm({ user, libraries, onSaved, onCancel }: Props) {
       </label>
 
       {/* Con Cognito la contraseña de alguien existente no se toca desde acá (la API da
-          422): cada persona la cambia en la Hosted UI. En el alta es la temporal. */}
+          422): cada persona la cambia en Mi perfil. En el alta es la temporal. */}
       {!(isCognito && editing) && (
         <label>
           {editing ? "Nueva contraseña" : isCognito ? "Contraseña temporal" : "Contraseña"}

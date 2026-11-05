@@ -15,8 +15,8 @@ from .dependencies import require_roles, require_self_or_sysadmin
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/users", tags=["users"])
-# Solo con `AUTH_MODE=local` (`main.py`): con Cognito el auto-registro es la Hosted UI más
-# el trigger Post Confirmation (`app/cognito_triggers.py`).
+# Solo con `AUTH_MODE=local` (`main.py`): con Cognito el auto-registro es `SignUp` contra el
+# User Pool (desde el frontend) más el trigger Post Confirmation (`app/cognito_triggers.py`).
 signup_router = APIRouter(prefix="/users", tags=["users"])
 
 
@@ -47,7 +47,7 @@ def _create_staff_in_cognito(db: Dynamo, payload: schemas.UserStaffCreate) -> Us
 
     Si el `User` no se puede crear —email ya registrado en la base, sede inexistente, o
     cualquier otra falla—, la cuenta de Cognito se borra: si no, quedaría una cuenta que
-    entra a la Hosted UI y recibe 401 para siempre, bloqueando ese email.
+    ingresa en Cognito y recibe 401 para siempre, bloqueando ese email.
     """
     data = payload.model_dump()
     email = normalize_email(data.pop("email"))
@@ -96,7 +96,7 @@ def update_user(
 ):
     changes = payload.model_dump(exclude_unset=True)
     if _cognito() and changes.get("password") is not None:
-        # La contraseña la guarda Cognito: se cambia en la Hosted UI («olvidé mi contraseña»).
+        # La contraseña la guarda Cognito: el frontend la cambia contra Cognito (`ChangePassword`).
         raise HTTPException(
             status_code=422,
             detail="The password is managed by the identity provider; change it from the login page",

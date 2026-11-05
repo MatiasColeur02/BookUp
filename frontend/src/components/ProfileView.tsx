@@ -8,7 +8,8 @@ import type { ThemePreference } from "../lib/theme";
 import { useSession } from "../context/SessionContext";
 import { useTheme } from "../context/ThemeContext";
 import { LIMITS } from "../lib/limits";
-import { isCognito, startForgotPassword } from "../lib/auth";
+import { changePassword, isCognito } from "../lib/auth";
+import { getToken } from "../lib/session";
 import { ErrorBanner } from "./ErrorBanner";
 import { roleLabel } from "../lib/roles";
 import type { Library, UserUpdate } from "../types";
@@ -33,6 +34,8 @@ export function ProfileView() {
   const [name, setName] = useState("");
   const [language, setLanguage] = useState("es");
   const [password, setPassword] = useState("");
+  // Solo con Cognito: `ChangePassword` pide la contraseña actual.
+  const [currentPassword, setCurrentPassword] = useState("");
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<unknown>(null);
@@ -93,11 +96,18 @@ export function ProfileView() {
       // Solo los campos que el usuario puede tocar sobre sí mismo: mandar `role` o
       // `library_id` siendo `customer` devuelve 403, así que ni se exponen acá.
       const payload: UserUpdate = { name, language };
-      if (password) payload.password = password;
+      if (password && isCognito) {
+        // La contraseña la guarda Cognito (la API la rechaza con 422): va directo al User
+        // Pool, antes que el resto, así un error de contraseña no deja el perfil a medias.
+        await changePassword(getToken() ?? "", currentPassword, password);
+      } else if (password) {
+        payload.password = password;
+      }
 
       await api.users.update(user.id, payload);
       await refresh();
       setPassword("");
+      setCurrentPassword("");
       toast.success("Perfil actualizado.");
     } catch (err) {
       setError(err);
@@ -185,30 +195,28 @@ export function ProfileView() {
                 ))}
               </select>
             </label>
-            {isCognito ? (
-              // La contraseña la guarda Cognito: la API rechaza cambiarla (422). Se cambia
-              // en la Hosted UI, que manda un código al email y vuelve logueado acá.
-              <div>
-                <button
-                  type="button"
-                  className="btn btn-secondary"
-                  onClick={() => startForgotPassword("/perfil")}
-                >
-                  Cambiar contraseña
-                </button>
-                <p className="hint">Te mandamos un código a {user.email} para elegir una nueva.</p>
-              </div>
-            ) : (
+            <label>
+              Nueva contraseña
+              <input
+                type="password"
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+                autoComplete="new-password"
+                minLength={LIMITS.user.passwordMin}
+                maxLength={LIMITS.user.passwordMax}
+                placeholder="Dejala vacía para no cambiarla"
+              />
+            </label>
+            {isCognito && password && (
               <label>
-                Nueva contraseña
+                Contraseña actual
                 <input
                   type="password"
-                  value={password}
-                  onChange={(event) => setPassword(event.target.value)}
-                  autoComplete="new-password"
-                  minLength={LIMITS.user.passwordMin}
+                  value={currentPassword}
+                  onChange={(event) => setCurrentPassword(event.target.value)}
+                  autoComplete="current-password"
                   maxLength={LIMITS.user.passwordMax}
-                  placeholder="Dejala vacía para no cambiarla"
+                  required
                 />
               </label>
             )}

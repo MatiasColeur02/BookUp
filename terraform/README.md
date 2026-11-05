@@ -22,7 +22,7 @@ terraform/
     database/               # DynamoDB, ElastiCache Redis
     search/                 # OpenSearch en Fargate detrás de un NLB interno
     lambda_package/         # build del zip de api/ para Lambda (build.sh)
-    auth/                   # Cognito, Lambda post-confirmation, puente HTTPS (API Gateway + Lambda)
+    auth/                   # Cognito (User Pool, app client público) y Lambda post-confirmation
     indexer/                # Lambda indexadora + event source mapping + DLQ
     compute/                # ECR + push de la imagen, ALB, ECS Fargate, tarea del seed
 ```
@@ -37,7 +37,7 @@ terraform/
 | [`database`](modules/database/README.md) | Propio | Tabla DynamoDB con 4 GSIs y stream, replication group de Redis | subnets de datos, SG → `table_name`, `table_stream_arn`, `redis_url` |
 | [`search`](modules/search/README.md) | Propio | NLB interno, target group, task definition y servicio de Fargate con OpenSearch | subnets privadas, SGs, cluster → `url` (espera a que el servicio esté sano) |
 | [`lambda_package`](modules/lambda_package/README.md) | Propio, reutilizable | `terraform_data` que corre `build.sh` + `archive_file` | `source_dir` → `zip_path`, `zip_hash` |
-| [`auth`](modules/auth/README.md) | Propio | User Pool, dominio, app client, 2 Lambdas, HTTP API con 2 rutas, permisos de invocación | `frontend_url`, zip de la API → `user_pool_id`, `client_id`, `cognito_domain`, URLs del puente |
+| [`auth`](modules/auth/README.md) | Propio | User Pool, app client público, Lambda post-confirmation, permiso de invocación | zip de la API → `user_pool_id`, `client_id` |
 | [`indexer`](modules/indexer/README.md) | Propio | Lambda en VPC, SQS DLQ, event source mapping | zip, `stream_arn`, entorno → `dlq_url` |
 | [`compute`](modules/compute/README.md) | Propio | ECR + lifecycle, push de la imagen, ALB/TG/listener, task definition, servicio, seed | subnets, SGs, cluster, entorno → `api_url`, `image_uri`, `reindex_command` |
 
@@ -88,14 +88,13 @@ Lista completa con descripciones en [`variables.tf`](organization/variables.tf).
 | `distinct`, `concat`, `flatten`, `values` | `database/dynamodb.tf` | Lista de atributos de la tabla a partir de los GSIs |
 | `split` | `compute/ecr.tf` | Host del registry de ECR para el `docker login` |
 | `replace` | `network/security_groups.tf` | Descripción de cada regla a partir de su clave |
-| `trimsuffix` | `outputs.tf` | URL base del puente |
 | `toset`, `tostring`, `contains`, `can`, `regex` | varios | Conversiones y validaciones de variables |
 
 ## Meta-argumentos usados
 
 | Meta-argumento | Dónde | Para qué |
 |---|---|---|
-| `for_each` | security groups y reglas, buckets y sus configuraciones, gateway endpoints, rutas del API Gateway | Un recurso por elemento de un mapa/conjunto, sin repetir bloques |
+| `for_each` | security groups y reglas, buckets y sus configuraciones, gateway endpoints | Un recurso por elemento de un mapa/conjunto, sin repetir bloques |
 | `count` | `terraform_data.seed` | Recurso opcional encendido por `run_seed` |
 | `depends_on` | bucket policy → public access block; servicio ECS → listener; task definition → push de la imagen; `archive_file` → build; servicio de OpenSearch → listener; output `search.url` → servicio sano; seed → servicio | Dependencias que no surgen de una referencia |
 | `lifecycle` | `create_before_destroy` en security groups y target group; `ignore_changes = [schema]` en el User Pool | Reemplazos sin corte; no recrear el pool (borraría las cuentas) |
@@ -233,7 +232,7 @@ Hallazgos de tfsec que se ignoran a propósito, con un `#tfsec:ignore` justifica
 | `aws-elb-http-not-used` | `compute/alb.tf`, listener | Sin dominio propio no hay certificado ACM en Academy |
 
 El resto se resolvió en el código: la DLQ del indexador va cifrada (SSE-SQS), el ALB descarta
-headers inválidos, el stage del puente tiene access logs y los tags de ECR son inmutables (el
+headers inválidos y los tags de ECR son inmutables (el
 tag es el hash del código, y `push_image.sh` no vuelve a subir un tag que ya existe).
 
 ## Problemas conocidos

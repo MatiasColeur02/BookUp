@@ -21,9 +21,8 @@ Qué crea `terraform/` y cómo se conectan las piezas. Región `us-east-1`, cuen
 | Búsqueda | OpenSearch 2.17 en Fargate (1 tarea) detrás de un NLB interno :9200 | Listado, búsqueda y filtros del catálogo. No es el servicio gestionado: el Learner Lab no lo permite. El índice es descartable y se reconstruye desde DynamoDB (`reindex_command`) |
 | Indexador | Lambda en VPC + event source mapping al stream + DLQ en SQS | Mantiene OpenSearch al día con DynamoDB e invalida el cache |
 | Cache | ElastiCache Redis, primario + 1 réplica Multi-AZ, TLS (`rediss://`) | Cache de lecturas y rate limiting |
-| Identidad | Cognito User Pool + dominio de Hosted UI + app client confidencial | Login, registro y recuperación de contraseña |
+| Identidad | Cognito User Pool + app client **público** (sin secret, flujo `USER_PASSWORD_AUTH`) | Login, registro y recuperación de contraseña desde los formularios propios del frontend, que llaman directo a la API del pool |
 | Registro | Lambda `post-confirmation` (trigger del pool) | Crea el `User` (`customer`) en DynamoDB al confirmar el registro |
-| Puente HTTPS | API Gateway HTTP API + Lambda `auth-bridge` | Cognito solo acepta callbacks HTTPS y el frontend es HTTP: el puente canjea el code por tokens y redirige al frontend |
 | Datos de demo | Tarea one-shot de ECS (`app.seed` + `app.seed_cognito`) | Carga sedes, libros, ejemplares y usuarios, y crea sus cuentas en Cognito |
 
 ## Seguridad de red
@@ -39,12 +38,17 @@ Qué crea `terraform/` y cómo se conectan las piezas. Región `us-east-1`, cuen
 
 ## Flujo de login
 
-1. El frontend redirige a la Hosted UI de Cognito.
-2. Cognito vuelve a `https://<api-gateway>/callback?code=…`.
-3. La Lambda `auth-bridge` canjea el code (con el client secret) y redirige a `http://<frontend>/#access_token=…`.
+1. El usuario completa el formulario de ingreso del frontend (no hay Hosted UI ni redirects).
+2. El browser llama a `InitiateAuth` (`USER_PASSWORD_AUTH`) en `https://cognito-idp.us-east-1.amazonaws.com/`. Es HTTPS, así que la contraseña viaja cifrada aunque el frontend sea HTTP, y nunca pasa por la API.
+3. Cognito devuelve los tokens; el frontend guarda solo el access token. Si la cuenta tiene contraseña temporal (personal dado de alta por un sysadmin), Cognito pide elegir la definitiva (`RespondToAuthChallenge`).
 4. El frontend manda `Authorization: Bearer <token>` al ALB; la API valida la firma contra el JWKS del pool y busca el rol y la sede del usuario en DynamoDB.
 
-El logout pasa por el `/logout` de Cognito y vuelve por `/signed-out` del mismo puente.
+El registro es `SignUp` + `ConfirmSignUp` (código por email; al confirmar corre el trigger
+`post-confirmation`), y «olvidé mi contraseña» es `ForgotPassword` + `ConfirmForgotPassword`.
+El logout solo descarta el token en el browser.
+
+**Por qué `USER_PASSWORD_AUTH` y no SRP:** las implementaciones de SRP usan `crypto.subtle`, que
+el browser solo ofrece en HTTPS, y el frontend se sirve por HTTP desde S3.
 
 ## Flujo de datos del catálogo
 
@@ -55,7 +59,7 @@ Redis). Las lecturas del catálogo salen de OpenSearch (con cache en Redis); el 
 
 1. Red, security groups y endpoints.
 2. Buckets S3, tabla DynamoDB, Redis, y OpenSearch en Fargate (espera a que esté sano).
-3. Empaqueta `api/` como zip de Lambda; crea Cognito, el puente y el indexador.
+3. Empaqueta `api/` como zip de Lambda; crea Cognito (pool, app client y trigger) y el indexador.
 4. Hace `docker build` + `push` de la API a ECR; crea el ALB y el servicio de ECS.
 5. Corre la tarea del seed y espera a que termine.
 

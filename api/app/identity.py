@@ -96,8 +96,8 @@ def _attributes(email: str, name: str) -> list[dict[str, str]]:
 
 
 def create_user(*, email: str, name: str, temporary_password: str) -> str:
-    """Alta de personal: cuenta en `FORCE_CHANGE_PASSWORD`, que la Hosted UI obliga a cambiar
-    en el primer ingreso. Devuelve el `sub`.
+    """Alta de personal: cuenta en `FORCE_CHANGE_PASSWORD`, que el login obliga a cambiar
+    en el primer ingreso (`NEW_PASSWORD_REQUIRED`). Devuelve el `sub`.
 
     La contraseña temporal va en el mismo `AdminCreateUser` (`TemporaryPassword`) y no en un
     `AdminSetUserPassword` aparte: una sola llamada, sin una cuenta a medio armar si la

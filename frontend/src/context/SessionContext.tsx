@@ -9,9 +9,23 @@ import {
   type ReactNode,
 } from "react";
 import { api } from "../api";
-import { isCognito, logoutUrl } from "../lib/auth";
+import {
+  completeNewPassword as cognitoCompleteNewPassword,
+  isCognito,
+  signIn as cognitoSignIn,
+  type NewPasswordChallenge,
+  type SignInResult,
+} from "../lib/auth";
 import { clearToken, getToken, setToken, subscribe } from "../lib/session";
 import type { User } from "../types";
+
+/**
+ * Cómo terminó un `login`. Con Cognito, el personal dado de alta por un sysadmin entra con
+ * una contraseña temporal y el login pide elegir la definitiva antes de dar el token.
+ */
+export type LoginOutcome =
+  | { kind: "signed-in"; user: User }
+  | { kind: "new-password-required"; challenge: NewPasswordChallenge };
 
 interface Session {
   user: User | null;
@@ -19,13 +33,16 @@ interface Session {
   /** `true` mientras se resuelve la sesión guardada contra `GET /auth/me`. */
   loading: boolean;
   /**
-   * Solo con `VITE_AUTH_MODE=local`. Con Cognito no hay contraseña que mandar: el ingreso es
-   * `startLogin` (`lib/auth.ts`), que sale a la Hosted UI.
+   * Ingresar con email y contraseña. Con `VITE_AUTH_MODE=local` va a `POST /auth/login`; con
+   * `cognito`, directo al User Pool (`lib/auth.ts`), sin pasar por la API.
    */
-  login: (email: string, password: string) => Promise<User>;
+  login: (email: string, password: string) => Promise<LoginOutcome>;
+  /** Solo con Cognito: termina un login que pidió contraseña nueva. */
+  completeNewPassword: (challenge: NewPasswordChallenge, newPassword: string) => Promise<User>;
   /**
-   * Cierra la sesión. Con Cognito además navega al `/logout` de la Hosted UI, así su cookie
-   * también muere y el próximo «Ingresar» pide la contraseña: la página se va.
+   * Cierra la sesión: olvida el token. Con Cognito no hay cookie de Hosted UI que matar; el
+   * access token sigue siendo válido hasta que vence (la API lo valida sin consultar a
+   * Cognito), pero este browser ya no lo tiene.
    */
   logout: () => void;
   /** Refresca el `User` del contexto (después de editar el perfil, por ejemplo). */
@@ -87,21 +104,45 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     };
   }, [token]);
 
-  const login = useCallback(async (email: string, password: string) => {
-    if (isCognito) throw new Error("login() is local-mode only; use startLogin()");
-    const { access_token } = await api.auth.login({ email, password });
-    setToken(access_token);
+  /** Guarda el token y trae su `User`, sin que el efecto de arriba repita el `/auth/me`. */
+  const adoptToken = useCallback(async (accessToken: string) => {
+    setToken(accessToken);
     const me = await api.auth.me();
-    resolvedToken.current = access_token;
+    resolvedToken.current = accessToken;
     setUser(me);
     setLoading(false);
     return me;
   }, []);
 
+  const finishCognito = useCallback(
+    async (result: SignInResult): Promise<LoginOutcome> =>
+      result.kind === "signed-in"
+        ? { kind: "signed-in", user: await adoptToken(result.accessToken) }
+        : result,
+    [adoptToken]
+  );
+
+  const login = useCallback(
+    async (email: string, password: string): Promise<LoginOutcome> => {
+      if (isCognito) return finishCognito(await cognitoSignIn(email, password));
+      const { access_token } = await api.auth.login({ email, password });
+      return { kind: "signed-in", user: await adoptToken(access_token) };
+    },
+    [adoptToken, finishCognito]
+  );
+
+  const completeNewPassword = useCallback(
+    async (challenge: NewPasswordChallenge, newPassword: string): Promise<User> => {
+      const outcome = await finishCognito(await cognitoCompleteNewPassword(challenge, newPassword));
+      if (outcome.kind !== "signed-in") throw new Error("El ingreso pidió otra contraseña nueva.");
+      return outcome.user;
+    },
+    [finishCognito]
+  );
+
   const logout = useCallback(() => {
     clearToken();
     setUser(null);
-    if (isCognito) window.location.assign(logoutUrl());
   }, []);
 
   const refresh = useCallback(async () => {
@@ -115,6 +156,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       token,
       loading,
       login,
+      completeNewPassword,
       logout,
       refresh,
       isCustomer: user?.role === "customer",
@@ -122,7 +164,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       isSysadmin: user?.role === "sysadmin",
       myLibraryId: user?.library_id ?? null,
     }),
-    [user, token, loading, login, logout, refresh]
+    [user, token, loading, login, completeNewPassword, logout, refresh]
   );
 
   return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;

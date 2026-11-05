@@ -5,14 +5,14 @@
 Se empaqueta desde `api/` igual que la Lambda del indexador (`app/indexer.py`): reutiliza
 `user_service` y los repositories. Lee `DYNAMO_TABLE` y `AWS_REGION` del entorno, como la API.
 
-**Post Confirmation**: cuando un lector confirma su registro en la Hosted UI, crea su `User`
+**Post Confirmation**: cuando un lector confirma su registro (`ConfirmSignUp` desde el frontend), crea su `User`
 (`customer`) en DynamoDB, vinculado por el `sub`. Reglas:
 
 - Solo con `PostConfirmation_ConfirmSignUp`. Cognito también lo invoca al confirmar un
   «olvidé mi contraseña» (`PostConfirmation_ConfirmForgotPassword`), y ahí el usuario ya existe.
 - Idempotente por `sub`: Cognito reintenta el trigger si falla o tarda más de ~5 s.
-- Valida `name` y `email` con los topes de `schemas.py`. Si no cumplen, lanza: la Hosted UI
-  muestra el error y no queda un `User` con datos sin techo.
+- Valida `name` y `email` con los topes de `schemas.py`. Si no cumplen, lanza: `ConfirmSignUp`
+  falla y el frontend muestra el error y no queda un `User` con datos sin techo.
 - Devuelve siempre el `event`: cualquier otra cosa, para Cognito, es un trigger fallido.
 """
 
