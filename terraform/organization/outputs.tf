@@ -13,12 +13,21 @@ output "api_url" {
   value       = module.compute.api_url
 }
 
+output "auth_bridge_url" {
+  description = "API Gateway del puente HTTPS de Cognito."
+  value       = trimsuffix(module.auth.callback_url, "/callback")
+}
+
 output "cognito_user_pool_id" {
   value = module.auth.user_pool_id
 }
 
 output "cognito_client_id" {
   value = module.auth.client_id
+}
+
+output "cognito_domain" {
+  value = module.auth.cognito_domain
 }
 
 output "ecr_image" {
@@ -38,9 +47,11 @@ output "indexer_dlq_url" {
 output "frontend_env" {
   description = "Variables VITE_* del build del frontend."
   value = join("\n", [for name, value in {
-    VITE_API_URL           = module.compute.api_url
-    VITE_AUTH_MODE         = "cognito"
-    VITE_COGNITO_REGION    = var.aws_region
-    VITE_COGNITO_CLIENT_ID = module.auth.client_id
+    VITE_API_URL             = module.compute.api_url
+    VITE_AUTH_MODE           = "cognito"
+    VITE_COGNITO_DOMAIN      = module.auth.cognito_domain
+    VITE_COGNITO_CLIENT_ID   = module.auth.client_id
+    VITE_AUTH_CALLBACK_URL   = module.auth.callback_url
+    VITE_AUTH_SIGNED_OUT_URL = module.auth.signed_out_url
   } : "${name}=${value}"])
 }

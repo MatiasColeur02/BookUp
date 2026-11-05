@@ -21,10 +21,10 @@ info:
     - `local` (desarrollo y tests): la API misma, con `POST /auth/login` (JWT HS256 firmado
       con `JWT_SECRET`). El auto-registro es `POST /users`.
 
-    - `cognito` (AWS): un User Pool de Cognito. El frontend obtiene el token llamando
-      directo a la API del User Pool (`InitiateAuth`); la API solo lo **valida** (RS256 contra
+    - `cognito` (AWS): un User Pool de Cognito. El token se obtiene en la Hosted UI y llega al
+      navegador por el puente HTTPS (`auth-bridge/`); la API solo lo **valida** (RS256 contra
       el JWKS del pool). En este modo `POST /auth/login` y `POST /users` **no se montan**
-      (404): el registro es `SignUp` contra Cognito más el trigger Post Confirmation.
+      (404): el registro es la Hosted UI más el trigger Post Confirmation.
 
     En los dos modos el rol y la sede salen del `User` de la base en cada request, no del
     token. Este documento describe la unión de los dos modos; `/docs` y `/openapi.json` de una
@@ -74,7 +74,7 @@ paths:
       summary: Obtener un token de acceso (solo `AUTH_MODE=local`)
       description: >
         **Solo con `AUTH_MODE=local`**; con `AUTH_MODE=cognito` no existe (404) y el token
-        lo da el User Pool de Cognito (`InitiateAuth`, desde el frontend).
+        lo da la Hosted UI de Cognito.
 
 
         Valida email + password y devuelve un JWT firmado (HS256) con el id, el
@@ -1295,7 +1295,7 @@ paths:
       summary: Crear un usuario (solo `AUTH_MODE=local`)
       description: >
         **Solo con `AUTH_MODE=local`**; con `AUTH_MODE=cognito` no existe (404): el lector se
-        registra con `SignUp` contra Cognito y el trigger Post Confirmation crea su `User` (`customer`).
+        registra en la Hosted UI y el trigger Post Confirmation crea su `User` (`customer`).
 
 
         Auto-registro público: crea un usuario con rol `customer` fijo. Para
@@ -1355,7 +1355,7 @@ paths:
 
 
         Con `AUTH_MODE=cognito` además crea la cuenta en el User Pool (sin email de
-        invitación y con el email ya verificado), y `password` es **temporal**: Cognito
+        invitación y con el email ya verificado), y `password` es **temporal**: la Hosted UI
         obliga a cambiarla en el primer ingreso. Si el `User` no se puede crear, la cuenta
         de Cognito se borra. 422 si Cognito rechaza la contraseña por su política; 503 si
         Cognito no contesta.
@@ -1422,7 +1422,7 @@ paths:
 
 
         Con `AUTH_MODE=cognito` la contraseña la guarda Cognito: enviar `password` da 422
-        y se cambia contra Cognito desde el frontend (`ChangePassword` o «olvidé mi contraseña»). El resto de los campos
+        y se cambia desde la Hosted UI («olvidé mi contraseña»). El resto de los campos
         funciona igual, y un cambio de `role` o `library_id` vale desde el request
         siguiente, sin volver a ingresar.
       operationId: updateUser
@@ -1492,7 +1492,7 @@ components:
         - `local`: `POST /auth/login` (HS256, firmado con `JWT_SECRET`); el `sub` es el id
           del usuario.
 
-        - `cognito`: el **access token** del User Pool, obtenido con `InitiateAuth`. Se valida
+        - `cognito`: el **access token** del User Pool, obtenido en la Hosted UI. Se valida
           la firma RS256 contra el JWKS del pool, `iss`, `exp`, `token_use == "access"` y
           `client_id`. Un **id token** se rechaza con 401: no es una credencial para llamar
           APIs. Si el JWKS no se puede bajar, 503 (el token puede ser válido).
@@ -1606,7 +1606,7 @@ components:
       description: >
         Se superó el límite de intentos de la ventana. Aplica a los endpoints públicos
         sin sesión (`POST /auth/login` y `POST /users`), que solo existen con
-        `AUTH_MODE=local`: con Cognito, el bloqueo por intentos fallidos lo hace el User Pool. El header `Retry-After` indica
+        `AUTH_MODE=local`: con Cognito, el bloqueo por intentos fallidos lo hace la Hosted UI. El header `Retry-After` indica
         en cuántos segundos se libera. Si el cache está apagado o caído, el límite no se
         aplica: es fail-open a propósito.
       headers:

@@ -92,8 +92,11 @@ module "auth" {
   source = "../modules/auth"
 
   name_prefix          = local.name_prefix
+  suffix               = local.suffix
   region               = var.aws_region
   lambda_role_arn      = data.aws_iam_role.lab.arn
+  frontend_url         = module.storage.frontend_url
+  bridge_source_dir    = "${local.repo_root}/auth-bridge"
   api_package_zip      = module.api_package.zip_path
   api_package_hash     = module.api_package.zip_hash
   table_name           = module.database.table_name

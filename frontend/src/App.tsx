@@ -9,7 +9,7 @@ import { MaintenanceView } from "./components/admin/MaintenanceView";
 import { PhysicalBooksAdmin } from "./components/admin/PhysicalBooksAdmin";
 import { UsersAdmin } from "./components/admin/UsersAdmin";
 import { CatalogView } from "./components/CatalogView";
-import { ForgotPasswordForm } from "./components/ForgotPasswordForm";
+import { HostedUiRedirect } from "./components/HostedUiRedirect";
 import { LibrarianPanel } from "./components/LibrarianPanel";
 import { LibrariesView } from "./components/LibrariesView";
 import { LoginForm } from "./components/LoginForm";
@@ -19,7 +19,7 @@ import { ProfileView } from "./components/ProfileView";
 import { RegisterForm } from "./components/RegisterForm";
 import { RequireRole } from "./components/RequireRole";
 import { useSession } from "./context/SessionContext";
-import { isCognito } from "./lib/auth";
+import { isCognito, startLogin, startSignup } from "./lib/auth";
 
 function navClass({ isActive }: { isActive: boolean }) {
   return isActive ? "active" : "";
@@ -36,17 +36,27 @@ function SessionMenu() {
   if (loading) return <span className="muted">Cargando sesión...</span>;
   if (user) return null;
 
-  // Después de ingresar se vuelve a la pantalla en la que estaba (el mismo `from` que
-  // guarda `RequireRole`). Desde las pantallas de ingreso no hay a dónde volver.
-  const onAuthScreen = ["/login", "/registro", "/recuperar"].includes(location.pathname);
-  const state = onAuthScreen ? location.state : { from: location };
+  if (isCognito) {
+    // Directo a la Hosted UI, volviendo a la pantalla en la que estaba.
+    const here = `${location.pathname}${location.search}`;
+    return (
+      <div className="session">
+        <button type="button" className="btn btn-ghost" onClick={() => startLogin(here)}>
+          Ingresar
+        </button>
+        <button type="button" className="btn btn-primary" onClick={() => startSignup(here)}>
+          Crear cuenta
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className="session">
-      <Link to="/login" state={state} className="btn btn-ghost">
+      <Link to="/login" className="btn btn-ghost">
         Ingresar
       </Link>
-      <Link to="/registro" state={state} className="btn btn-primary">
+      <Link to="/registro" className="btn btn-primary">
         Crear cuenta
       </Link>
     </div>
@@ -104,14 +114,14 @@ export default function App() {
         <Routes>
           <Route path="/" element={<CatalogView />} />
           <Route path="/sedes" element={<LibrariesView />} />
-          {/* Los mismos formularios en los dos modos: con Cognito llaman al User Pool
-              (`lib/auth.ts`) en lugar de a la API. */}
-          <Route path="/login" element={<LoginForm />} />
-          <Route path="/registro" element={<RegisterForm />} />
-          {/* Recuperar la contraseña es de Cognito: en `local` no hay emails. */}
+          {/* Con Cognito no hay formularios propios: las rutas salen a la Hosted UI. */}
           <Route
-            path="/recuperar"
-            element={isCognito ? <ForgotPasswordForm /> : <Navigate to="/login" replace />}
+            path="/login"
+            element={isCognito ? <HostedUiRedirect page="login" /> : <LoginForm />}
+          />
+          <Route
+            path="/registro"
+            element={isCognito ? <HostedUiRedirect page="signup" /> : <RegisterForm />}
           />
           <Route
             path="/mis-reservas"

@@ -66,7 +66,7 @@ def create_user(
 
 
 def register_cognito_user(db: Dynamo, *, email: str, name: str, cognito_sub: str) -> User:
-    """Self-registration through Cognito `SignUp` (the Post Confirmation trigger): a `customer`.
+    """Self-registration through the Hosted UI (the Post Confirmation trigger): a `customer`.
 
     Idempotent on the sub, because Cognito retries the trigger when it fails or is slow: if
     the user already exists, it is returned untouched.

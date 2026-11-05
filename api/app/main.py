@@ -125,8 +125,8 @@ def create_app() -> FastAPI:
 
     Los endpoints que existen solo en un modo se **montan** o no, en vez de contestar 404 a
     mano: así `/docs` y `/openapi.json` muestran la API real de ese modo. Con Cognito no hay
-    `POST /auth/login` (el token lo da el User Pool) ni `POST /users` (el registro es
-    `SignUp` contra Cognito más el trigger), y con ellos se va su rate limiting: Cognito trae el suyo.
+    `POST /auth/login` (el token lo da la Hosted UI) ni `POST /users` (el registro es la
+    Hosted UI más el trigger), y con ellos se va su rate limiting: Cognito trae el suyo.
     """
     app = FastAPI(title="BookUp API", version="0.1.0")
     app.add_middleware(

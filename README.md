@@ -62,8 +62,9 @@ frontend/
     api.ts                     # cliente HTTP hacia la API
     types.ts                    # tipos que reflejan los esquemas del backend
     components/                  # SearchBar, BookResults, ReservationForm, ...
-    lib/auth.ts                  # cliente de la API de Cognito para los formularios (VITE_AUTH_MODE=cognito)
+    lib/auth.ts                  # ingreso por la Hosted UI de Cognito (VITE_AUTH_MODE=cognito)
     App.tsx
+auth-bridge/                   # Lambda: puente HTTPS entre la Hosted UI de Cognito y el frontend
 docker-compose.yml
 ```
 
@@ -175,6 +176,9 @@ docker compose up -d dynamodb-test search
 cd api && pytest
 ```
 
+El puente de Cognito (`auth-bridge/`) es solo biblioteca estándar y tiene su propia suite, sin
+servicios: `cd auth-bridge && pytest`.
+
 ### Frontend sin Docker
 
 ```bash
@@ -246,7 +250,7 @@ quién emite el token cambia, pero los roles y lo que cada uno puede hacer, no.
 
 ¹ Con `cognito` además crea la cuenta en el User Pool, y la contraseña es **temporal**: se
 cambia en el primer ingreso. ² Con `cognito`, mandar `password` da 422: la contraseña se cambia
-contra Cognito desde el frontend (Mi perfil, o «¿Olvidaste tu contraseña?» en el ingreso). ³ Con `cognito` borra primero la cuenta de Cognito y
+en la Hosted UI («olvidé mi contraseña»). ³ Con `cognito` borra primero la cuenta de Cognito y
 después el usuario.
 
 ## Autenticación: local o Cognito
@@ -257,37 +261,24 @@ AWS Academy que lo explican, está en [`COGNITO_ROADMAP.md`](COGNITO_ROADMAP.md)
 | | `local` (default) | `cognito` |
 |---|---|---|
 | Para qué | `docker compose up` y `pytest`, sin AWS | El despliegue en AWS |
-| Quién emite el token | La API: `POST /auth/login`, HS256 con `JWT_SECRET` | El User Pool de Cognito (`InitiateAuth` desde el browser) |
+| Quién emite el token | La API: `POST /auth/login`, HS256 con `JWT_SECRET` | El User Pool de Cognito, en su Hosted UI |
 | Cómo lo valida la API | Firma con `JWT_SECRET` | RS256 contra el JWKS del pool, `iss`, `token_use = access`, `client_id` |
-| Registro de lectores | `POST /users` | `SignUp` + código por email + una Lambda *Post Confirmation* que crea el `User` (`customer`) |
+| Registro de lectores | `POST /users` | Hosted UI + una Lambda *Post Confirmation* que crea el `User` (`customer`) |
 | Alta de personal | `POST /users/staff` | `POST /users/staff`, que además crea la cuenta en Cognito |
 | Contraseñas | bcrypt en el ítem `User` | Las guarda Cognito; la API no ve ninguna |
-| Frontend (`VITE_AUTH_MODE`) | Formularios propios, contra la API | **Los mismos formularios**, contra la API de Cognito (`lib/auth.ts`) |
+| Frontend (`VITE_AUTH_MODE`) | Formularios propios de ingreso y registro | Redirige a la Hosted UI |
 
 **Lo que no cambia entre los dos es la autorización.** Cognito solo resuelve la identidad (el
 `sub` y el email): el rol y la sede siguen en el ítem `User` de DynamoDB, la API lo recarga en
 cada request, y `require_roles` y los chequeos de sede son el mismo código en los dos modos.
 Cambiar el rol de alguien vale desde su request siguiente, sin volver a ingresar.
 
-**Sin Hosted UI: formularios propios contra la API de Cognito.** Con `cognito`, el frontend usa
-las mismas pantallas de ingreso, registro y perfil, pero en vez de llamar a la API llaman
-directo al User Pool (`frontend/src/lib/auth.ts`) con un app client **público** (sin secret,
-que en el browser no se puede guardar):
-
-| Pantalla | Llamadas a Cognito |
-|---|---|
-| Ingresar | `InitiateAuth` (`USER_PASSWORD_AUTH`) |
-| Primer ingreso del personal (contraseña temporal) | el challenge `NEW_PASSWORD_REQUIRED` → `RespondToAuthChallenge` |
-| Crear cuenta | `SignUp` → `ConfirmSignUp` con el código del email (dispara el trigger) |
-| ¿Olvidaste tu contraseña? (`/recuperar`) | `ForgotPassword` → `ConfirmForgotPassword` |
-| Mi perfil → nueva contraseña | `ChangePassword` (pide la actual) |
-
-El endpoint de Cognito es HTTPS, así que la contraseña viaja cifrada aunque en AWS Academy el
-frontend se sirva por HTTP desde S3, y nunca pasa por la API ni por el ALB. Se usa
-`USER_PASSWORD_AUTH` y no SRP porque las implementaciones de SRP necesitan `crypto.subtle`,
-que el browser solo da en contextos seguros (HTTPS). Del login se guarda **solo el access
-token**: el refresh token se descarta, así una XSS no se lleva una sesión de 30 días. Cerrar
-sesión es olvidar el token.
+**El puente HTTPS.** En AWS Academy el frontend vive en el website endpoint de S3 (HTTP) y no
+hay certificados propios, pero Cognito solo acepta callbacks HTTPS. Por eso la Hosted UI
+vuelve a una Lambda detrás de un API Gateway ([`auth-bridge/`](auth-bridge/README.md)), que
+canjea el código por tokens con el client secret y redirige al frontend con **solo el access
+token** en el fragmento de la URL. El logout pasa por el mismo puente, para que también muera
+la sesión de Cognito.
 
 Los usuarios sembrados se crean en Cognito con `python -m app.seed_cognito` (después de
 `app.seed`), con la misma contraseña `bookup123`. **Estado**: el modo `cognito` está
@@ -341,8 +332,8 @@ caracteres y devolver un 422 recién al enviar.
 | Texto larguísimo (nombres, sinopsis) | `max_length` en los esquemas Pydantic. Sin él, un nombre de 5.000 caracteres llega a la capa de datos (un ítem de DynamoDB admite 400 KB) y sale como **500**; con él es un 422 |
 | Portada enorme | Doble barrera: el tamaño declarado al pedir la URL firmada, y el tamaño **real** del objeto (un `HEAD`) al confirmarla. Lo que no cumple se borra del bucket y nunca llega a la fila |
 | Cuerpo de request gigante | Middleware de 1 MB por `Content-Length`, antes de leer el cuerpo (413) |
-| Fuerza bruta sobre el login | Rate limit por IP y por cuenta sobre Redis (429 + `Retry-After`). Con Cognito, el bloqueo por intentos fallidos del User Pool |
-| Alta masiva de cuentas | Rate limit por IP en `POST /users`. Con Cognito, la verificación de email por código del User Pool |
+| Fuerza bruta sobre el login | Rate limit por IP y por cuenta sobre Redis (429 + `Retry-After`). Con Cognito, el bloqueo de la Hosted UI |
+| Alta masiva de cuentas | Rate limit por IP en `POST /users`. Con Cognito, la verificación de email de la Hosted UI |
 | Reserva que retiene un ejemplar para siempre | `expires_at` tiene techo (365 días), no solo piso |
 | Contraseña que bcrypt truncaría | Se rechaza lo que pase de 72 bytes en vez de truncarlo en silencio |
 
@@ -404,16 +395,16 @@ Detalles que no son obvios:
 ## Frontend
 
 SPA con React Router. La sesión es el access token en `localStorage`, venga de
-`POST /auth/login` (modo local) o de `InitiateAuth` de Cognito; los datos del usuario y su rol
+`POST /auth/login` (modo local) o de la Hosted UI de Cognito; los datos del usuario y su rol
 salen siempre de `GET /auth/me`, y cada pantalla se muestra según ese rol.
 
 | Pantalla | Acceso |
 |---|---|
 | Catálogo: buscar, ver disponibilidad por sede y reservar | público (reservar pide sesión) |
 | Sedes: listado con dirección, horarios y contacto | público |
-| Ingresar / Crear cuenta / Recuperar contraseña (formularios propios; recuperar, solo con Cognito) | público |
+| Ingresar / Crear cuenta (formularios propios, o la Hosted UI de Cognito) | público |
 | Mis reservas: seguimiento y cancelación | autenticado |
-| Mi perfil: datos, contraseña (con Cognito pide además la actual) y baja de cuenta | autenticado |
+| Mi perfil: datos, contraseña (con Cognito, un link a la Hosted UI) y baja de cuenta | autenticado |
 | Panel bibliotecario: retiro, devolución, cancelación y extensión | librarian (su sede) / sysadmin |
 | Gestión → Libros, Autores, Géneros | librarian / sysadmin |
 | Gestión → Ejemplares | librarian (su sede) / sysadmin |
@@ -449,12 +440,13 @@ descriptos en la propuesta:
 - **API pública**: API Gateway con autenticación, rate limiting y métricas
   para exponer el catálogo a bibliotecas externas.
 - **Identidad**: Cognito. El código ya está (`AUTH_MODE=cognito`): la API valida los
-  access tokens del User Pool contra su JWKS, el frontend ingresa y registra con sus propios
-  formularios contra la API de Cognito, una Lambda *Post Confirmation* crea el `User`, y el
-  alta y la baja de personal llaman a la API de administración de Cognito. La autorización
-  por rol (`customer`/`librarian`/`sysadmin`) y por sede sigue en DynamoDB, igual que en
-  local. Con un frontend HTTPS (CloudFront con certificado) se podría pasar a SRP, que no
-  manda la contraseña.
+  access tokens del User Pool contra su JWKS, el registro es la Hosted UI más una Lambda
+  *Post Confirmation*, y el alta y la baja de personal llaman a la API de administración
+  de Cognito. La autorización por rol (`customer`/`librarian`/`sysadmin`) y por sede sigue
+  en DynamoDB, igual que en local. Falta la infraestructura: el User Pool y su app client,
+  las dos Lambdas (`auth-bridge/` y el trigger) y el API Gateway del puente
+  ([`COGNITO_ROADMAP.md`](COGNITO_ROADMAP.md) §8). Con un frontend HTTPS (CloudFront con
+  certificado), el puente deja de hacer falta y Cognito redirige directo al frontend.
 - **Redes**: VPC con subnets públicas (ALB/API Gateway, CloudFront) y privadas
   (VPC endpoint de DynamoDB, OpenSearch, tareas de cómputo).
 

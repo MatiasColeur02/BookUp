@@ -11,7 +11,7 @@ resource "aws_cognito_user_pool" "this" {
     case_sensitive = false
   }
 
-  # Auto-registro de lectores (`SignUp` desde el formulario del frontend).
+  # Auto-registro de lectores en la Hosted UI.
   admin_create_user_config {
     allow_admin_create_user_only = false
   }
@@ -66,20 +66,27 @@ resource "aws_cognito_user_pool" "this" {
   }
 }
 
-# Cliente público: el frontend (los formularios propios, `frontend/src/lib/auth.ts`) llama
-# directo a la API del User Pool. Sin secret, porque en el browser no se puede guardar uno.
-# Sin Hosted UI ni OAuth: no hay dominio, callbacks ni puente HTTPS.
-#
-# USER_PASSWORD_AUTH y no SRP: el frontend es HTTP (website de S3) y las implementaciones de
-# SRP necesitan `crypto.subtle`, que el browser solo da en contextos seguros. La contraseña
-# viaja igual por TLS, porque el endpoint de Cognito es HTTPS.
+resource "aws_cognito_user_pool_domain" "this" {
+  domain       = "${var.name_prefix}-${var.suffix}"
+  user_pool_id = aws_cognito_user_pool.this.id
+}
+
+# Cliente confidencial: el secreto lo conoce solo la Lambda puente.
 resource "aws_cognito_user_pool_client" "web" {
   name         = "${var.name_prefix}-web"
   user_pool_id = aws_cognito_user_pool.this.id
 
-  generate_secret = false
+  generate_secret = true
 
-  explicit_auth_flows = ["ALLOW_USER_PASSWORD_AUTH", "ALLOW_REFRESH_TOKEN_AUTH"]
+  allowed_oauth_flows_user_pool_client = true
+  allowed_oauth_flows                  = ["code"]
+  allowed_oauth_scopes                 = ["openid", "email", "profile"]
+  supported_identity_providers         = ["COGNITO"]
+
+  callback_urls = [local.callback_url]
+  logout_urls   = [local.signed_out_url]
+
+  explicit_auth_flows = ["ALLOW_REFRESH_TOKEN_AUTH"]
 
   access_token_validity  = var.access_token_minutes
   id_token_validity      = var.access_token_minutes
@@ -91,7 +98,10 @@ resource "aws_cognito_user_pool_client" "web" {
     refresh_token = "days"
   }
 
-  enable_token_revocation = true
-  # Login y «olvidé mi contraseña» contestan igual exista o no la cuenta.
+  enable_token_revocation       = true
   prevent_user_existence_errors = "ENABLED"
+}
+
+locals {
+  cognito_domain = "${aws_cognito_user_pool_domain.this.domain}.auth.${var.region}.amazoncognito.com"
 }

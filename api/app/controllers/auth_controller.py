@@ -9,7 +9,7 @@ from . import schemas
 from .dependencies import get_current_user
 
 router = APIRouter(prefix="/auth", tags=["auth"])
-# Solo con `AUTH_MODE=local` (`main.py`): con Cognito el token lo emite el User Pool.
+# Solo con `AUTH_MODE=local` (`main.py`): con Cognito el token lo emite la Hosted UI.
 login_router = APIRouter(prefix="/auth", tags=["auth"])
 
 

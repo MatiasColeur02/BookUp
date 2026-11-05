@@ -1,23 +1,21 @@
 /**
- * Ingreso con Cognito desde los formularios propios (`VITE_AUTH_MODE=cognito`).
+ * Ingreso por la Hosted UI de Cognito (`VITE_AUTH_MODE=cognito`, `COGNITO_ROADMAP.md` §2 y §6).
  *
- * No hay Hosted UI ni redirects: el browser llama directo a la API del User Pool
- * (`cognito-idp.<region>.amazonaws.com`, HTTPS y con CORS abierto), con un app client
- * **público** —sin secret, que en el browser no se puede guardar— y el flujo
- * `USER_PASSWORD_AUTH`. La contraseña viaja a Cognito por TLS aunque el frontend se sirva
- * por HTTP desde el website de S3, y nunca pasa por nuestra API.
- *
- * Por qué no SRP (`USER_SRP_AUTH`, el flujo que no manda la contraseña): las librerías que lo
- * implementan usan `crypto.subtle`, que el browser solo ofrece en contextos seguros (HTTPS o
- * localhost), y en AWS Academy el frontend es HTTP.
- *
- * De la respuesta del login se guarda **solo el access token** (`lib/session.ts`), que es lo
- * que la API valida. El refresh token se descarta a propósito: en `localStorage` una XSS se lo
- * llevaría y la sesión duraría 30 días en vez de lo que dura el access token.
+ * El flujo: `startLogin` guarda un `state` aleatorio en `sessionStorage` y navega a la Hosted
+ * UI; Cognito vuelve al puente HTTPS (`auth-bridge/`), que canjea el code y redirige a la raíz
+ * del frontend con `#access_token=…&expires_in=…&state=…`. `consumeAuthRedirect`, que corre
+ * **antes** de montar React, compara el `state`, guarda el token con `setToken` y limpia el
+ * fragmento. Un token cuyo `state` no es el que guardó esta pestaña se descarta: es la
+ * defensa contra que alguien nos haga entrar con *su* cuenta (login CSRF) o contra un
+ * `#access_token` viejo que vuelve desde el historial.
  *
  * Con `VITE_AUTH_MODE=local` (o sin definir) nada de esto se usa: el login es
- * `POST /auth/login` de la API, como siempre.
+ * `POST /auth/login` desde `LoginForm`, como siempre.
+ *
+ * Toca `sessionStorage` y no `localStorage`: el `state` pendiente vive solo en esta pestaña y
+ * hasta la vuelta del login. El token sigue siendo cosa de `lib/session.ts`.
  */
+import { setToken } from "./session";
 
 export type AuthMode = "local" | "cognito";
 
@@ -25,10 +23,26 @@ export const AUTH_MODE: AuthMode = import.meta.env.VITE_AUTH_MODE === "cognito" 
 
 export const isCognito = AUTH_MODE === "cognito";
 
+const PENDING_KEY = "bookup.auth.pending";
+const SCOPES = "openid email profile";
+
 interface CognitoConfig {
-  endpoint: string;
+  domain: string;
   clientId: string;
+  callbackUrl: string;
+  signedOutUrl: string;
 }
+
+interface Pending {
+  state: string;
+  returnTo: string;
+}
+
+/** Lo que pasó con el fragmento de la URL al arrancar, para que la UI lo cuente. */
+export type AuthRedirectResult =
+  | { kind: "none" }
+  | { kind: "signed-in" }
+  | { kind: "error"; error: string };
 
 let config: CognitoConfig | null = null;
 
@@ -38,218 +52,166 @@ function cognitoConfig(): CognitoConfig {
   const env = import.meta.env;
   const missing = (
     [
-      ["VITE_COGNITO_REGION", env.VITE_COGNITO_REGION],
+      ["VITE_COGNITO_DOMAIN", env.VITE_COGNITO_DOMAIN],
       ["VITE_COGNITO_CLIENT_ID", env.VITE_COGNITO_CLIENT_ID],
+      ["VITE_AUTH_CALLBACK_URL", env.VITE_AUTH_CALLBACK_URL],
+      ["VITE_AUTH_SIGNED_OUT_URL", env.VITE_AUTH_SIGNED_OUT_URL],
     ] as const
   )
     .filter(([, value]) => !value)
     .map(([name]) => name);
   if (missing.length > 0) {
-    throw new Error(`El ingreso no está configurado: falta ${missing.join(", ")}.`);
+    throw new Error(`VITE_AUTH_MODE=cognito requires ${missing.join(", ")}`);
   }
+  // El dominio se acepta con o sin esquema, igual que en el puente.
+  const domain = env.VITE_COGNITO_DOMAIN!.replace(/^https?:\/\//, "").replace(/\/+$/, "");
   config = {
-    endpoint: `https://cognito-idp.${env.VITE_COGNITO_REGION}.amazonaws.com/`,
+    domain: `https://${domain}`,
     clientId: env.VITE_COGNITO_CLIENT_ID!,
+    callbackUrl: env.VITE_AUTH_CALLBACK_URL!,
+    signedOutUrl: env.VITE_AUTH_SIGNED_OUT_URL!,
   };
   return config;
 }
 
-/**
- * Un error de Cognito, con el mensaje ya traducido para la pantalla. `code` es el tipo de
- * excepción de Cognito sin prefijo (`NotAuthorizedException`, `CodeMismatchException`, …),
- * para que los formularios decidan el paso siguiente (p. ej. pedir el código de
- * confirmación). `ErrorBanner` muestra `message` tal cual (`describeError`).
- */
-export class CognitoError extends Error {
-  constructor(
-    readonly code: string,
-    message: string
-  ) {
-    super(message);
-    this.name = "CognitoError";
-  }
+/** Solo rutas propias: `/panel`, nunca `//otro.sitio` ni `https://…`. */
+function safeReturnTo(path: string | null | undefined): string {
+  return path && path.startsWith("/") && !path.startsWith("//") ? path : "/";
 }
 
-function describeCognitoError(code: string, raw: string): string {
-  switch (code) {
-    case "NotAuthorizedException":
-      // El mismo código cubre credenciales incorrectas y el bloqueo por intentos fallidos.
-      return /attempts exceeded/i.test(raw)
-        ? "Demasiados intentos fallidos. Esperá unos minutos y volvé a probar."
-        : "Email o contraseña incorrectos.";
-    case "UserNotFoundException":
-      // Con `prevent_user_existence_errors` no debería llegar, pero por las dudas no se
-      // distingue de una contraseña incorrecta.
-      return "Email o contraseña incorrectos.";
-    case "UserNotConfirmedException":
-      return "Todavía no confirmaste tu email.";
-    case "PasswordResetRequiredException":
-      return "Tenés que elegir una contraseña nueva. Usá «¿Olvidaste tu contraseña?».";
-    case "UsernameExistsException":
-      return "Ese email ya está registrado.";
-    case "InvalidPasswordException":
-      return "La contraseña no cumple la política: al menos 8 caracteres.";
-    case "CodeMismatchException":
-      return "El código no es correcto.";
-    case "ExpiredCodeException":
-      return "El código venció. Pedí uno nuevo.";
-    case "LimitExceededException":
-    case "TooManyRequestsException":
-    case "TooManyFailedAttemptsException":
-      return "Demasiados intentos. Esperá unos minutos y volvé a probar.";
-    case "CodeDeliveryFailureException":
-      return "No pudimos mandar el email con el código. Probá de nuevo más tarde.";
-    case "InvalidParameterException":
-      return "Revisá los datos enviados.";
-    case "UserLambdaValidationException":
-    case "UnexpectedLambdaException":
-      return "No pudimos terminar de crear tu cuenta. Probá de nuevo en unos minutos.";
-    default:
-      return "No se pudo completar la operación. Probá de nuevo.";
-  }
-}
-
-/** Una llamada a la API de Cognito (JSON 1.1 con `X-Amz-Target`, sin firma: client público). */
-async function call<T>(action: string, body: Record<string, unknown>): Promise<T> {
-  const { endpoint } = cognitoConfig();
-  let response: Response;
+function savePending(pending: Pending): void {
   try {
-    response = await fetch(endpoint, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/x-amz-json-1.1",
-        "X-Amz-Target": `AWSCognitoIdentityProviderService.${action}`,
-      },
-      body: JSON.stringify(body),
-    });
+    sessionStorage.setItem(PENDING_KEY, JSON.stringify(pending));
   } catch {
-    throw new CognitoError("NetworkError", "No se pudo conectar con el servicio de ingreso.");
+    // Sin sessionStorage el token que vuelva se va a descartar (no hay `state` contra qué
+    // compararlo). Es lo correcto: sin esa comparación no hay forma de aceptarlo seguro.
   }
+}
 
-  const payload = (await response.json().catch(() => ({}))) as Record<string, unknown>;
-  if (!response.ok) {
-    // `__type` puede venir como `NotAuthorizedException` o con un prefijo `…#`.
-    const code = String(payload.__type ?? "UnknownError").split("#").pop()!;
-    const raw = String(payload.message ?? payload.Message ?? "");
-    throw new CognitoError(code, describeCognitoError(code, raw));
+/** El pendiente, **consumido**: un `state` sirve para una sola vuelta. */
+function takePending(): Pending | null {
+  try {
+    const raw = sessionStorage.getItem(PENDING_KEY);
+    sessionStorage.removeItem(PENDING_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<Pending>;
+    return typeof parsed.state === "string"
+      ? { state: parsed.state, returnTo: safeReturnTo(parsed.returnTo) }
+      : null;
+  } catch {
+    return null;
   }
-  return payload as T;
-}
-
-interface AuthenticationResult {
-  AccessToken: string;
-  ExpiresIn: number;
-}
-
-interface InitiateAuthResponse {
-  AuthenticationResult?: AuthenticationResult;
-  ChallengeName?: string;
-  Session?: string;
-}
-
-/** El login pidió un paso más. Hoy el único que se maneja es la contraseña temporal. */
-export interface NewPasswordChallenge {
-  email: string;
-  session: string;
-}
-
-export type SignInResult =
-  | { kind: "signed-in"; accessToken: string }
-  | { kind: "new-password-required"; challenge: NewPasswordChallenge };
-
-function toSignInResult(email: string, response: InitiateAuthResponse): SignInResult {
-  if (response.AuthenticationResult) {
-    return { kind: "signed-in", accessToken: response.AuthenticationResult.AccessToken };
-  }
-  if (response.ChallengeName === "NEW_PASSWORD_REQUIRED" && response.Session) {
-    // Personal dado de alta con `POST /users/staff`: la contraseña es temporal.
-    return { kind: "new-password-required", challenge: { email, session: response.Session } };
-  }
-  throw new CognitoError(
-    response.ChallengeName ?? "UnknownChallenge",
-    "El ingreso pidió un paso que esta aplicación no soporta."
-  );
-}
-
-export async function signIn(email: string, password: string): Promise<SignInResult> {
-  const response = await call<InitiateAuthResponse>("InitiateAuth", {
-    AuthFlow: "USER_PASSWORD_AUTH",
-    ClientId: cognitoConfig().clientId,
-    AuthParameters: { USERNAME: email, PASSWORD: password },
-  });
-  return toSignInResult(email, response);
-}
-
-/** Responde `NEW_PASSWORD_REQUIRED` con la contraseña definitiva. */
-export async function completeNewPassword(
-  challenge: NewPasswordChallenge,
-  newPassword: string
-): Promise<SignInResult> {
-  const response = await call<InitiateAuthResponse>("RespondToAuthChallenge", {
-    ChallengeName: "NEW_PASSWORD_REQUIRED",
-    ClientId: cognitoConfig().clientId,
-    Session: challenge.session,
-    ChallengeResponses: { USERNAME: challenge.email, NEW_PASSWORD: newPassword },
-  });
-  return toSignInResult(challenge.email, response);
 }
 
 /**
- * Auto-registro de un lector. Cognito manda un código al email; recién al confirmarlo
- * (`confirmSignUp`) corre el trigger *Post Confirmation*, que crea el `User` (`customer`) en
- * DynamoDB.
+ * 128 bits aleatorios en hex. No `crypto.randomUUID()`: solo existe en contextos seguros
+ * (HTTPS o localhost), y en AWS Academy el frontend se sirve por HTTP desde el website de S3.
+ * `getRandomValues` está disponible en HTTP y es el mismo generador criptográfico.
  */
-export async function signUp(email: string, password: string, name: string): Promise<void> {
-  await call("SignUp", {
-    ClientId: cognitoConfig().clientId,
-    Username: email,
-    Password: password,
-    UserAttributes: [
-      { Name: "email", Value: email },
-      { Name: "name", Value: name },
-    ],
+function randomState(): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+/** Una pantalla de la Hosted UI con un `state` nuevo para esta vuelta. */
+function hostedUiUrl(page: "oauth2/authorize" | "signup" | "forgotPassword", returnTo: string): string {
+  const { domain, clientId, callbackUrl } = cognitoConfig();
+  const state = randomState();
+  savePending({ state, returnTo: safeReturnTo(returnTo) });
+  const params = new URLSearchParams({
+    response_type: "code",
+    client_id: clientId,
+    redirect_uri: callbackUrl,
+    scope: SCOPES,
+    state,
   });
+  return `${domain}/${page}?${params}`;
 }
 
-export async function confirmSignUp(email: string, code: string): Promise<void> {
-  await call("ConfirmSignUp", {
-    ClientId: cognitoConfig().clientId,
-    Username: email,
-    ConfirmationCode: code,
-  });
+/** Ir a ingresar; después del login se vuelve a `returnTo`. */
+export function startLogin(returnTo: string): void {
+  window.location.assign(hostedUiUrl("oauth2/authorize", returnTo));
 }
 
-export async function resendConfirmationCode(email: string): Promise<void> {
-  await call("ResendConfirmationCode", { ClientId: cognitoConfig().clientId, Username: email });
+/** Ir a crear una cuenta (lector). Al confirmar el email, el trigger crea su usuario. */
+export function startSignup(returnTo: string): void {
+  window.location.assign(hostedUiUrl("signup", returnTo));
 }
 
-/** Manda al email un código para elegir una contraseña nueva. */
-export async function forgotPassword(email: string): Promise<void> {
-  await call("ForgotPassword", { ClientId: cognitoConfig().clientId, Username: email });
+/**
+ * Cambiar la contraseña: la Hosted UI manda un código al email y, al terminar, vuelve por el
+ * callback como un login más. Por eso es una acción (genera `state`) y no un link fijo: un
+ * link sin `state` traería un token que `consumeAuthRedirect` descartaría.
+ */
+export function startForgotPassword(returnTo: string): void {
+  window.location.assign(hostedUiUrl("forgotPassword", returnTo));
 }
 
-export async function confirmForgotPassword(
-  email: string,
-  code: string,
-  newPassword: string
-): Promise<void> {
-  await call("ConfirmForgotPassword", {
-    ClientId: cognitoConfig().clientId,
-    Username: email,
-    ConfirmationCode: code,
-    Password: newPassword,
-  });
+/**
+ * El `/logout` de Cognito: sin pasar por acá la cookie de la Hosted UI sigue viva y el
+ * próximo «Ingresar» entra solo, con la misma cuenta (en una PC compartida, un problema).
+ * Vuelve al frontend por el puente (`/signed-out`).
+ */
+export function logoutUrl(): string {
+  const { domain, clientId, signedOutUrl } = cognitoConfig();
+  const params = new URLSearchParams({ client_id: clientId, logout_uri: signedOutUrl });
+  return `${domain}/logout?${params}`;
 }
 
-/** Cambio de contraseña con sesión abierta: pide la actual, como cualquier cambio de clave. */
-export async function changePassword(
-  accessToken: string,
-  previousPassword: string,
-  proposedPassword: string
-): Promise<void> {
-  await call("ChangePassword", {
-    AccessToken: accessToken,
-    PreviousPassword: previousPassword,
-    ProposedPassword: proposedPassword,
-  });
+let redirectResult: AuthRedirectResult = { kind: "none" };
+
+/**
+ * Lee la vuelta del puente desde el fragmento de la URL. Va en `main.tsx` antes de
+ * `createRoot`: así `SessionProvider` arranca con el token y el router con la ruta destino.
+ */
+export function consumeAuthRedirect(): AuthRedirectResult {
+  if (!isCognito) return redirectResult;
+
+  const params = new URLSearchParams(window.location.hash.slice(1));
+  const token = params.get("access_token");
+  const error = params.get("error");
+  if (token === null && error === null) return redirectResult;
+
+  const pending = takePending();
+  const matches = pending !== null && params.get("state") === pending.state;
+  let target = "/";
+
+  if (!matches) {
+    // Un token que esta pestaña no pidió no se guarda; un error tampoco vale de nada sin
+    // contexto, pero se avisa igual.
+    redirectResult = { kind: "error", error: token !== null ? "state_mismatch" : error! };
+  } else if (token !== null) {
+    setToken(token);
+    target = pending.returnTo;
+    redirectResult = { kind: "signed-in" };
+  } else {
+    target = pending.returnTo;
+    redirectResult = { kind: "error", error: error! };
+  }
+
+  // Fuera de la barra de direcciones (y del historial): el token no puede quedar a la vista
+  // ni volver con «atrás». `replaceState` y no `location`, para no recargar la página.
+  window.history.replaceState(window.history.state, "", target);
+  return redirectResult;
+}
+
+/** El resultado de `consumeAuthRedirect`, una sola vez (lo muestra `AuthRedirectNotice`). */
+export function takeAuthRedirectResult(): AuthRedirectResult {
+  const result = redirectResult;
+  redirectResult = { kind: "none" };
+  return result;
+}
+
+/** El mensaje de un `#error=` de la vuelta del login. */
+export function describeAuthError(error: string): string {
+  switch (error) {
+    case "access_denied":
+      return "Cancelaste el ingreso.";
+    case "exchange_failed":
+      return "No se pudo completar el ingreso. Probá de nuevo.";
+    case "state_mismatch":
+      return "Descartamos un ingreso que no se inició desde esta pestaña. Volvé a ingresar.";
+    default:
+      return "No se pudo ingresar. Probá de nuevo.";
+  }
 }
