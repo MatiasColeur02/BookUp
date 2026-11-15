@@ -390,3 +390,37 @@ class ReservationOut(BaseModel):
 
 class ExpiredReservations(BaseModel):
     expired: int
+
+
+# -- notificaciones --------------------------------------------------------
+
+
+class NotificationOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    # Opaco: el cliente lo devuelve tal cual para marcarla como leída.
+    id: str
+    type: str
+    title: str
+    body: str
+    reservation_id: int
+    library_id: int
+    created_at: datetime
+    read_at: datetime | None = None
+    # En la bandeja de una sede, cuál de sus librarians la leyó.
+    read_by: int | None = None
+
+
+class NotificationPage(BaseModel):
+    items: list[NotificationOut]
+    # Para pedir la página siguiente; `null` si no hay más.
+    next_cursor: str | None = None
+
+
+class UnreadCounts(BaseModel):
+    me: int
+    # `null` si el usuario no tiene bandeja de sede (todos menos un librarian con sede).
+    library: int | None = None
+
+
+class MarkedNotifications(BaseModel):
+    marked: int

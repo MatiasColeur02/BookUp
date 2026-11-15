@@ -10,12 +10,13 @@ from .controllers import (
     catalog_controller,
     genre_controller,
     library_controller,
+    notification_controller,
     physical_book_controller,
     reservation_controller,
     user_controller,
 )
 from .persistence import search
-from .persistence.errors import ConditionFailedError, SearchUnavailableError
+from .persistence.errors import ConditionFailedError, InvalidReferenceError, SearchUnavailableError
 from .services.errors import (
     AuthUnavailableError,
     ConflictError,
@@ -62,6 +63,11 @@ def handle_condition_failed(request: Request, exc: ConditionFailedError) -> JSON
     # Red de seguridad: un service que no atrapó la escritura condicional que perdió igual
     # contesta 409 (el contrato) y no 500. Cubre también `AlreadyExistsError`.
     return JSONResponse(status_code=409, content={"detail": str(exc)})
+
+
+def handle_invalid_reference(request: Request, exc: InvalidReferenceError) -> JSONResponse:
+    # Un id o un cursor opaco que no salió de la API es un parámetro mal formado: 422, no 500.
+    return JSONResponse(status_code=422, content={"detail": str(exc)})
 
 
 def handle_search_unavailable(request: Request, exc: SearchUnavailableError) -> JSONResponse:
@@ -113,6 +119,7 @@ _EXCEPTION_HANDLERS = {
     ConflictError: handle_conflict,
     ConditionFailedError: handle_condition_failed,
     SearchUnavailableError: handle_search_unavailable,
+    InvalidReferenceError: handle_invalid_reference,
     UnauthorizedError: handle_unauthorized,
     AuthUnavailableError: handle_auth_unavailable,
     ForbiddenError: handle_forbidden,
@@ -148,6 +155,7 @@ def create_app() -> FastAPI:
     app.include_router(physical_book_controller.router)
     app.include_router(library_controller.router)
     app.include_router(reservation_controller.router)
+    app.include_router(notification_controller.router)
     # `signup_router` antes que `router`: comparten el prefijo `/users`.
     if settings.auth_mode == "local":
         app.include_router(user_controller.signup_router)

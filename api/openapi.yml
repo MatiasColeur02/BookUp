@@ -62,6 +62,13 @@ tags:
       `returned_at` cuando vuelve un ejemplar ya retirado. El ciclo completo es
       `available → reserved → loaned → available`, con salida a `available` por
       cancelación desde `reserved`, y a `lost` en cualquier punto.
+  - name: notifications
+    description: >
+      Bandejas de notificaciones de reservas. Cada usuario tiene la suya (`scope=me`) y un
+      `librarian` con sede comparte además la de su sede (`scope=library`): marcar una como
+      leída la marca para todos los librarians de esa sede. La bandeja sale siempre del usuario
+      del token, nunca de un parámetro. Las notificaciones las escribe un proceso asíncrono a
+      partir del stream de la base: aparecen unos segundos después de la acción.
   - name: users
     description: Usuarios (clientes, bibliotecarios, sysadmins)
   - name: health
@@ -1289,6 +1296,125 @@ paths:
         "409":
           $ref: "#/components/responses/Conflict"
 
+  /notifications:
+    get:
+      tags: [notifications]
+      summary: Página de una bandeja
+      description: >
+        De la más nueva a la más vieja. `scope=library` es la bandeja de la sede del usuario y
+        solo existe para un `librarian` con sede (403 para el resto, sysadmin incluido). Las
+        notificaciones viven 90 días.
+      operationId: listNotifications
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: scope
+          in: query
+          schema: { type: string, enum: [me, library], default: me }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 50, default: 20 }
+        - name: cursor
+          in: query
+          description: El `next_cursor` de la página anterior, tal cual. Uno inválido da 422.
+          schema: { type: string, maxLength: 512 }
+      responses:
+        "200":
+          description: Una página
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NotificationPage"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+
+  /notifications/unread-count:
+    get:
+      tags: [notifications]
+      summary: Cuántas hay sin leer
+      description: >
+        Lo que consulta el polling de la campana. `library` es `null` si el usuario no tiene
+        bandeja de sede.
+      operationId: getUnreadNotificationCount
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Contadores de no leídas
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UnreadCounts"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /notifications/{scope}/{notification_id}/read:
+    patch:
+      tags: [notifications]
+      summary: Marcar una como leída
+      description: >
+        Idempotente: si ya estaba leída devuelve 200 con la notificación como estaba (no cambia
+        `read_at` ni `read_by`). 404 si no es de esa bandeja; 422 si el id está mal formado.
+      operationId: markNotificationRead
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: scope
+          in: path
+          required: true
+          schema: { type: string, enum: [me, library] }
+        - name: notification_id
+          in: path
+          required: true
+          description: El `id` opaco de la notificación.
+          schema: { type: string, maxLength: 512 }
+      responses:
+        "200":
+          description: La notificación, leída
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Notification"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+
+  /notifications/{scope}/read-all:
+    post:
+      tags: [notifications]
+      summary: Marcar todas como leídas
+      description: Marca las no leídas de la bandeja y devuelve cuántas marcó.
+      operationId: markAllNotificationsRead
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: scope
+          in: path
+          required: true
+          schema: { type: string, enum: [me, library] }
+      responses:
+        "200":
+          description: Cuántas se marcaron
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MarkedNotifications"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+
   /users:
     post:
       tags: [users]
@@ -2204,3 +2330,76 @@ components:
         expired:
           type: integer
           description: Reservas vencidas en esta corrida.
+
+    Notification:
+      type: object
+      required: [id, type, title, body, reservation_id, library_id, created_at]
+      properties:
+        id:
+          type: string
+          description: Opaco; se devuelve tal cual para marcarla como leída.
+        type:
+          type: string
+          enum:
+            - reservation.created
+            - reservation.picked_up
+            - reservation.cancelled
+            - reservation.pickup_expired
+            - reservation.return_overdue
+            - reservation.returned
+        title:
+          type: string
+          example: Préstamo en mora
+        body:
+          type: string
+          description: >
+            En castellano, armado al escribirla: conserva los nombres de entonces aunque
+            después se renombre el libro o la sede.
+          example: Ana Pérez no devolvió «Rayuela» (ej. #55); venció el 20/11.
+        reservation_id:
+          type: integer
+        library_id:
+          type: integer
+        created_at:
+          type: string
+          format: date-time
+          description: Cuándo ocurrió lo que avisa (en un vencimiento, el vencimiento).
+        read_at:
+          type: string
+          format: date-time
+          nullable: true
+        read_by:
+          type: integer
+          nullable: true
+          description: Quién la leyó; en la bandeja de una sede, cuál de sus librarians.
+
+    NotificationPage:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Notification"
+        next_cursor:
+          type: string
+          nullable: true
+          description: Para pedir la página siguiente; `null` si no hay más.
+
+    UnreadCounts:
+      type: object
+      required: [me]
+      properties:
+        me:
+          type: integer
+        library:
+          type: integer
+          nullable: true
+          description: "`null` si el usuario no tiene bandeja de sede."
+
+    MarkedNotifications:
+      type: object
+      required: [marked]
+      properties:
+        marked:
+          type: integer

@@ -672,6 +672,14 @@ Cada fase deja el sistema andando, y las fases 1–4 no necesitan AWS.
   ve solo la de su sede y un sysadmin no tiene bandeja de sede; de cursor inválido (422) y
   `limit` > 50 (422).
 
+> **Fase 4 hecha.** `GET /notifications` devuelve `{ "items": [...], "next_cursor": … }`
+> (`NotificationPage`). La autorización vive en `notification_service._inbox` con el enum
+> `Scope` (`me`/`library`); un librarian **sin** sede tampoco tiene bandeja de sede (403, y
+> `library: null` en el contador). `InvalidReferenceError` → 422 en `main.py`. Un id de otra
+> bandeja da 404 al marcarlo (no 403: no se revela que exista). `cursor` e id tienen techo de
+> 512 caracteres. Tests en `tests/test_notification_api.py`, incluido que un librarian movido de
+> sede ve la bandeja nueva desde el request siguiente.
+
 ### Fase 5 — Pipeline local
 - `bus.py`, los tres handlers, `local.py`; servicio `notifier` en `docker-compose.yml`;
   `.env.example`.
