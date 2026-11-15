@@ -3,7 +3,8 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from app.persistence import keys
-from app.persistence.entities import UserRole
+from app.persistence.entities import CancelledBy, CloseReason, UserRole
+from app.persistence.repositories import ReservationRepository
 
 
 @pytest.fixture()
@@ -469,3 +470,65 @@ def test_list_filters_open_and_closed(client, reservation_setup, auth_headers, s
     assert len(client.get("/reservations", params={"is_open": False}, headers=sysadmin_headers).json()) == 1
     # Unfiltered still returns the whole history.
     assert len(client.get("/reservations", headers=sysadmin_headers).json()) == 1
+
+
+# -- historial que necesitan las notificaciones ------------------------------
+
+
+def test_cancel_by_the_owner_is_recorded_as_user(client, reservation_setup, auth_headers, db):
+    physical_book, user = reservation_setup
+    created = _reserve(client, auth_headers(user), physical_book.id).json()
+
+    client.post(f"/reservations/{created['id']}/cancel", headers=auth_headers(user))
+
+    stored = ReservationRepository(db).get(created["id"])
+    assert stored.close_reason is CloseReason.cancelled
+    assert stored.cancelled_by is CancelledBy.user
+
+
+def test_cancel_by_staff_is_recorded_as_library(
+    client, reservation_setup, auth_headers, make_user, db
+):
+    physical_book, user = reservation_setup
+    created = _reserve(client, auth_headers(user), physical_book.id).json()
+    librarian = make_user(UserRole.librarian, library_id=physical_book.library_id)
+
+    response = client.post(f"/reservations/{created['id']}/cancel", headers=auth_headers(librarian))
+
+    assert response.status_code == 200
+    assert ReservationRepository(db).get(created["id"]).cancelled_by is CancelledBy.library
+
+
+def test_staff_cancelling_their_own_reservation_is_recorded_as_user(
+    client, reservation_setup, auth_headers, make_user, db
+):
+    physical_book, _ = reservation_setup
+    librarian = make_user(UserRole.librarian, library_id=physical_book.library_id)
+    created = _reserve(client, auth_headers(librarian), physical_book.id).json()
+
+    client.post(f"/reservations/{created['id']}/cancel", headers=auth_headers(librarian))
+
+    assert ReservationRepository(db).get(created["id"]).cancelled_by is CancelledBy.user
+
+
+def test_pickup_records_its_time(client, reservation_setup, auth_headers, make_user, db):
+    physical_book, user = reservation_setup
+    created = _reserve(client, auth_headers(user), physical_book.id).json()
+    librarian = make_user(UserRole.librarian, library_id=physical_book.library_id)
+    before = datetime.now(timezone.utc)
+
+    client.patch(f"/reservations/{created['id']}/pickup", headers=auth_headers(librarian))
+
+    assert ReservationRepository(db).get(created["id"]).picked_up_at >= before
+
+
+def test_expire_endpoint_records_expired(
+    client, reservation_setup, auth_headers, sysadmin_headers, db
+):
+    physical_book, user = reservation_setup
+    created = _reserve(client, auth_headers(user), physical_book.id).json()
+    _backdate(db, created["id"])
+
+    assert client.post("/reservations/expire", headers=sysadmin_headers).json() == {"expired": 1}
+
+    assert ReservationRepository(db).get(created["id"]).close_reason is CloseReason.expired

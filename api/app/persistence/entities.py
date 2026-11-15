@@ -39,6 +39,35 @@ class PhysicalBookStatus(str, enum.Enum):
     lost = "lost"
 
 
+class CloseReason(str, enum.Enum):
+    """Por qué se cerró una reserva. `cancelled_at`/`returned_at` dicen *cuándo*, pero no
+    alcanzan: vencer y cancelar escriben los dos `cancelled_at`, y perder un ejemplar
+    prestado escribe `returned_at` como una devolución."""
+
+    cancelled = "cancelled"
+    expired = "expired"
+    returned = "returned"
+    lost = "lost"
+
+
+class CancelledBy(str, enum.Enum):
+    """Quién canceló: el dueño de la reserva o el personal de la sede."""
+
+    user = "user"
+    library = "library"
+
+
+class DeadlineKind(str, enum.Enum):
+    """Qué plazo venció: el de retiro (sin retirar) o el de devolución (prestada)."""
+
+    pickup = "pickup"
+    return_ = "return"
+
+
+# Valor de `Reservation.origin` en las reservas que escribe el seed.
+SEED_ORIGIN = "seed"
+
+
 @dataclass(frozen=True, kw_only=True)
 class Author:
     name: str
@@ -141,6 +170,17 @@ class Reservation:
     # librarian no necesita cargar el ejemplar, y GSI3 lista por sede.
     library_id: int | None = None
     isbn: str | None = None
+    # Lo que pasó, para quien lea el historial (las notificaciones, `notifications-roadmap.md`
+    # §5.1). Todos opcionales: una reserva escrita antes de que existieran sigue siendo válida.
+    close_reason: CloseReason | None = None
+    cancelled_by: CancelledBy | None = None
+    picked_up_at: datetime | None = None
+    # Marcas de «ya se avisó que venció el plazo». Las escribe el job de vencimientos con un
+    # update condicional (`attribute_not_exists`): es lo que lo hace idempotente.
+    pickup_deadline_notified_at: datetime | None = None
+    return_deadline_notified_at: datetime | None = None
+    # `SEED_ORIGIN` en las reservas sembradas: el notificador ignora sus `INSERT`.
+    origin: str | None = None
 
     @property
     def is_open(self) -> bool:

@@ -4,7 +4,14 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from app.persistence.repositories import PhysicalBookRepository, ReservationRepository
-from app.persistence.entities import PhysicalBookStatus, Reservation
+from app.persistence.entities import (
+    SEED_ORIGIN,
+    CancelledBy,
+    CloseReason,
+    DeadlineKind,
+    PhysicalBookStatus,
+    Reservation,
+)
 from app.persistence.errors import ConditionFailedError
 
 from ..factories import ISBN
@@ -354,3 +361,213 @@ def test_expire_does_not_touch_a_reservation_that_was_picked_up_meanwhile(db, se
     assert repo.get(keep.id).is_open and repo.get(keep.id).picked_up
     assert PhysicalBookRepository(db).get(keep.physical_book_id).status is loaned
     assert PhysicalBookRepository(db).get(drop.physical_book_id).status is available
+
+
+# -- historial: close_reason, cancelled_by, picked_up_at -------------------
+# Lo que necesitan las notificaciones (`notifications-roadmap.md` §5.1) para distinguir
+# vencida de cancelada y perdida de devuelta.
+
+
+def test_create_starts_with_no_history_even_if_the_caller_sends_one(db, setup):
+    forged = Reservation(
+        user_id=setup.user().id,
+        physical_book_id=setup.copy().id,
+        expires_at=now() + timedelta(days=1),
+        close_reason=CloseReason.returned,
+        cancelled_by=CancelledBy.library,
+        picked_up_at=now(),
+        pickup_deadline_notified_at=now(),
+        return_deadline_notified_at=now(),
+        origin=SEED_ORIGIN,
+    )
+    created = ReservationRepository(db).create(forged)
+    stored = ReservationRepository(db).get(created.id)
+    for reservation in (created, stored):
+        assert reservation.close_reason is None and reservation.cancelled_by is None
+        assert reservation.picked_up_at is None and reservation.origin is None
+        assert reservation.pickup_deadline_notified_at is None
+        assert reservation.return_deadline_notified_at is None
+
+
+def test_pickup_records_when(db, setup):
+    reservation = setup.reservation()
+    at = now()
+
+    picked = ReservationRepository(db).mark_picked_up(reservation.id, at)
+
+    assert picked.picked_up_at == at
+    assert ReservationRepository(db).get(reservation.id).picked_up_at == at
+
+
+def test_pickup_without_a_time_uses_now(db, setup):
+    reservation = setup.reservation()
+    before = now()
+    picked = ReservationRepository(db).mark_picked_up(reservation.id)
+    assert picked.picked_up_at >= before
+    assert ReservationRepository(db).get(reservation.id).picked_up_at == picked.picked_up_at
+
+
+@pytest.mark.parametrize("by", [CancelledBy.user, CancelledBy.library, None])
+def test_cancel_records_reason_and_who(db, setup, by):
+    reservation = setup.reservation()
+
+    cancelled = ReservationRepository(db).cancel(reservation.id, by=by)
+
+    stored = ReservationRepository(db).get(reservation.id)
+    for r in (cancelled, stored):
+        assert r.close_reason is CloseReason.cancelled and r.cancelled_by is by
+
+
+def test_return_records_the_reason(db, setup):
+    reservation = setup.reservation()
+    repo = ReservationRepository(db)
+    repo.mark_picked_up(reservation.id)
+
+    returned = repo.mark_returned(reservation.id)
+
+    stored = repo.get(reservation.id)
+    for r in (returned, stored):
+        assert r.close_reason is CloseReason.returned and r.cancelled_by is None
+
+
+def test_expire_records_expired_not_cancelled(db, setup):
+    repo = ReservationRepository(db)
+    expiring = setup.reservation(expires_in=timedelta(hours=1))
+    cancelled = setup.reservation(expires_in=timedelta(hours=1))
+    repo.cancel(cancelled.id, by=CancelledBy.user)
+    when = now() + timedelta(days=1)
+
+    assert repo.expire([expiring.id, cancelled.id], when) == 1
+
+    stored = repo.get(expiring.id)
+    assert stored.cancelled_at == when and stored.close_reason is CloseReason.expired
+    assert stored.cancelled_by is None
+    assert repo.get(cancelled.id).close_reason is CloseReason.cancelled  # no la pisa
+
+
+def test_expire_in_bulk_records_expired_on_every_one(db, setup):
+    repo = ReservationRepository(db)
+    reservations = [setup.reservation(expires_in=timedelta(hours=1)) for _ in range(3)]
+    assert repo.expire([r.id for r in reservations], now() + timedelta(days=1)) == 3
+    assert all(repo.get(r.id).close_reason is CloseReason.expired for r in reservations)
+
+
+@pytest.mark.parametrize("picked_up, column", [(False, "cancelled_at"), (True, "returned_at")])
+def test_losing_the_copy_records_lost_whether_pending_or_loaned(db, setup, picked_up, column):
+    copy = setup.copy()
+    reservation = setup.reservation(copy)
+    repo = ReservationRepository(db)
+    if picked_up:
+        repo.mark_picked_up(reservation.id)
+
+    PhysicalBookRepository(db).update_status(copy.id, PhysicalBookStatus.lost)
+
+    stored = repo.get(reservation.id)
+    assert getattr(stored, column) is not None and not stored.is_open
+    assert stored.close_reason is CloseReason.lost and stored.cancelled_by is None
+    assert status_of(db, copy) is PhysicalBookStatus.lost
+
+
+# -- vencimientos que avisa el job -----------------------------------------
+
+
+def test_list_past_due_returns_open_overdue_reservations_picked_up_or_not(db, setup):
+    repo = ReservationRepository(db)
+    pending = setup.reservation(expires_in=timedelta(hours=1))
+    loaned = setup.reservation(expires_in=timedelta(hours=1))
+    repo.mark_picked_up(loaned.id)
+    setup.reservation(expires_in=timedelta(days=5))  # todavía en plazo
+    closed = setup.reservation(expires_in=timedelta(hours=1))
+    repo.cancel(closed.id)
+    returned = setup.reservation(expires_in=timedelta(hours=1))
+    repo.mark_picked_up(returned.id)
+    repo.mark_returned(returned.id)
+
+    past_due = repo.list_past_due(now() + timedelta(days=1))
+
+    assert [r.id for r in past_due] == [pending.id, loaned.id]
+    assert [r.picked_up for r in past_due] == [False, True]
+    # `list_expired` sigue viendo solo las sin retirar.
+    assert [r.id for r in repo.list_expired(now() + timedelta(days=1))] == [pending.id]
+
+
+@pytest.mark.parametrize(
+    "kind, picked_up, mark",
+    [
+        (DeadlineKind.pickup, False, "pickup_deadline_notified_at"),
+        (DeadlineKind.return_, True, "return_deadline_notified_at"),
+    ],
+)
+def test_mark_deadline_notified_sets_the_mark_once(db, setup, kind, picked_up, mark):
+    repo = ReservationRepository(db)
+    reservation = setup.reservation(expires_in=timedelta(hours=1))
+    if picked_up:
+        repo.mark_picked_up(reservation.id)
+    at = now() + timedelta(days=1)
+
+    marked = repo.mark_deadline_notified(reservation.id, kind, reservation.expires_at, at)
+
+    assert getattr(marked, mark) == at
+    assert getattr(repo.get(reservation.id), mark) == at
+    # Segunda corrida del job: la marca ya está, no se vuelve a avisar.
+    with pytest.raises(ConditionFailedError):
+        repo.mark_deadline_notified(reservation.id, kind, reservation.expires_at, at)
+    assert getattr(repo.get(reservation.id), mark) == at
+
+
+def test_mark_deadline_notified_requires_the_matching_state(db, setup):
+    repo = ReservationRepository(db)
+    pending = setup.reservation(expires_in=timedelta(hours=1))
+    loaned = setup.reservation(expires_in=timedelta(hours=1))
+    repo.mark_picked_up(loaned.id)
+    closed = setup.reservation(expires_in=timedelta(hours=1))
+    repo.cancel(closed.id)
+
+    with pytest.raises(ConditionFailedError):  # sin retirar no hay devolución que avisar
+        repo.mark_deadline_notified(pending.id, DeadlineKind.return_, pending.expires_at)
+    with pytest.raises(ConditionFailedError):  # ya retirada: el retiro no vence
+        repo.mark_deadline_notified(loaned.id, DeadlineKind.pickup, loaned.expires_at)
+    with pytest.raises(ConditionFailedError):  # cerrada
+        repo.mark_deadline_notified(closed.id, DeadlineKind.pickup, closed.expires_at)
+    with pytest.raises(ConditionFailedError, match="does not exist|no pickup"):
+        repo.mark_deadline_notified(404, DeadlineKind.pickup, now())
+
+    assert repo.get(pending.id).return_deadline_notified_at is None
+    assert repo.get(loaned.id).pickup_deadline_notified_at is None
+
+
+def test_mark_deadline_notified_loses_the_race_against_an_extension(db, setup):
+    """El job listó la reserva vencida; antes de marcarla, la sede extendió el plazo. La
+    condición sobre `expires_at` evita avisar un vencimiento que ya no existe."""
+    repo = ReservationRepository(db)
+    reservation = setup.reservation(expires_in=timedelta(hours=1))
+    seen = repo.list_past_due(now() + timedelta(days=1))[0]
+
+    repo.update_expiry(reservation.id, now() + timedelta(days=10))
+
+    with pytest.raises(ConditionFailedError):
+        repo.mark_deadline_notified(seen.id, DeadlineKind.pickup, seen.expires_at)
+    assert repo.get(reservation.id).pickup_deadline_notified_at is None
+
+
+def test_extending_removes_the_pickup_mark_so_the_next_expiry_notifies_again(db, setup):
+    repo = ReservationRepository(db)
+    reservation = setup.reservation(expires_in=timedelta(hours=1))
+    repo.mark_deadline_notified(reservation.id, DeadlineKind.pickup, reservation.expires_at)
+    assert repo.get(reservation.id).pickup_deadline_notified_at is not None
+
+    new_expiry = now() + timedelta(days=2)
+    extended = repo.update_expiry(reservation.id, new_expiry)
+
+    assert extended.pickup_deadline_notified_at is None
+    assert repo.get(reservation.id).pickup_deadline_notified_at is None
+    # Vence de nuevo: se puede volver a marcar, con el nuevo `expires_at`.
+    again = repo.mark_deadline_notified(reservation.id, DeadlineKind.pickup, new_expiry)
+    assert again.pickup_deadline_notified_at is not None
+
+
+def test_extending_without_a_mark_still_works(db, setup):
+    repo = ReservationRepository(db)
+    reservation = setup.reservation()
+    extended = repo.update_expiry(reservation.id, now() + timedelta(days=5))
+    assert extended.pickup_deadline_notified_at is None

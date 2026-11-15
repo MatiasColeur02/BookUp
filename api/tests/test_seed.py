@@ -9,7 +9,14 @@ import pytest
 from app import seed as seeding
 from app.persistence import keys
 from app.persistence.dynamo import Dynamo
-from app.persistence.entities import Author, PhysicalBook, PhysicalBookStatus, UserRole
+from app.persistence.entities import (
+    SEED_ORIGIN,
+    Author,
+    CloseReason,
+    PhysicalBook,
+    PhysicalBookStatus,
+    UserRole,
+)
 from app.persistence.repositories import (
     AuthorRepository,
     BookRepository,
@@ -280,3 +287,39 @@ def test_the_api_serves_the_seeded_data(fresh, client):
     )
     assert created.status_code == 201 and created.json()["id"] == 54
     assert client.get("/authors/1").json()["name"] == "Gabriel García Márquez"
+
+
+def test_seeded_reservations_carry_their_origin_and_history(seeded):
+    """`origin = seed` es lo que impide que el notificador inunde las bandejas con la
+    historia sembrada; `close_reason` y `picked_up_at`, lo que la API escribiría."""
+    reservations = ReservationRepository(seeded).list_all()
+    assert all(r.origin == SEED_ORIGIN for r in reservations)
+    for r in reservations:
+        if r.is_open:
+            assert r.close_reason is None
+        elif r.returned_at is not None:
+            assert r.close_reason is CloseReason.returned
+        else:
+            assert r.close_reason in (CloseReason.cancelled, CloseReason.expired)
+        assert (r.picked_up_at is not None) is r.picked_up
+        if r.picked_up_at is not None:
+            assert r.reserved_at < r.picked_up_at <= (r.returned_at or NOW)
+        assert r.pickup_deadline_notified_at is None and r.return_deadline_notified_at is None
+    reasons = {r.close_reason for r in reservations}
+    assert {CloseReason.returned, CloseReason.cancelled, CloseReason.expired} <= reasons
+    # Las vencidas cierran en su vencimiento; las canceladas las canceló el lector.
+    assert all(
+        r.cancelled_at == r.expires_at for r in reservations if r.close_reason is CloseReason.expired
+    )
+    assert all(
+        r.cancelled_by is not None for r in reservations if r.close_reason is CloseReason.cancelled
+    )
+
+
+def test_api_reservations_do_not_carry_the_seed_origin(fresh):
+    user = UserRepository(fresh).get_by_email("ana@bookup.example")
+    copy = next(c for c in PhysicalBookRepository(fresh).list_all(status=PhysicalBookStatus.available))
+    reservation = ReservationRepository(fresh).create(
+        seeding.Reservation(user_id=user.id, physical_book_id=copy.id, expires_at=NOW.replace(year=2030))
+    )
+    assert ReservationRepository(fresh).get(reservation.id).origin is None

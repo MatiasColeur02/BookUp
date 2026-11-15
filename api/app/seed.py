@@ -32,8 +32,11 @@ from .config import settings
 from .persistence import keys
 from .persistence.dynamo import Dynamo, get_dynamo
 from .persistence.entities import (
+    SEED_ORIGIN,
     Author,
     Book,
+    CancelledBy,
+    CloseReason,
     Genre,
     Library,
     PhysicalBook,
@@ -667,8 +670,14 @@ def _build_reservations(
         picked_up: bool,
         cancelled_at: datetime | None = None,
         returned_at: datetime | None = None,
+        close_reason: CloseReason | None = None,
+        cancelled_by: CancelledBy | None = None,
     ) -> None:
-        """Suma una reserva con el siguiente id; si queda abierta, es la del ejemplar."""
+        """Suma una reserva con el siguiente id; si queda abierta, es la del ejemplar.
+
+        Se escribe ya en su estado final (un solo `INSERT` en el stream) y con
+        `origin = seed`, así el notificador no la toma por una reserva nueva. El retiro se
+        fecha un día después de reservar, sin pasar por el RNG para no cambiar el dataset."""
         reservation = Reservation(
             id=len(reservations) + 1,
             user_id=user.id,
@@ -678,6 +687,10 @@ def _build_reservations(
             picked_up=picked_up,
             cancelled_at=cancelled_at,
             returned_at=returned_at,
+            close_reason=close_reason,
+            cancelled_by=cancelled_by,
+            picked_up_at=reserved_at + timedelta(days=1) if picked_up else None,
+            origin=SEED_ORIGIN,
             # Desnormalizados del ejemplar, como los copia el repository al reservar.
             library_id=copy.library_id,
             isbn=copy.isbn,
@@ -718,6 +731,7 @@ def _build_reservations(
                     expires_at=reserved_at + timedelta(days=14),
                     picked_up=True,
                     returned_at=reserved_at + timedelta(days=rng.randint(3, 25)),
+                    close_reason=CloseReason.returned,
                 )
             elif kind == "cancelled":
                 add(
@@ -727,6 +741,8 @@ def _build_reservations(
                     expires_at=reserved_at + timedelta(days=7),
                     picked_up=False,
                     cancelled_at=reserved_at + timedelta(days=rng.randint(1, 5)),
+                    close_reason=CloseReason.cancelled,
+                    cancelled_by=CancelledBy.user,
                 )
             else:  # expired: nunca la retiraron y el vencimiento la cerró
                 expires_at = reserved_at + timedelta(days=3)
@@ -737,6 +753,7 @@ def _build_reservations(
                     expires_at=expires_at,
                     picked_up=False,
                     cancelled_at=expires_at,
+                    close_reason=CloseReason.expired,
                 )
 
     # Ahora las abiertas: un ejemplar por reserva, y el ejemplar cambia de estado.
@@ -797,6 +814,7 @@ def _build_reservations(
         expires_at=now - timedelta(days=106),
         picked_up=True,
         returned_at=now - timedelta(days=110),
+        close_reason=CloseReason.returned,
     )
     add(
         ana_history[1],
@@ -805,6 +823,8 @@ def _build_reservations(
         expires_at=now - timedelta(days=53),
         picked_up=False,
         cancelled_at=now - timedelta(days=58),
+        close_reason=CloseReason.cancelled,
+        cancelled_by=CancelledBy.user,
     )
 
     # Unos pocos extraviados, siempre sobre ejemplares sin reserva abierta: marcar `lost`

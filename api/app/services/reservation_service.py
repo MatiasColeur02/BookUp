@@ -1,7 +1,13 @@
 from datetime import datetime, timezone
 
 from ..persistence.dynamo import Dynamo
-from ..persistence.entities import PhysicalBookStatus, Reservation, User, UserRole
+from ..persistence.entities import (
+    CancelledBy,
+    PhysicalBookStatus,
+    Reservation,
+    User,
+    UserRole,
+)
 from ..persistence.errors import ConditionFailedError
 from ..persistence.repositories import PhysicalBookRepository, ReservationRepository
 from .errors import ConflictError, ForbiddenError, NotFoundError
@@ -144,8 +150,10 @@ def cancel_reservation(db: Dynamo, reservation_id: int, *, viewer: User) -> Rese
             f"Reservation {reservation_id} was already picked up: return it instead"
         )
 
+    # The owner cancelling is "you cancelled", even if they are staff of that branch.
+    by = CancelledBy.user if viewer.id == reservation.user_id else CancelledBy.library
     try:
-        return ReservationRepository(db).cancel(reservation_id, _now())
+        return ReservationRepository(db).cancel(reservation_id, _now(), by)
     except ConditionFailedError as exc:
         raise ConflictError(str(exc)) from exc
 

@@ -17,7 +17,7 @@ from datetime import datetime
 from typing import Any
 
 from ..dynamo import Dynamo
-from ..entities import PhysicalBookStatus, Reservation
+from ..entities import CancelledBy, CloseReason, DeadlineKind, PhysicalBookStatus, Reservation
 from ..errors import ConditionFailedError
 from .. import keys
 from . import _items, _support as s
@@ -27,6 +27,11 @@ _OPEN = "attribute_not_exists(cancelled_at) AND attribute_not_exists(returned_at
 _STATUS = {"#st": "status"}
 # Una reserva cerrada ocupa 2 ítems (la reserva y su ejemplar) en la transacción.
 _EXPIRE_CHUNK = s.TRANSACTION_LIMIT // 2
+# La marca de cada plazo, y el `picked_up` que tiene que tener la reserva para que aplique.
+_DEADLINE_MARKS = {
+    DeadlineKind.pickup: ("pickup_deadline_notified_at", False),
+    DeadlineKind.return_: ("return_deadline_notified_at", True),
+}
 
 
 def _status_keys(item: dict[str, Any], status: PhysicalBookStatus) -> dict[str, str]:
@@ -124,6 +129,18 @@ class ReservationRepository:
         )
         return sorted((self._entity(i) for i in items), key=lambda r: r.id)
 
+    def list_past_due(self, now: datetime) -> list[Reservation]:
+        """Abiertas y vencidas, retiradas o no: el mismo Query que `list_expired` sin el
+        filtro de `picked_up`. Es lo que recorre el job que avisa los vencimientos. GSI4
+        proyecta `ALL`, así que no hace falta un `BatchGet`."""
+        items = s.query_all(
+            self.db,
+            IndexName=keys.GSI4,
+            KeyConditionExpression="GSI4PK = :open AND GSI4SK < :bound",
+            ExpressionAttributeValues={":open": keys.OPEN, ":bound": keys.expires_before(now)},
+        )
+        return sorted((self._entity(i) for i in items), key=lambda r: r.id)
+
     # -- escrituras --------------------------------------------------------
 
     def create(self, reservation: Reservation) -> Reservation:
@@ -148,6 +165,12 @@ class ReservationRepository:
             returned_at=None,
             library_id=int(copy["library_id"]),
             isbn=copy["isbn"],
+            close_reason=None,
+            cancelled_by=None,
+            picked_up_at=None,
+            pickup_deadline_notified_at=None,
+            return_deadline_notified_at=None,
+            origin=None,
         )
         reservation_item = _items.reservation_item(created)
         s.run_transaction(
@@ -173,7 +196,10 @@ class ReservationRepository:
 
     def update_expiry(self, reservation_id: int, expires_at: datetime) -> Reservation:
         """Extiende el vencimiento de una reserva abierta y sin retirar. Mueve también
-        `GSI4SK`, que es la clave por la que `list_expired` la encuentra."""
+        `GSI4SK`, que es la clave por la que `list_expired` la encuentra.
+
+        Borra la marca `pickup_deadline_notified_at`: si se extiende un retiro que ya había
+        vencido (y se avisó), el próximo vencimiento tiene que volver a avisar."""
         item = self._require(reservation_id)
         s.run_transaction(
             self.db,
@@ -184,23 +210,28 @@ class ReservationRepository:
                         "expires_at": expires_at,
                         **keys.open_reservation_index(reservation_id, expires_at),
                     },
+                    remove=["pickup_deadline_notified_at"],
                     condition=f"{_OPEN} AND picked_up = :no",
                     values={":no": False},
                 )
             ],
             failed_error=f"Reservation {reservation_id} is no longer open and waiting",
         )
-        return dataclasses.replace(self._entity(item), expires_at=expires_at)
+        return dataclasses.replace(
+            self._entity(item), expires_at=expires_at, pickup_deadline_notified_at=None
+        )
 
-    def mark_picked_up(self, reservation_id: int) -> Reservation:
-        """Retiro en sede: `reserved → loaned` en el ejemplar y `picked_up` en la reserva."""
+    def mark_picked_up(self, reservation_id: int, at: datetime | None = None) -> Reservation:
+        """Retiro en sede: `reserved → loaned` en el ejemplar, y `picked_up` y `picked_up_at`
+        en la reserva."""
         item = self._require(reservation_id)
+        when = at or s.now()
         s.run_transaction(
             self.db,
             [
                 s.tx_update(
                     keys.key(keys.reservation_pk(reservation_id)),
-                    set_={"picked_up": True},
+                    set_={"picked_up": True, "picked_up_at": when},
                     condition=f"{_OPEN} AND picked_up = :no",
                     values={":no": False},
                 ),
@@ -217,21 +248,85 @@ class ReservationRepository:
             ],
             failed_error=f"Reservation {reservation_id} can no longer be picked up",
         )
-        return dataclasses.replace(self._entity(item), picked_up=True)
+        return dataclasses.replace(self._entity(item), picked_up=True, picked_up_at=when)
 
-    def cancel(self, reservation_id: int, at: datetime | None = None) -> Reservation:
-        """Cancela una reserva abierta que no se retiró y libera el ejemplar."""
-        return self._close(reservation_id, at, require_picked_up=False, copy_status="available")
+    def cancel(
+        self,
+        reservation_id: int,
+        at: datetime | None = None,
+        by: CancelledBy | None = None,
+    ) -> Reservation:
+        """Cancela una reserva abierta que no se retiró y libera el ejemplar. `by` queda en
+        `cancelled_by` («cancelaste» vs. «la sede canceló»)."""
+        return self._close(
+            reservation_id,
+            at,
+            require_picked_up=False,
+            copy_status="available",
+            reason=CloseReason.cancelled,
+            cancelled_by=by,
+        )
 
     def mark_returned(self, reservation_id: int, at: datetime | None = None) -> Reservation:
         """Registra la devolución de un ejemplar retirado y lo libera."""
-        return self._close(reservation_id, at, require_picked_up=True, copy_status="available")
+        return self._close(
+            reservation_id,
+            at,
+            require_picked_up=True,
+            copy_status="available",
+            reason=CloseReason.returned,
+        )
 
     def release_lost_copy(self, reservation_id: int, at: datetime | None = None) -> Reservation:
         """Cierra la reserva abierta de un ejemplar que se marca `lost` (prestada → devuelta,
         pendiente → cancelada) y deja el ejemplar en `lost`. Lo llama
-        `PhysicalBookRepository.update_status`."""
-        return self._close(reservation_id, at, require_picked_up=None, copy_status="lost")
+        `PhysicalBookRepository.update_status`. `close_reason = lost` en los dos casos: es lo
+        que distingue esta devolución de una real."""
+        return self._close(
+            reservation_id,
+            at,
+            require_picked_up=None,
+            copy_status="lost",
+            reason=CloseReason.lost,
+        )
+
+    def mark_deadline_notified(
+        self,
+        reservation_id: int,
+        kind: DeadlineKind,
+        seen_expires_at: datetime,
+        at: datetime | None = None,
+    ) -> Reservation:
+        """Marca que ya se avisó el vencimiento de un plazo (`pickup_deadline_notified_at` o
+        `return_deadline_notified_at`). El aviso en sí sale del stream, por esta escritura.
+
+        La condición es la idempotencia: la reserva sigue abierta, en el estado del plazo
+        (`picked_up` falso para el retiro, verdadero para la devolución), con el **mismo**
+        `expires_at` que vio quien la listó, y sin la marca. Dos corridas del job avisan una
+        sola vez, y una extensión que llega en el medio deja la reserva sin marcar.
+        `ConditionFailedError` si alguna no se cumple.
+        """
+        mark, picked_up = _DEADLINE_MARKS[kind]
+        when = at or s.now()
+        s.run_transaction(
+            self.db,
+            [
+                s.tx_update(
+                    keys.key(keys.reservation_pk(reservation_id)),
+                    set_={mark: when},
+                    condition=(
+                        f"{_OPEN} AND picked_up = :picked AND expires_at = :seen "
+                        "AND attribute_not_exists(#mark)"
+                    ),
+                    names={"#mark": mark},
+                    values={":picked": picked_up, ":seen": keys.iso(seen_expires_at)},
+                )
+            ],
+            failed_error=f"Reservation {reservation_id} has no {kind.value} deadline to notify",
+        )
+        reservation = self.get(reservation_id)
+        assert reservation is not None  # las reservas no se borran
+        return reservation
 
     def expire(self, reservation_ids: list[int], at: datetime | None = None) -> int:
         """Vence las reservas indicadas y libera sus ejemplares. Devuelve cuántas venció.
@@ -246,14 +341,14 @@ class ReservationRepository:
         for start in range(0, len(reservation_ids), _EXPIRE_CHUNK):
             chunk = reservation_ids[start : start + _EXPIRE_CHUNK]
             items = s.batch_get(self.db, [keys.key(keys.reservation_pk(i)) for i in chunk])
-            ops = [op for item in items for op in self._close_ops(item, when, False, "available")]
+            ops = [op for item in items for op in self._expire_ops(item, when)]
             try:
                 s.run_transaction(self.db, ops)
                 expired += len(items)
             except ConditionFailedError:
                 for item in items:
                     try:
-                        s.run_transaction(self.db, self._close_ops(item, when, False, "available"))
+                        s.run_transaction(self.db, self._expire_ops(item, when))
                         expired += 1
                     except ConditionFailedError:
                         pass
@@ -274,6 +369,8 @@ class ReservationRepository:
         *,
         require_picked_up: bool | None,
         copy_status: str,
+        reason: CloseReason,
+        cancelled_by: CancelledBy | None = None,
     ) -> Reservation:
         item = self._require(reservation_id)
         if require_picked_up is not None and bool(item["picked_up"]) != require_picked_up:
@@ -283,19 +380,31 @@ class ReservationRepository:
         when = at or s.now()
         s.run_transaction(
             self.db,
-            self._close_ops(item, when, require_picked_up, copy_status),
+            self._close_ops(item, when, require_picked_up, copy_status, reason, cancelled_by),
             failed_error=f"Reservation {reservation_id} is no longer open",
         )
         column = "returned_at" if item["picked_up"] else "cancelled_at"
-        return dataclasses.replace(self._entity(item), **{column: when})
+        return dataclasses.replace(
+            self._entity(item), **{column: when}, close_reason=reason, cancelled_by=cancelled_by
+        )
+
+    @classmethod
+    def _expire_ops(cls, item: dict[str, Any], at: datetime) -> list[dict[str, Any]]:
+        return cls._close_ops(item, at, False, "available", CloseReason.expired)
 
     @staticmethod
     def _close_ops(
-        item: dict[str, Any], at: datetime, require_picked_up: bool | None, copy_status: str
+        item: dict[str, Any],
+        at: datetime,
+        require_picked_up: bool | None,
+        copy_status: str,
+        reason: CloseReason,
+        cancelled_by: CancelledBy | None = None,
     ) -> list[dict[str, Any]]:
         """Las dos operaciones que cierran una reserva.
 
-        - Reserva: setea `returned_at` (si estaba retirada) o `cancelled_at`, y hace
+        - Reserva: setea `returned_at` (si estaba retirada) o `cancelled_at`, el
+          `close_reason` que pasa cada llamador (y `cancelled_by` si lo hay), y hace
           `REMOVE` de `GSI4PK/GSI4SK`: sale del índice disperso de abiertas.
         - Ejemplar: nuevo estado y `REMOVE open_reservation_id`, condicionado a que siga
           apuntando a *esta* reserva.
@@ -308,10 +417,13 @@ class ReservationRepository:
         picked_up = bool(item["picked_up"]) if require_picked_up is None else require_picked_up
         column = "returned_at" if picked_up else "cancelled_at"
         status = PhysicalBookStatus(copy_status)
+        attrs: dict[str, Any] = {column: at, "close_reason": reason}
+        if cancelled_by is not None:
+            attrs["cancelled_by"] = cancelled_by
         return [
             s.tx_update(
                 keys.key(keys.reservation_pk(reservation_id)),
-                set_={column: at},
+                set_=attrs,
                 remove=keys.GSI4_ATTRIBUTES,
                 condition=f"{_OPEN} AND picked_up = :picked",
                 values={":picked": picked_up},
