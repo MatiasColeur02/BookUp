@@ -82,6 +82,8 @@
   --text-muted: var(--ink-500);
   --text-faint: var(--ink-400);
   --text-on-accent: #ffffff;
+  /* El número rojo de la campana: texto sobre --danger. */
+  --text-on-danger: #ffffff;
 
   --accent: var(--clay-500);
   --accent-hover: var(--clay-600);
@@ -165,6 +167,8 @@
   /* ---- Capas */
   --z-header: 10;
   --z-sticky: 20;
+  /* El header con el panel de notificaciones abierto: por encima de los `th` pegajosos. */
+  --z-popover: 30;
   --z-backdrop: 50;
   --z-modal: 51;
   --z-confirm: 55;
@@ -195,6 +199,7 @@
   --text-faint: #7d7568;
   /* El acento se aclara, así que lo que va encima se oscurece. */
   --text-on-accent: var(--night-900);
+  --text-on-danger: var(--night-900);
 
   --accent: var(--clay-300);
   --accent-hover: #d89b6d;
@@ -1204,9 +1209,15 @@ td:last-child:has(.row-actions) {
   position: sticky;
   top: 0;
   z-index: var(--z-header);
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-3);
+  /* Grilla con áreas: en mobile marca | acciones arriba y la navegación abajo; en desktop
+     una sola fila con las acciones (campana o «Ingresar») siempre a la derecha. */
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas:
+    "brand actions"
+    "nav nav";
+  align-items: center;
+  gap: var(--space-3) var(--space-4);
   padding: var(--space-4) 0;
   margin-bottom: var(--space-2);
   background: color-mix(in oklab, var(--bg) 88%, transparent);
@@ -1214,19 +1225,18 @@ td:last-child:has(.row-actions) {
   border-bottom: 1px solid var(--border);
 }
 
-.app-header-top {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-4);
+.app-header:has(.notif-panel) {
+  z-index: var(--z-popover);
 }
 
 .brand {
+  grid-area: brand;
   display: flex;
   align-items: center;
   gap: var(--space-3);
   text-decoration: none;
   color: inherit;
+  justify-self: start;
 }
 
 .brand-mark {
@@ -1248,6 +1258,19 @@ td:last-child:has(.row-actions) {
   font-size: var(--text-xs);
 }
 
+.app-nav {
+  grid-area: nav;
+  min-width: 0;
+}
+
+.header-actions {
+  grid-area: actions;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+
 .session {
   display: flex;
   align-items: center;
@@ -1261,16 +1284,14 @@ td:last-child:has(.row-actions) {
 }
 
 @media (min-width: 900px) {
-  /* Una sola fila: marca | navegación | sesión. */
   .app-header {
-    flex-direction: row;
-    align-items: center;
-    justify-content: space-between;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-areas: "brand nav actions";
     gap: var(--space-6);
   }
 
-  .app-header-top {
-    flex: 0 0 auto;
+  .app-nav {
+    justify-self: end;
   }
 }
 
@@ -1313,6 +1334,278 @@ td:last-child:has(.row-actions) {
   height: 90%;
   background: var(--logo-ink);
   transform: translateX(-1px);
+}
+
+/* ---------------------------------------------------------- Notificaciones */
+
+.bell-wrap {
+  position: relative;
+}
+
+.bell {
+  position: relative;
+  min-height: 38px;
+  width: 38px;
+  color: var(--text-muted);
+}
+
+.bell[aria-expanded="true"] {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.bell svg {
+  width: 20px;
+  height: 20px;
+}
+
+/* El número rojo. El borde del color del header lo «recorta» sobre la campana. */
+.bell-badge {
+  position: absolute;
+  top: 1px;
+  right: 1px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 var(--space-1);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-full);
+  border: 2px solid var(--bg);
+  background: var(--danger);
+  color: var(--text-on-danger);
+  font-size: var(--text-2xs);
+  font-weight: 700;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  box-sizing: content-box;
+  transform: translate(35%, -25%);
+}
+
+.bell-badge.is-bumping {
+  animation: bell-bump var(--dur-base) var(--ease-out);
+}
+
+@keyframes bell-bump {
+  50% {
+    transform: translate(35%, -25%) scale(1.25);
+  }
+}
+
+.notif-panel {
+  position: absolute;
+  top: calc(100% + var(--space-2));
+  right: 0;
+  width: 380px;
+  max-height: 70vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  overflow: hidden;
+  animation: notif-in var(--dur-base) var(--ease-out);
+}
+
+@keyframes notif-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+
+.notif-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-3) var(--space-2) var(--space-4);
+}
+
+.notif-panel-title {
+  font-size: var(--text-md);
+  margin: 0;
+}
+
+.notif-tabs {
+  margin: 0 var(--space-4) var(--space-2);
+  align-self: flex-start;
+}
+
+.notif-panel-body {
+  overflow-y: auto;
+  border-top: 1px solid var(--border);
+  overscroll-behavior: contain;
+}
+
+.notif-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.notif-list li + li {
+  border-top: 1px solid var(--border);
+}
+
+.notif-item {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  width: 100%;
+  padding: var(--space-3) var(--space-4);
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color var(--dur-fast) var(--ease-out);
+}
+
+.notif-item:hover {
+  background: var(--bg-hover);
+}
+
+.notif-item.is-unread {
+  background: var(--accent-soft);
+}
+
+.notif-item.is-unread:hover {
+  background: color-mix(in oklab, var(--accent-soft) 70%, var(--bg-hover));
+}
+
+.notif-icon {
+  flex-shrink: 0;
+  width: 30px;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-full);
+}
+
+.notif-icon svg {
+  width: 16px;
+  height: 16px;
+}
+
+.notif-tone-accent { background: var(--accent-soft); color: var(--accent); }
+.notif-tone-success { background: var(--success-soft); color: var(--success); }
+.notif-tone-neutral { background: var(--neutral-soft); color: var(--neutral); }
+.notif-tone-warning { background: var(--warning-soft); color: var(--warning); }
+.notif-tone-danger { background: var(--danger-soft); color: var(--danger); }
+
+/* Sobre el fondo de «no leída» el ícono acento se perdería: lleva superficie propia. */
+.notif-item.is-unread .notif-icon {
+  box-shadow: 0 0 0 1px var(--border);
+}
+
+.notif-text {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+  flex: 1;
+}
+
+.notif-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: var(--space-2);
+}
+
+.notif-title {
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
+.notif-item:not(.is-unread) .notif-title {
+  font-weight: 500;
+}
+
+.notif-time {
+  flex-shrink: 0;
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+.notif-body {
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+  line-height: var(--leading-snug);
+}
+
+.notif-dot {
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+  margin-top: var(--space-2);
+  border-radius: var(--radius-full);
+  background: var(--accent);
+}
+
+.notif-skeleton,
+.notif-error {
+  padding: var(--space-4);
+}
+
+.notif-error {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-3);
+}
+
+.notif-empty {
+  padding: var(--space-8) var(--space-4);
+  margin: 0;
+  text-align: center;
+}
+
+.notif-more {
+  display: flex;
+  justify-content: center;
+  padding: var(--space-3);
+  border-top: 1px solid var(--border);
+}
+
+/* Mobile: hoja de ancho completo debajo del header, sin salirse de la pantalla. */
+@media (max-width: 700px) {
+  .bell-wrap {
+    position: static;
+  }
+
+  /* Con la campana estática, el panel se ancla al header (sticky = posicionado): queda
+     justo debajo, a todo su ancho, tenga una fila o dos. */
+  .notif-panel {
+    top: calc(100% + var(--space-1));
+    left: 0;
+    right: 0;
+    width: auto;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bell-badge.is-bumping,
+  .notif-panel {
+    animation: none;
+  }
+}
+
+/* La fila a la que llevó una notificación. */
+tbody tr.row-highlight {
+  animation: row-highlight 3s var(--ease-out);
+}
+
+@keyframes row-highlight {
+  0%,
+  60% {
+    background: var(--accent-soft);
+    box-shadow: inset 3px 0 0 var(--accent);
+  }
 }
 
 /* ------------------------------------------------------ Gestión: sidebar */

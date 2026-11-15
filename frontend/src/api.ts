@@ -18,6 +18,10 @@ import type {
   LibraryCreate,
   LibraryUpdate,
   LoginRequest,
+  MarkedNotifications,
+  Notification,
+  NotificationPage,
+  NotificationScope,
   PhysicalBook,
   PhysicalBookCreate,
   PhysicalBookStatus,
@@ -29,6 +33,7 @@ import type {
   User,
   UserCreate,
   UserStaffCreate,
+  UnreadCounts,
   UserUpdate,
 } from "./types";
 
@@ -338,5 +343,24 @@ export const api = {
 
     /** Idempotente, solo `sysadmin`: cierra las vencidas que nunca se retiraron. */
     expire: () => request<ExpiredReservations>("/reservations/expire", { method: "POST" }),
+  },
+
+  notifications: {
+    /** Una página de la bandeja, de la más nueva a la más vieja. `cursor` sale de la anterior. */
+    list: (scope: NotificationScope, params: { limit?: number; cursor?: string } = {}) =>
+      request<NotificationPage>(`/notifications${buildQuery({ scope, ...params })}`),
+
+    /** Lo que pregunta el polling: dos lecturas por clave, barato. */
+    unreadCount: () => request<UnreadCounts>("/notifications/unread-count"),
+
+    /** Idempotente: si ya estaba leída devuelve 200 igual. */
+    markRead: (scope: NotificationScope, notificationId: string) =>
+      request<Notification>(
+        `/notifications/${scope}/${encodeURIComponent(notificationId)}/read`,
+        { method: "PATCH" }
+      ),
+
+    markAllRead: (scope: NotificationScope) =>
+      request<MarkedNotifications>(`/notifications/${scope}/read-all`, { method: "POST" }),
   },
 };

@@ -1,8 +1,14 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../api";
 import { useConfirm } from "../context/ConfirmContext";
+import { useNotifications } from "../context/NotificationsContext";
 import { useToast } from "../context/ToastContext";
 import { useCopyDetails } from "../hooks/useCopyDetails";
+import {
+  reservationRowId,
+  useDeepLinkedReservation,
+  useRequestedReservation,
+} from "../hooks/useDeepLinkedReservation";
 import { describeError } from "../lib/errors";
 import { isOpenParam, isOverdue, OPEN_FILTERS, type OpenFilter } from "../lib/reservations";
 import type { Reservation } from "../types";
@@ -13,7 +19,10 @@ import { TableSkeleton } from "./Skeleton";
 export function MyReservationsView() {
   const confirm = useConfirm();
   const toast = useToast();
-  const [filter, setFilter] = useState<OpenFilter>("open");
+  const { refreshSoon } = useNotifications();
+  // Un deep link puede apuntar a una reserva cerrada: con él se muestran todas.
+  const requested = useRequestedReservation();
+  const [filter, setFilter] = useState<OpenFilter>(() => (requested === null ? "open" : "all"));
   const [reservations, setReservations] = useState<Reservation[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -39,6 +48,12 @@ export function MyReservationsView() {
     load();
   }, [load]);
 
+  useEffect(() => {
+    if (requested !== null) setFilter("all");
+  }, [requested]);
+
+  const highlighted = useDeepLinkedReservation(reservations, loading);
+
   const handleCancel = async (reservation: Reservation) => {
     const { book, library } = lookupCopy(reservation.physical_book_id);
     const confirmed = await confirm({
@@ -60,6 +75,7 @@ export function MyReservationsView() {
     try {
       await api.reservations.cancel(reservation.id);
       toast.success("Reserva cancelada.");
+      refreshSoon();
       await load();
     } catch (err) {
       toast.error(err, {
@@ -112,7 +128,11 @@ export function MyReservationsView() {
               {reservations.map((reservation) => {
                 const { book, library } = lookupCopy(reservation.physical_book_id);
                 return (
-                  <tr key={reservation.id}>
+                  <tr
+                    key={reservation.id}
+                    id={reservationRowId(reservation.id)}
+                    className={highlighted === reservation.id ? "row-highlight" : undefined}
+                  >
                     <td>{book?.title ?? <span className="badge badge-neutral">#{reservation.physical_book_id}</span>}</td>
                     <td>{library?.name ?? "—"}</td>
                     <td>{new Date(reservation.reserved_at).toLocaleDateString()}</td>
