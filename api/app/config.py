@@ -80,6 +80,15 @@ class Settings(BaseSettings):
     # y en qué zona se escriben las fechas de los textos (se guardan en UTC).
     notifications_retention_days: int = 90
     notifications_timezone: str = "America/Argentina/Buenos_Aires"
+    # Por dónde viajan los eventos detectados hasta el inbox-writer (`app/notifications/bus.py`).
+    # `sns`: el topic de `NOTIFICATIONS_TOPIC_ARN` (AWS). `inline`: en el mismo proceso, con el
+    # mismo formato que SNS le pasa a Lambda (compose y tests). Vacío: apagadas, como Redis o S3
+    # sin configurar. Solo lo leen el notificador y su runner local; la API solo lee la bandeja.
+    notifications_bus: Literal["", "sns", "inline"] = ""
+    notifications_topic_arn: str = ""
+    # Solo el runner local (`app.notifications.local`): cada cuánto corre el job de
+    # vencimientos. En AWS lo programa una rule de EventBridge (`deadline_scan_minutes`).
+    notifications_scan_seconds: int = 60
 
     # Vacías en AWS: ahí las credenciales salen del rol de la tarea (ECS) o de la
     # función (Lambda), que es la cadena default de boto3.
@@ -104,6 +113,13 @@ class Settings(BaseSettings):
             ]
             if missing:
                 raise ValueError(f"AUTH_MODE=cognito requires {', '.join(missing)}")
+        return self
+
+    @model_validator(mode="after")
+    def _check_notifications_bus(self) -> "Settings":
+        # Sin topic, cada publish fallaría en el notificador y congelaría el shard.
+        if self.notifications_bus == "sns" and not self.notifications_topic_arn:
+            raise ValueError("NOTIFICATIONS_BUS=sns requires NOTIFICATIONS_TOPIC_ARN")
         return self
 
     @property

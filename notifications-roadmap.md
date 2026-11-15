@@ -688,6 +688,25 @@ Cada fase deja el sistema andando, y las fases 1–4 no necesitan AWS.
   `inbox_writer.handler` tiene tests con un evento SNS real grabado (el formato
   `Records[].Sns.Message` es lo que el bus inline imita, y conviene que no diverja).
 
+> **Fase 5 hecha.** Handlers de Lambda: `app.notifications.notifier.handler` (stream),
+> `app.notifications.inbox_writer.handler` (SNS) y `app.notifications.deadline_scanner.handler`
+> (EventBridge); cada uno tiene un `process(db, …)` que es lo que testean los tests y lo que usa
+> el runner local. `scan_deadlines` vive en `notification_service` y saltea las reservas que ya
+> tienen la marca antes de intentar la escritura condicional. Variables nuevas:
+> `NOTIFICATIONS_BUS` (`sns` exige `NOTIFICATIONS_TOPIC_ARN`, si no `Settings` falla) y
+> `NOTIFICATIONS_SCAN_SECONDS` (solo local). **DRY**: el poller del stream (`StreamReader` y el
+> loop que sobrevive a la recreación de la tabla) salió de `indexer.py` a `app/streams.py`
+> (`follow(db, on_records, on_attach=…)`), y lo usan el indexador y el notificador.
+> En local el job **espera a que el notificador se enganche al stream** antes de su primera
+> corrida: el poller arranca en `LATEST`, y una marca escrita antes no notificaría nunca. El
+> evento SNS de los tests (`tests/fixtures/sns_lambda_event.json`) es el ejemplo de la
+> documentación de AWS, no uno grabado en la cuenta: conviene reemplazarlo por uno real en la
+> fase 7. Verificado con `docker compose up`: una reserva por la API llega a las dos bandejas en
+> ~0,7 s, y una reserva vencida genera `pickup_expired` en la corrida siguiente del job (≤ 60 s).
+> Para la fase 7: el notificador **lanza** ante un error (no devuelve `batchItemFailures`), así
+> que el mapping necesita `bisect_batch_on_function_error`; un reintento de lote puede descontar
+> dos veces un TTL, y lo absorben las defensas del contador (§5.3).
+
 ### Fase 6 — Frontend
 - Reorganización del header (§7.1), campana, número rojo, panel, contexto con polling, deep links
   en «Mis reservas» y en el panel, CSS (claro y oscuro, desktop y mobile).

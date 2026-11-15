@@ -174,6 +174,29 @@ services:
     volumes:
       - ./api:/app
 
+  # Las notificaciones de reservas (`notifications-roadmap.md` §9.2): el segundo lector del
+  # stream. En AWS son dos Lambdas (el notificador, con un event source mapping al stream, y el
+  # job de vencimientos, con una rule de EventBridge) y un topic SNS en el medio; acá un solo
+  # proceso con los mismos handlers, y el bus `inline` en lugar de SNS.
+  notifier:
+    build: ./api
+    command: python -m app.notifications.local
+    restart: unless-stopped
+    environment:
+      DYNAMO_TABLE: bookup
+      DYNAMO_ENDPOINT_URL: http://dynamodb:8000
+      AWS_REGION: us-east-1
+      AWS_ACCESS_KEY_ID: bookup
+      AWS_SECRET_ACCESS_KEY: bookup123
+      NOTIFICATIONS_BUS: inline
+      # El job de vencimientos: en AWS cada 15 min, acá cada minuto.
+      NOTIFICATIONS_SCAN_SECONDS: 60
+    depends_on:
+      dynamodb-init:
+        condition: service_completed_successfully
+    volumes:
+      - ./api:/app
+
   api:
     build: ./api
     environment:

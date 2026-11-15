@@ -19,12 +19,13 @@ from ..config import settings
 from ..notifications.events import ReservationEvent
 from ..notifications.messages import Names, render
 from ..persistence.dynamo import Dynamo
-from ..persistence.entities import InboxKind, Notification, User, UserRole
+from ..persistence.entities import DeadlineKind, InboxKind, Notification, User, UserRole
 from ..persistence.errors import ConditionFailedError
 from ..persistence.repositories import (
     BookRepository,
     LibraryRepository,
     NotificationRepository,
+    ReservationRepository,
     UserRepository,
 )
 from .errors import ForbiddenError, NotFoundError
@@ -91,6 +92,36 @@ def deliver(
         except ConditionFailedError:
             pass  # el lector se borró entre la lectura y la escritura
     return repo.deliver([library_entry], event.event_id)
+
+
+# ---------------------------------------------------------------------------
+# Lado job (deadline-scanner)
+# ---------------------------------------------------------------------------
+
+
+def scan_deadlines(db: Dynamo, *, now: datetime | None = None) -> int:
+    """Marca las reservas abiertas cuyo plazo venció y todavía no se avisó. Devuelve cuántas.
+
+    No escribe notificaciones: la marca es una escritura más de la reserva, y el aviso sale
+    por el stream como cualquier otro (§3.4). La condición de la marca es la idempotencia: dos
+    corridas concurrentes avisan una sola vez, y una extensión que llega en el medio gana.
+    """
+    moment = now or datetime.now(tz.utc)
+    repo = ReservationRepository(db)
+    marked = 0
+    for reservation in repo.list_past_due(moment):
+        if reservation.picked_up:
+            kind, already = DeadlineKind.return_, reservation.return_deadline_notified_at
+        else:
+            kind, already = DeadlineKind.pickup, reservation.pickup_deadline_notified_at
+        if already is not None:
+            continue  # ya avisada: ni siquiera vale el intento condicional
+        try:
+            repo.mark_deadline_notified(reservation.id, kind, reservation.expires_at, at=moment)
+            marked += 1
+        except ConditionFailedError:
+            pass  # la cerraron, la retiraron, la extendieron u otra corrida la marcó
+    return marked
 
 
 # ---------------------------------------------------------------------------

@@ -14,7 +14,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from app import seed as seeding
-from app.indexer import StreamReader
+from app.streams import StreamReader
 from app.notifications import events
 from app.notifications.events import Actor, EventType
 from app.persistence import keys
