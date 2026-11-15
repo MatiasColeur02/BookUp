@@ -630,6 +630,19 @@ Cada fase deja el sistema andando, y las fases 1–4 no necesitan AWS.
   Local (no armados a mano: el formato `{"S": …}` engaña), más el `INSERT` sembrado ignorado y el
   `expired` con y sin marca previa.
 
+> **Fase 2 hecha.** `detect` devuelve `ReservationEvent` (dataclass inmutable) con
+> `EventType` y `Actor` como enums; `event_id` y `to_message()` (el contrato de §4) ya están, así
+> la fase 5 solo serializa. Detalles respecto del plan: `actor` de `created` es `user`, de
+> `picked_up`/`returned` es `library`, y de `cancelled` sale de `cancelled_by` (sin él, o por
+> `lost`, `library`). Una reserva cerrada **sin** `close_reason` (escrita por código previo a la
+> fase 1) se toma como cancelada o devuelta según la columna, y un retiro sin `picked_up_at` usa
+> el `ApproximateCreationDateTime` del registro (fijo ante reentregas). `keys.is_reservation_pk`
+> es nuevo. Los tests (`tests/test_notification_events.py`) no usan registros grabados en un
+> archivo sino **capturados en vivo**: escriben por los repositories sobre una tabla propia y le
+> pasan a `detect` lo que devuelve el stream de DynamoDB Local; incluye que un seed completo
+> (193 `INSERT`s) no produce ningún evento. El `REMOVE` por TTL de las notificaciones no leídas
+> (§4, último párrafo) queda para la fase 3, cuando existan los ítems `INBOX#`.
+
 ### Fase 3 — Bandeja
 - Claves, `NotificationRepository` (entrega en transacción, listado paginado, leer una, leer todas,
   descontar), `messages.py`, `notification_service.deliver`, TTL en `table.py`.

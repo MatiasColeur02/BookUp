@@ -124,6 +124,11 @@ def reservation_pk(reservation_id: int) -> str:
     return f"RES#{reservation_id}"
 
 
+def is_reservation_pk(pk: str) -> bool:
+    """¿Es la PK de una reserva? La usa quien lee el stream (`notifications/events.py`)."""
+    return pk.startswith("RES#")
+
+
 def user_pk(user_id: int) -> str:
     return f"USER#{user_id}"
 
