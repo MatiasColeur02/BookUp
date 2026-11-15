@@ -26,10 +26,10 @@ from ..entities import InboxKind, Notification
 from ..errors import AlreadyExistsError, ConditionFailedError, InvalidReferenceError
 from ..table import TTL_ATTRIBUTE
 from .. import keys
+from . import _items
 from . import _support as s
 
-_KIND = {InboxKind.user: "USER", InboxKind.library: "LIB"}
-_KIND_BACK = {v: k for k, v in _KIND.items()}
+_KIND_BACK = {v: k for k, v in _items.INBOX_KIND_KEYS.items()}
 _NEW = "attribute_not_exists(PK)"
 _UNREAD_NOTIFICATION = "attribute_exists(PK) AND attribute_not_exists(read_at)"
 # Una transacción de «leer todas»: hasta 99 notificaciones y el contador.
@@ -65,20 +65,13 @@ class NotificationRepository:
 
     @staticmethod
     def _pk(kind: InboxKind, owner_id: int) -> str:
-        return keys.inbox_pk(_KIND[kind], owner_id)
+        return _items.inbox_pk(kind, owner_id)
 
     @staticmethod
     def parse_inbox(pk: str) -> Inbox | None:
         """La bandeja de una PK, o `None` si no es de una bandeja. Para quien lee el stream."""
         parsed = keys.parse_inbox_pk(pk)
         return (_KIND_BACK[parsed[0]], parsed[1]) if parsed else None
-
-    @staticmethod
-    def _item(pk: str, sk: str, notification: Notification) -> dict[str, Any]:
-        item = {keys.PK: pk, keys.SK: sk, **s.to_item(notification, exclude=("id", "delete_after"))}
-        if notification.delete_after is not None:
-            item[TTL_ATTRIBUTE] = _epoch(notification.delete_after)
-        return item
 
     @staticmethod
     def _entity(item: dict[str, Any]) -> Notification:
@@ -157,7 +150,7 @@ class NotificationRepository:
         for kind, owner_id, notification in notifications:
             pk = self._pk(kind, owner_id)
             sk = keys.notification_sk(notification.created_at, event_id)
-            ops.append(s.tx_put(self._item(pk, sk, notification), condition=_NEW))
+            ops.append(s.tx_put(_items.notification_item(pk, sk, notification), condition=_NEW))
             ops.append(self._add_unread(pk, 1))
         if require_user is not None:
             ops.append(s.tx_check(keys.key(keys.user_pk(require_user)), "attribute_exists(PK)"))

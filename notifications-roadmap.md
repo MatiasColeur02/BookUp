@@ -1,7 +1,8 @@
 # Roadmap: sistema de notificaciones
 
-> **Estado: plan. Nada de esto está implementado.** Cuando una fase se termine, anotarla en la
-> sección 11 («Fase N hecha») igual que en `api/ROADMAP.md`, y pasar lo vigente al `README.md`.
+> **Estado: implementado (fases 1–8).** Falta verificar la fase 7 en AWS y actualizar el diagrama
+> (ver la sección 11). Lo vigente está en el `README.md` («Notificaciones»); este documento queda
+> como registro del diseño y de las alternativas descartadas.
 
 Avisarle al lector y a la sede de cada cambio importante de una reserva, con una campana arriba a
 la derecha del header que despliega las notificaciones y un número rojo con las que no se leyeron.
@@ -736,6 +737,25 @@ Cada fase deja el sistema andando, y las fases 1–4 no necesitan AWS.
 
 ### Fase 8 — Demo y documentación
 - Notificaciones de demo en el seed (§9.3) y la documentación de §14.
+
+> **Fase 8 hecha, salvo el diagrama.** El seed escribe las notificaciones de lo que les pasó en
+> los últimos 30 días (`DEMO_NOTIFICATION_WINDOW`) a las reservas de `ana@` **o** de la Biblioteca
+> Sur. Cada evento llega a las dos bandejas, como en el pipeline real, así que algunas caen en la
+> bandeja de otro lector o de otra sede. Las de más de 48 h (`DEMO_UNREAD_WINDOW`) están leídas: en
+> la bandeja de la sede las leyó su librarian (`read_by`). Las más nuevas no, y el seed escribe el
+> `UNREAD` de cada bandeja con esa cuenta. **Desvío respecto del plan**: §9.3 decía «leídas». Se
+> dejan sin leer las recientes porque, si no, Ana no tendría ninguna no leída: sus reservas
+> sembradas no vencen, y el job no le avisaría nada. Los eventos salen de
+> `seed._seeded_events`, con los mismos tipos, instantes y actores que `detect`. No incluyen los
+> vencimientos de las reservas abiertas: esos los avisa el job en su primera corrida, y repetirlos
+> acá los duplicaría. Los textos son los de `messages.render`, y el formato del ítem pasó a
+> `_items.notification_item` (lo usan el repository y el seed, como con el resto de las entidades).
+> Documentación: `README.md` (sección «Notificaciones», endpoints, servicio `notifier`, AWS),
+> `arquitectura-explain.md`, `api/CLAUDE.md` y `api/data_base.md`. `openapi.yml` y
+> `terraform/README.md` ya estaban desde las fases 4 y 7. **Pendiente**: `docs/arquitectura.drawio.pdf`.
+> En el repo no está el `.drawio` fuente. Hay que sumar EventBridge → Lambda `deadline-scanner`
+> → DynamoDB y stream → Lambda `notifier` → SNS → Lambda `inbox-writer` → DynamoDB, las tres
+> fuera de la VPC.
 
 ---
 

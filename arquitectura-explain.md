@@ -28,7 +28,7 @@ Qué crea `terraform/` y cómo se conectan las piezas. Región `us-east-1`, cuen
 | Identidad | Cognito User Pool + dominio de Hosted UI + app client confidencial | Login, registro y recuperación de contraseña |
 | Registro | Lambda `post-confirmation` (trigger del pool) | Crea el `User` (`customer`) en DynamoDB al confirmar el registro |
 | Puente HTTPS | API Gateway HTTP API + Lambda `auth-bridge` | Cognito solo acepta callbacks HTTPS y el frontend es HTTP: el puente canjea el code por tokens y redirige al frontend |
-| Datos de demo | Tarea one-shot de ECS (`app.seed` + `app.seed_cognito`) | Carga sedes, libros, ejemplares y usuarios, y crea sus cuentas en Cognito |
+| Datos de demo | Tarea one-shot de ECS (`app.seed` + `app.seed_cognito`) | Carga sedes, libros, ejemplares, usuarios y las notificaciones de demo, y crea las cuentas en Cognito |
 
 ## Seguridad de red
 

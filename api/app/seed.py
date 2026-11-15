@@ -18,6 +18,14 @@ Al final se dejan los contadores en N: si no, el primer `POST /authors` obtendr�
 pisaría al primer autor sembrado. El ítem centinela `SEED#META` va **último**, así una
 corrida interrumpida no queda marcada como hecha y se puede repetir (reescribe los mismos
 ítems). El seed no indexa en OpenSearch: eso lo hace `app.reindex` (fase 6).
+
+**Notificaciones de demo** (`notifications-roadmap.md` §9.3). Las reservas sembradas llevan
+`origin = seed` y el notificador ignora sus `INSERT`, así que sembrar no inunda las bandejas.
+A cambio, el seed escribe él mismo las notificaciones de lo que les pasó **en los últimos
+días** a las reservas de `ana@` y de la Biblioteca Sur, con los mismos textos que el
+inbox-writer: las viejas, ya leídas; las de las últimas 48 h, sin leer. Lo que vence después
+(retiros y préstamos sembrados en mora) lo avisa el job en su primera corrida, por el camino
+de siempre.
 """
 
 from __future__ import annotations
@@ -31,6 +39,8 @@ from datetime import datetime, timedelta, timezone
 from .config import settings
 from .persistence import keys
 from .persistence.dynamo import Dynamo, get_dynamo
+from .notifications.events import Actor, EventType, ReservationEvent
+from .notifications.messages import Names, render
 from .persistence.entities import (
     SEED_ORIGIN,
     Author,
@@ -38,7 +48,9 @@ from .persistence.entities import (
     CancelledBy,
     CloseReason,
     Genre,
+    InboxKind,
     Library,
+    Notification,
     PhysicalBook,
     PhysicalBookStatus,
     Reservation,
@@ -59,6 +71,12 @@ WRITE_WORKERS = 8
 
 # Semilla del RNG: cambiarla regenera otro dataset igual de válido.
 RANDOM_SEED = 20240501
+
+# Notificaciones de demo: de qué ventana se escriben, y cuáles quedan sin leer.
+DEMO_NOTIFICATION_WINDOW = timedelta(days=30)
+DEMO_UNREAD_WINDOW = timedelta(hours=48)
+# Cuánto después de llegar se marca como leída una notificación de demo.
+DEMO_READ_DELAY = timedelta(hours=3)
 
 
 def _isbn13(prefix: str) -> str:
@@ -846,6 +864,100 @@ def _build_reservations(
     return reservations, final_copies
 
 
+def _seeded_events(reservation: Reservation) -> list[ReservationEvent]:
+    """Los eventos que el notificador habría detectado si la reserva hubiera pasado por la
+    API: los mismos tipos, instantes y actores que `events.detect` (§4).
+
+    No incluye los vencimientos de las reservas abiertas: esos los marca el job y salen por el
+    stream, así que repetirlos acá los duplicaría con otro texto."""
+    r = reservation
+
+    def event(type_: EventType, occurred_at: datetime, actor: Actor) -> ReservationEvent:
+        return ReservationEvent(type=type_, occurred_at=occurred_at, actor=actor, reservation=r)
+
+    events = [event(EventType.created, r.reserved_at, Actor.user)]
+    if r.picked_up_at is not None:
+        events.append(event(EventType.picked_up, r.picked_up_at, Actor.library))
+    if r.close_reason is CloseReason.cancelled:
+        actor = Actor.user if r.cancelled_by is CancelledBy.user else Actor.library
+        events.append(event(EventType.cancelled, r.cancelled_at, actor))
+    elif r.close_reason is CloseReason.expired:
+        events.append(event(EventType.pickup_expired, r.expires_at, Actor.system))
+    elif r.close_reason is CloseReason.returned:
+        events.append(event(EventType.returned, r.returned_at, Actor.library))
+    return events
+
+
+def _build_demo_notifications(
+    now: datetime,
+    reservations: list[Reservation],
+    *,
+    reader: User,
+    library: Library,
+    libraries: dict[str, Library],
+    books: list[Book],
+    users: list[User],
+) -> tuple[list[dict], int]:
+    """Los ítems de las notificaciones de demo y cuántos eventos representan.
+
+    Cada evento llega, como en el pipeline real, a **las dos** bandejas: la del lector y la
+    de la sede de la reserva. Las de más de 48 h están leídas (en la de la sede, por su
+    librarian); las más nuevas no, y el contador `UNREAD` de cada bandeja las cuenta.
+    """
+    titles = {b.isbn: b.title for b in books}
+    library_names = {lib.id: lib.name for lib in libraries.values()}
+    people = {u.id: u for u in users}
+    librarians = {u.library_id: u.id for u in users if u.role is UserRole.librarian}
+    retention = timedelta(days=settings.notifications_retention_days)
+
+    events = [
+        event
+        for r in reservations
+        if r.user_id == reader.id or r.library_id == library.id
+        for event in _seeded_events(r)
+        if now - DEMO_NOTIFICATION_WINDOW < event.occurred_at <= now
+    ]
+
+    items: list[dict] = []
+    unread: dict[str, int] = {}
+    for event in events:
+        r = event.reservation
+        texts = render(
+            event,
+            Names(
+                book_title=titles[r.isbn],
+                library_name=library_names[r.library_id],
+                reader_name=people[r.user_id].name,
+            ),
+            timezone=settings.notifications_timezone,
+        )
+        is_read = event.occurred_at <= now - DEMO_UNREAD_WINDOW
+        for kind, owner_id, read_by in (
+            (InboxKind.user, r.user_id, r.user_id),
+            (InboxKind.library, r.library_id, librarians.get(r.library_id)),
+        ):
+            pk = _items.inbox_pk(kind, owner_id)
+            notification = Notification(
+                type=event.type.value,
+                title=texts[kind].title,
+                body=texts[kind].body,
+                reservation_id=r.id,
+                library_id=r.library_id,
+                isbn=r.isbn,
+                created_at=event.occurred_at,
+                read_at=min(event.occurred_at + DEMO_READ_DELAY, now) if is_read else None,
+                read_by=read_by if is_read else None,
+                delete_after=event.occurred_at + retention,
+            )
+            sk = keys.notification_sk(event.occurred_at, event.event_id)
+            items.append(_items.notification_item(pk, sk, notification))
+            if not is_read:
+                unread[pk] = unread.get(pk, 0) + 1
+
+    items += [_items.unread_counter_item(pk, count) for pk, count in unread.items()]
+    return items, len(events)
+
+
 class SeedConflictError(RuntimeError):
     """La tabla ya tiene datos que no son de un seed completo."""
 
@@ -945,6 +1057,16 @@ def seed(db: Dynamo | None = None, *, now: datetime | None = None) -> bool:
     items += [_items.user_alias_item(u.email, u.id) for u in users]
     for r in reservations:
         items += [_items.reservation_item(r), _items.copy_reservation_item(r.physical_book_id, r.id)]
+    notification_items, notified_events = _build_demo_notifications(
+        now,
+        reservations,
+        reader=customers[0],  # ana@bookup.example
+        library=libraries["sur"],
+        libraries=libraries,
+        books=books,
+        users=users,
+    )
+    items += notification_items
     _write(db, items)
 
     # Los contadores, en el último id usado: el siguiente alta por la API es N+1 y no pisa
@@ -973,6 +1095,7 @@ def seed(db: Dynamo | None = None, *, now: datetime | None = None) -> bool:
         f"  {len(copies)} ejemplares\n"
         f"  {len(staff)} usuarios de staff, {len(customers)} lectores\n"
         f"  {len(reservations)} reservas ({open_reservations} abiertas)\n"
+        f"  {notified_events} eventos de demo en las bandejas (ana@ y Biblioteca Sur)\n"
         f"Seeded users share the password {SEED_PASSWORD!r}."
     )
     return True

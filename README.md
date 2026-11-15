@@ -32,12 +32,15 @@ api/
     identity.py               # alta y baja de cuentas en Cognito (solo AUTH_MODE=cognito)
     cognito_triggers.py       # Lambda del trigger Post Confirmation (registro → User customer)
     indexer.py                # stream de DynamoDB -> índice de búsqueda (Lambda / poller local)
+    streams.py                # poller local del stream, compartido por indexador y notificador
+    notifications/            # notificaciones de reservas: detección, bus (SNS / inline),
+                              #   handlers de las 3 Lambdas, textos y runner local
     reindex.py                # reconstruye el índice de búsqueda entero
     persistence/              # capa de datos: no sabe nada de HTTP
       dynamo.py                 # cliente y recurso de la tabla (`Dynamo`)
       keys.py                    # formato de las claves: el único lugar que lo conoce
       entities.py                 # entidades (dataclasses): User, Library, Book, Author,
-                                  #   Genre, PhysicalBook, Reservation
+                                  #   Genre, PhysicalBook, Reservation, Notification
       table.py                     # creación de la tabla y sus 4 GSIs
       search.py                     # índice de búsqueda del catálogo (OpenSearch)
       errors.py                      # ConditionFailedError / SearchUnavailableError
@@ -47,12 +50,14 @@ api/
       library_service.py
       reservation_service.py
       user_service.py
+      notification_service.py      # entrega a las bandejas, contador, job de vencimientos
       errors.py                     # NotFoundError / ConflictError (dominio)
     controllers/               # capa HTTP: routers + esquemas Pydantic
       catalog_controller.py
       library_controller.py
       reservation_controller.py
       user_controller.py
+      notification_controller.py
       schemas.py
     seed.py                    # carga de datos de ejemplo
     seed_cognito.py            # crea en Cognito las cuentas de los usuarios sembrados
@@ -61,7 +66,8 @@ frontend/
   src/
     api.ts                     # cliente HTTP hacia la API
     types.ts                    # tipos que reflejan los esquemas del backend
-    components/                  # SearchBar, BookResults, ReservationForm, ...
+    components/                  # SearchBar, BookResults, ReservationForm, NotificationBell, ...
+    context/NotificationsContext.tsx  # polling del contador de no leídas
     lib/auth.ts                  # ingreso por la Hosted UI de Cognito (VITE_AUTH_MODE=cognito)
     App.tsx
 auth-bridge/                   # Lambda: puente HTTPS entre la Hosted UI de Cognito y el frontend
@@ -96,6 +102,7 @@ MinIO queda en `http://localhost:9001` (`bookup` / `bookup123`).
 | `dynamodb-test` | DynamoDB Local **en memoria**, solo para `pytest` | 8002 |
 | `search` | OpenSearch (un nodo, sin seguridad: es desarrollo) | 9200 |
 | `indexer` | Lee el stream de la tabla y mantiene el índice de búsqueda; al arrancar lo crea y lo llena | — |
+| `notifier` | Las notificaciones: lee el stream y escribe las bandejas (bus `inline`), y corre el job de vencimientos cada 60 s | — |
 | `cache` / `storage` / `storage-init` | Redis y MinIO (más la creación del bucket) | 6379 / 9000, 9001 |
 | `api` / `web` | La API y el frontend | 8000 / 5173 |
 
@@ -112,7 +119,9 @@ El seed carga un dataset completo y **determinista** (mismo resultado en cualqui
 máquina): 10 sedes de todo el país, 71 libros de 53 autores en 16 géneros, ~400
 ejemplares repartidos entre las sedes y ~190 reservas que cubren todo el ciclo de vida
 (abiertas sin retirar, prestadas, algunas en mora, devueltas, canceladas y vencidas).
-Volver a correrlo no duplica nada: si ya hay datos, no hace nada. Deja los contadores de
+También escribe las notificaciones de demo de `ana@` y de la Biblioteca
+Sur (lo que les pasó a sus reservas en los últimos 30 días: leídas, salvo las de las últimas
+48 h). Volver a correrlo no duplica nada: si ya hay datos, no hace nada. Deja los contadores de
 ids en el último valor usado (el primer alta por la API no pisa nada sembrado) y reindexa el
 catálogo. Si la tabla ya tiene datos creados por la API pero nunca se sembró, se niega a
 mezclarse con ellos en vez de pisarlos.
@@ -147,6 +156,9 @@ Para administrar la **Biblioteca Sur**, entrá en `http://localhost:5173` con
   el alta y la baja de sedes son de `sysadmin`.
 - **Gestión → Libros / Autores / Géneros**: el catálogo es compartido por toda la
   red, así que se edita completo desde cualquier sede.
+- **La campana** (arriba a la derecha): la bandeja de la sede, con las reservas
+  nuevas y lo que vence. Al minuto de sembrar, el job avisa los retiros y préstamos
+  sembrados que ya están vencidos.
 
 Las pantallas de **Usuarios** y **Mantenimiento** no le aparecen: son de
 `sysadmin` (entrá con `admin@bookup.example` para eso). Sin al menos un sysadmin
@@ -241,6 +253,10 @@ quién emite el token cambia, pero los roles y lo que cada uno puede hacer, no.
 | PATCH  | `/reservations/{id}/return`        | Registrar la devolución del ejemplar            | librarian de la sede, o sysadmin | ambos |
 | POST   | `/reservations/{id}/cancel`        | Cancelar una reserva no retirada                | dueño, librarian de la sede, o sysadmin | ambos |
 | POST   | `/reservations/expire`             | Vencer las reservas no retiradas (idempotente)  | sysadmin | ambos |
+| GET    | `/notifications?scope=me\|library&limit=&cursor=` | Página de una bandeja, de la más nueva a la más vieja | autenticado; `library` solo librarian con sede | ambos |
+| GET    | `/notifications/unread-count`      | `{ "me": n, "library": m \| null }` (lo que pregunta el polling) | autenticado | ambos |
+| PATCH  | `/notifications/{scope}/{id}/read` | Marcar una como leída (idempotente)             | dueño de la bandeja | ambos |
+| POST   | `/notifications/{scope}/read-all`  | Marcar todas como leídas                        | dueño de la bandeja | ambos |
 | POST   | `/users`                           | Auto-registro (rol `customer` fijo)             | público | solo `local` |
 | POST   | `/users/staff`                     | Alta de librarian/sysadmin                      | sysadmin | ambos ¹ |
 | GET    | `/users`                           | Listado de usuarios                             | sysadmin | ambos |
@@ -284,6 +300,54 @@ Los usuarios sembrados se crean en Cognito con `python -m app.seed_cognito` (des
 `app.seed`), con la misma contraseña `bookup123`. **Estado**: el modo `cognito` está
 implementado y probado con Cognito stubeado; la infraestructura en AWS (User Pool, Lambdas,
 API Gateway) todavía no existe.
+
+## Notificaciones
+
+Cada cambio importante de una reserva deja **dos** notificaciones: una en la bandeja del lector y
+otra en la de la sede, que es **compartida** por sus librarians (si uno la marca como leída, queda
+leída para todos). Se ven en la campana del header, con un número rojo de no leídas. El diseño
+completo, con las alternativas descartadas, está en [`notifications-roadmap.md`](notifications-roadmap.md).
+
+| Evento | Cuándo |
+|---|---|
+| `reservation.created` | Se crea la reserva |
+| `reservation.picked_up` | La sede marca el retiro |
+| `reservation.cancelled` | Se cancela antes del retiro (el lector o la sede), o el ejemplar se pierde con la reserva pendiente |
+| `reservation.pickup_expired` | Pasó `expires_at` sin retiro |
+| `reservation.return_overdue` | Pasó `expires_at` con el libro retirado y sin devolver |
+| `reservation.returned` | La sede registra la devolución |
+
+```
+API ──────────────┐                      ┌─▶ indexador ─▶ OpenSearch
+                  ├─▶ DynamoDB ─ stream ─┤
+job (vencimientos)┘                      └─▶ notificador ─▶ SNS ─▶ inbox-writer ─▶ bandejas (DynamoDB)
+```
+
+- **Un solo camino de escritura**, como el índice: los services no publican nada. El notificador
+  lee el stream, compara la imagen vieja con la nueva de cada reserva y publica el evento en SNS;
+  el `inbox-writer` arma el texto y escribe las dos notificaciones en una transacción.
+- **Los vencimientos** los detecta un job (EventBridge cada 15 min, en local cada 60 s) que escribe
+  una marca condicional en la reserva; el aviso sale por el stream como cualquier otro cambio. El
+  job **no** vence la reserva: eso sigue siendo `POST /reservations/expire`.
+- **Idempotente**: el id de cada notificación sale del evento (reserva, tipo e instante), así que
+  una reentrega del stream o de SNS no la duplica.
+- **El contador de no leídas** se mantiene en un ítem aparte y se mueve en la misma transacción
+  que cada notificación: el polling cada 30 s son uno o dos `GetItem`. Solo baja al clickear una
+  notificación (o «marcar todas como leídas»), no al abrir la campana.
+- **Retención**: 90 días, con el TTL de DynamoDB.
+- **La bandeja sale del usuario del token**, nunca de un parámetro: no hay forma de pedir la de
+  otra sede. Los sysadmin solo tienen la propia. Sin cache, igual que `/reservations`.
+- **Nada tira abajo la API**: la API solo lee las bandejas y no sabe que el notificador existe; si
+  está caído, las notificaciones llegan tarde y nada más. Sin `NOTIFICATIONS_BUS` el notificador no
+  publica. Lo que falla tres veces en el `inbox-writer` queda en los logs: se pierde el aviso,
+  nunca la reserva.
+- **El seed no inunda las bandejas**: las reservas sembradas llevan `origin = seed` y el notificador
+  ignora sus altas; las notificaciones de demo las escribe el seed directamente.
+
+En el frontend, el polling corre solo con la pestaña visible (con *backoff* si falla), y después de
+una acción propia pide el contador a los ~3 s para no esperar al siguiente ciclo. Clickear una
+notificación lleva a la reserva: `/mis-reservas?reserva=<id>` o `/panel?reserva=<id>`, que la
+resalta y, en el panel, abre su gestión.
 
 ## Cache
 
@@ -404,6 +468,7 @@ salen siempre de `GET /auth/me`, y cada pantalla se muestra según ese rol.
 | Sedes: listado con dirección, horarios y contacto | público |
 | Ingresar / Crear cuenta (formularios propios, o la Hosted UI de Cognito) | público |
 | Mis reservas: seguimiento y cancelación | autenticado |
+| Campana de notificaciones (propias; un librarian también ve la de su sede) | autenticado |
 | Mi perfil: datos, contraseña (con Cognito, un link a la Hosted UI) y baja de cuenta | autenticado |
 | Panel bibliotecario: retiro, devolución, cancelación y extensión | librarian (su sede) / sysadmin |
 | Gestión → Libros, Autores, Géneros | librarian / sysadmin |
@@ -435,6 +500,11 @@ descriptos en la propuesta:
   como el servicio `indexer`. Faltan, y son parte de la infraestructura, la DLQ y
   `BisectBatchOnFunctionError` del mapping (un evento que falla siempre congela el shard) y la
   firma SigV4 del cliente.
+- **Notificaciones**: un topic SNS y tres Lambdas fuera de la VPC: el notificador (segundo
+  lector del stream, con filtro a las reservas), el `inbox-writer` (suscripto al topic) y el job
+  de vencimientos (rule de EventBridge). Es el mismo código que el servicio `notifier` del
+  compose, con `NOTIFICATIONS_BUS=sns`. Un canal nuevo (email, analítica) es una suscripción más
+  al topic. Módulo `terraform/modules/notifications`.
 - **Analítica**: un proceso ETL (Glue) copia datos hacia un data warehouse
   (Redshift/Athena sobre S3), separado de la base operativa.
 - **API pública**: API Gateway con autenticación, rate limiting y métricas
@@ -452,6 +522,8 @@ descriptos en la propuesta:
 
 ## Próximos pasos
 
+- Verificar las notificaciones en el lab (permisos de SNS y EventBridge del `LabRole`, fase 7 de
+  [`notifications-roadmap.md`](notifications-roadmap.md)).
 - Crear la infraestructura de Cognito y probar el modo `cognito` de punta a punta en AWS
   (fases 7 y 8 de [`COGNITO_ROADMAP.md`](COGNITO_ROADMAP.md)).
 - Definir el pipeline ETL hacia el data warehouse. Con DynamoDB deja de ser opcional: no hay

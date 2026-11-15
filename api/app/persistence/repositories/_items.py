@@ -13,7 +13,18 @@ from __future__ import annotations
 from typing import Any
 
 from .. import keys
-from ..entities import Author, Book, Genre, Library, PhysicalBook, Reservation, User
+from ..entities import (
+    Author,
+    Book,
+    Genre,
+    InboxKind,
+    Library,
+    Notification,
+    PhysicalBook,
+    Reservation,
+    User,
+)
+from ..table import TTL_ATTRIBUTE
 from . import _support as s
 
 # Nombres de los contadores de ids (`COUNTER#<entidad>`). Los libros no tienen: su id es el
@@ -96,3 +107,25 @@ def reservation_item(reservation: Reservation) -> dict[str, Any]:
 
 def copy_reservation_item(copy_id: int, reservation_id: int) -> dict[str, Any]:
     return keys.copy_reservation(copy_id, reservation_id)
+
+
+# Bandejas de notificaciones (`notifications-roadmap.md` §5.2). El repository las envuelve en
+# la transacción que mueve el contador; el seed escribe las de demo en lotes, con el contador
+# ya calculado.
+INBOX_KIND_KEYS = {InboxKind.user: "USER", InboxKind.library: "LIB"}
+
+
+def inbox_pk(kind: InboxKind, owner_id: int) -> str:
+    return keys.inbox_pk(INBOX_KIND_KEYS[kind], owner_id)
+
+
+def notification_item(pk: str, sk: str, notification: Notification) -> dict[str, Any]:
+    """`delete_after` viaja como `ttl_epoch` (epoch en segundos), que es lo que mira el TTL."""
+    item = {keys.PK: pk, keys.SK: sk, **s.to_item(notification, exclude=("id", "delete_after"))}
+    if notification.delete_after is not None:
+        item[TTL_ATTRIBUTE] = int(notification.delete_after.timestamp())
+    return item
+
+
+def unread_counter_item(pk: str, unread: int) -> dict[str, Any]:
+    return {**keys.key(pk, keys.UNREAD), "unread": unread}
