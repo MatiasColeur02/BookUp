@@ -1,4 +1,4 @@
-"""Creación de la tabla `bookup` y sus cuatro GSIs.
+"""Creación de la tabla `bookup`, sus cuatro GSIs y su TTL.
 
 `ensure_table()` es idempotente y espera a que la tabla y sus índices estén `ACTIVE`.
 Lo corre el servicio `dynamodb-init` del compose y, más adelante, el seed y la suite de
@@ -34,6 +34,10 @@ INDEXES: tuple[tuple[str, str, str], ...] = (
     (keys.GSI3, keys.GSI3_PK, keys.GSI3_SK),  # por sede
     (keys.GSI4, keys.GSI4_PK, keys.GSI4_SK),  # reservas abiertas (disperso)
 )
+
+# Atributo de TTL: lo llevan solo las notificaciones (`NOTIF#`). No se llama `ttl` porque
+# `TTL` es palabra reservada en las expresiones de DynamoDB.
+TTL_ATTRIBUTE = "ttl_epoch"
 
 WAIT_TIMEOUT_SECONDS = 120
 WAIT_POLL_SECONDS = 0.5
@@ -157,7 +161,25 @@ def ensure_table(dynamo: Dynamo) -> bool:
 
     description = _wait_until_active(dynamo)
     _check_schema(dynamo, description)
+    ensure_ttl(dynamo)
     return created
+
+
+def ensure_ttl(dynamo: Dynamo) -> None:
+    """Activa el TTL sobre `ttl_epoch`, si no lo está. Idempotente: activarlo dos veces es un
+    error de DynamoDB, así que primero pregunta.
+
+    DynamoDB Local acepta la configuración, pero no conviene contar con que borre; en AWS
+    borra con hasta ~48 h de atraso, por eso el listado de la bandeja filtra igual.
+    """
+    current = dynamo.client.describe_time_to_live(TableName=dynamo.table_name)
+    status = current.get("TimeToLiveDescription", {})
+    if status.get("TimeToLiveStatus") in ("ENABLED", "ENABLING"):
+        return
+    dynamo.client.update_time_to_live(
+        TableName=dynamo.table_name,
+        TimeToLiveSpecification={"Enabled": True, "AttributeName": TTL_ATTRIBUTE},
+    )
 
 
 def drop_table(dynamo: Dynamo) -> None:

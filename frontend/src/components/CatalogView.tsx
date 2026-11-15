@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { api } from "../api";
 import { useSession } from "../context/SessionContext";
+import { useNotifications } from "../context/NotificationsContext";
 import { useToast } from "../context/ToastContext";
 import { describeError } from "../lib/errors";
 import type { Book, BookAvailability } from "../types";
@@ -26,6 +27,7 @@ const PAGE_SIZE = 12;
 export function CatalogView() {
   const { user } = useSession();
   const toast = useToast();
+  const { refreshSoon } = useNotifications();
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -200,6 +202,7 @@ export function CatalogView() {
         expires_at: expiresAt,
       });
       toast.success("Reserva creada. Podés seguirla desde «Mis reservas».");
+      refreshSoon();
       setParams({ isbn: selectedIsbn });
       // El ejemplar pasó a `reserved`: la disponibilidad que se está mostrando quedó vieja.
       await loadAvailability(selectedIsbn);

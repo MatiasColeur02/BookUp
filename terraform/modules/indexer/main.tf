@@ -45,6 +45,18 @@ resource "aws_lambda_event_source_mapping" "stream" {
   bisect_batch_on_function_error = true
   maximum_retry_attempts         = 5
 
+  # Solo lo que cambia el catálogo (app/indexer.py, `affected_books`): los libros y la META de
+  # los ejemplares. El resto (reservas, notificaciones, contadores) el handler lo descartaría
+  # igual, pero sin el filtro cada uno es una invocación dentro de la VPC.
+  filter_criteria {
+    filter {
+      pattern = jsonencode({ dynamodb = { Keys = { PK = { S = [{ prefix = "BOOK#" }] } } } })
+    }
+    filter {
+      pattern = jsonencode({ dynamodb = { Keys = { PK = { S = [{ prefix = "COPY#" }] }, SK = { S = ["META"] } } } })
+    }
+  }
+
   destination_config {
     on_failure {
       destination_arn = aws_sqs_queue.dlq.arn

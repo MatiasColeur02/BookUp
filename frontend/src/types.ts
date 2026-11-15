@@ -214,3 +214,45 @@ export interface ReservationUpdate {
 export interface ExpiredReservations {
   expired: number;
 }
+
+// Notificaciones (`notifications-roadmap.md` §6). Dos bandejas: la propia (`me`) y la
+// compartida de la sede (`library`, solo un librarian con sede).
+export type NotificationScope = "me" | "library";
+
+export type NotificationType =
+  | "reservation.created"
+  | "reservation.picked_up"
+  | "reservation.cancelled"
+  | "reservation.pickup_expired"
+  | "reservation.return_overdue"
+  | "reservation.returned";
+
+export interface Notification {
+  /** Opaco: se devuelve tal cual para marcarla como leída. */
+  id: string;
+  type: NotificationType;
+  title: string;
+  body: string;
+  reservation_id: number;
+  library_id: number;
+  created_at: string;
+  read_at: string | null;
+  /** En la bandeja de la sede, qué librarian la leyó. */
+  read_by: number | null;
+}
+
+export interface NotificationPage {
+  items: Notification[];
+  /** `null` si no hay más páginas. */
+  next_cursor: string | null;
+}
+
+export interface UnreadCounts {
+  me: number;
+  /** `null` si el usuario no tiene bandeja de sede. */
+  library: number | null;
+}
+
+export interface MarkedNotifications {
+  marked: number;
+}

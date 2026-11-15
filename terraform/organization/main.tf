@@ -80,7 +80,8 @@ module "search" {
   log_retention_days     = var.log_retention_days
 }
 
-# Un solo zip de api/ para las dos Lambdas que reutilizan su código.
+# Un solo zip de api/ para todas las Lambdas que reutilizan su código (trigger de Cognito,
+# indexador y las tres de notificaciones).
 module "api_package" {
   source = "../modules/lambda_package"
 
@@ -116,6 +117,22 @@ module "indexer" {
   security_group_id  = module.network.security_group_ids["lambda"]
   environment        = local.shared_environment
   log_retention_days = var.log_retention_days
+}
+
+# Notificaciones de reservas (notifications-roadmap.md): stream → notifier → SNS → inbox-writer,
+# y EventBridge → deadline-scanner. La API no necesita nada nuevo: solo lee la bandeja.
+module "notifications" {
+  source = "../modules/notifications"
+
+  name_prefix           = local.name_prefix
+  lambda_role_arn       = data.aws_iam_role.lab.arn
+  package_zip           = module.api_package.zip_path
+  package_hash          = module.api_package.zip_hash
+  table_name            = module.database.table_name
+  table_stream_arn      = module.database.table_stream_arn
+  deadline_scan_minutes = var.deadline_scan_minutes
+  retention_days        = var.notifications_retention_days
+  log_retention_days    = var.log_retention_days
 }
 
 module "compute" {

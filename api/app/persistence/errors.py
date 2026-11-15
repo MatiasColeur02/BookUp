@@ -26,6 +26,11 @@ class AlreadyExistsError(ConditionFailedError):
     """Se intentó crear algo cuya identidad (email, nombre de género, isbn) ya existe."""
 
 
+class InvalidReferenceError(PersistenceError):
+    """Un id opaco o un cursor que no salió de la persistencia (o es de otra bandeja). Es un
+    error del cliente, como un parámetro mal formado: la API lo mapea a 422, no a 500."""
+
+
 class SearchUnavailableError(PersistenceError):
     """El índice de búsqueda no está configurado o no contesta.
 

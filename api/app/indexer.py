@@ -38,12 +38,9 @@ Un evento que falla hace fallar el lote (y Lambda lo reintenta): conviene una DL
 from __future__ import annotations
 
 import logging
-import time
 from typing import Any
 
 from boto3.dynamodb.types import TypeDeserializer
-from botocore.exceptions import ClientError
-
 from . import cache
 from .persistence import keys
 from .persistence.dynamo import Dynamo, get_dynamo
@@ -52,6 +49,7 @@ from .persistence.repositories import BookRepository, PhysicalBookRepository
 from .persistence.repositories import _support as s
 from .persistence import search
 from .persistence.search import OpenSearchIndex, book_document
+from .streams import StreamReader, follow  # noqa: F401 — `StreamReader` se reexporta
 
 logger = logging.getLogger(__name__)
 
@@ -147,114 +145,30 @@ def handler(event: dict[str, Any], context: Any = None) -> dict[str, int]:
 
 
 # ---------------------------------------------------------------------------
-# Local: un poller sobre el stream de DynamoDB Local
+# Local: un poller sobre el stream de DynamoDB Local (`app/streams.py`)
 # ---------------------------------------------------------------------------
 
 
-class StreamReader:
-    """Lee el stream de la tabla shard por shard, recordando dónde quedó cada uno.
+def run(poll_seconds: float = 1.0) -> None:
+    """Arranca el poller: engancha el stream, reindexa todo y sigue los cambios.
 
-    No es una librería de consumo (Lambda hace esto sola en AWS): es lo mínimo para tener el
-    mismo camino en local. Sin checkpoint persistente — al reiniciar, `app.indexer` reindexa
-    todo y sigue desde el final.
-    """
-
-    def __init__(self, db: Dynamo, *, start: str = "LATEST"):
-        self.db = db
-        self.start = start
-        self.client = db.streams
-        table = db.client.describe_table(TableName=db.table_name)["Table"]
-        self.stream_arn = table["LatestStreamArn"]
-        self.iterators: dict[str, str | None] = {}
-        self.refresh_shards()
-
-    def is_current(self) -> bool:
-        """¿Sigue siendo éste el stream de la tabla? Falso si la tabla se borró y se recreó:
-        DynamoDB Local no avisa con un error, simplemente el stream viejo deja de recibir."""
-        table = self.db.client.describe_table(TableName=self.db.table_name)["Table"]
-        return table.get("LatestStreamArn") == self.stream_arn
-
-    def refresh_shards(self) -> None:
-        """Toma los shards que todavía no se están leyendo. El primero arranca en `start`;
-        los que aparecen después (hijos de uno que se cerró) arrancan desde su principio."""
-        shards = self.client.describe_stream(StreamArn=self.stream_arn)["StreamDescription"]["Shards"]
-        first = not self.iterators
-        for shard in shards:
-            shard_id = shard["ShardId"]
-            if shard_id in self.iterators:
-                continue
-            self.iterators[shard_id] = self.client.get_shard_iterator(
-                StreamArn=self.stream_arn,
-                ShardId=shard_id,
-                ShardIteratorType=self.start if first else "TRIM_HORIZON",
-            )["ShardIterator"]
-
-    def read(self) -> list[dict[str, Any]]:
-        """Los registros nuevos de todos los shards, sin bloquear."""
-        records: list[dict[str, Any]] = []
-        for shard_id, iterator in list(self.iterators.items()):
-            if iterator is None:
-                continue
-            while iterator:
-                page = self.client.get_records(ShardIterator=iterator, Limit=100)
-                records.extend(page["Records"])
-                iterator = page.get("NextShardIterator")
-                if not page["Records"]:
-                    break
-            self.iterators[shard_id] = iterator
-        return records
-
-
-# Errores que dicen que el stream que se estaba leyendo ya no existe o no se puede retomar:
-# la tabla se borró y se recreó (`docker compose` + reset del seed), o el iterador venció.
-_STREAM_LOST = {"ResourceNotFoundException", "ExpiredIteratorException", "TrimmedDataAccessException"}
-
-
-def _bootstrap(db: Dynamo, index: OpenSearchIndex) -> StreamReader:
-    """Engancha el stream y reindexa todo.
-
-    El orden importa: primero se toma el iterador al **final** del stream y recién después
-    se reindexa, así lo que se escriba mientras dura el reindexado queda en el stream y se
-    procesa después. Al revés, se perdería lo ocurrido en el medio.
+    Cada vez que engancha un stream (al arrancar, o porque la tabla se recreó) reindexa todo:
+    no hay checkpoint, y es la forma de no perder lo que pasó mientras no estaba.
     """
     from .reindex import reindex  # evita el ciclo: reindex usa lo de este módulo
 
-    reader = StreamReader(db)
-    logger.info("Initial reindex: %s", reindex(db, index))
-    logger.info("Following the stream of %s", db.table_name)
-    return reader
-
-
-def run(poll_seconds: float = 1.0) -> None:
-    """Arranca el poller: engancha el stream, reindexa todo y sigue los cambios."""
     db, index = get_dynamo(), search.get_index()
-    reader = _bootstrap(db, index)
 
-    last_refresh = time.monotonic()
-    while True:
-        try:
-            records = reader.read()
-            if records:
-                logger.info("Indexed %d books from %d events", process(db, index, records), len(records))
-            if time.monotonic() - last_refresh > 10:
-                if reader.is_current():
-                    reader.refresh_shards()
-                else:
-                    logger.warning("The table was recreated (new stream); starting over")
-                    reader = _bootstrap(db, index)
-                last_refresh = time.monotonic()
-        except ClientError as exc:
-            if exc.response["Error"]["Code"] not in _STREAM_LOST:
-                logger.exception("Indexer iteration failed; retrying")
-            else:
-                logger.warning("The stream is gone (%s); starting over", exc.response["Error"]["Code"])
-                try:
-                    reader = _bootstrap(db, index)
-                except Exception:  # noqa: BLE001 — la tabla puede no estar todavía; se reintenta
-                    logger.exception("Bootstrap failed; retrying")
-        except Exception:  # noqa: BLE001 — el poller no se cae por un evento o un corte de red
-            logger.exception("Indexer iteration failed; retrying")
-        time.sleep(poll_seconds)
+    def on_records(records: list[dict[str, Any]]) -> None:
+        logger.info("Indexed %d books from %d events", process(db, index, records), len(records))
+
+    follow(
+        db,
+        on_records,
+        on_attach=lambda: logger.info("Initial reindex: %s", reindex(db, index)),
+        name="indexer",
+        poll_seconds=poll_seconds,
+    )
 
 
 if __name__ == "__main__":

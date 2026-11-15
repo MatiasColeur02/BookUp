@@ -198,6 +198,35 @@ La base es **DynamoDB, tabla única `bookup`**, más un índice de **OpenSearch*
 - **Falla aislada**: sin `OPENSEARCH_URL` o con el servicio caído, esos tres endpoints dan **503** con `Retry-After`; el resto de la API sigue. Un índice que todavía no existe es un catálogo vacío, no un error. `GET /health` informa `search: ok | down | disabled`.
 - **Texto libre**: `multi_match` tipo `bool_prefix` con `and` (todas las palabras, solo la última puede estar a medias), sin distinguir mayúsculas ni tildes. El mapping es `strict`: un campo que no conoce es un bug del indexador.
 
+### Notificaciones de reservas
+
+Diseño completo en `notifications-roadmap.md` (raíz). Cada cambio importante de una reserva
+(creada, retirada, cancelada, retiro vencido, préstamo vencido, devuelta) deja una notificación
+en la bandeja del lector y otra en la compartida de la sede.
+
+- **Un solo camino**: los services no publican nada (sería un *dual write*). El notificador lee el
+  stream, y `notifications/events.py::detect` —puro, sin I/O— decide qué cambio de un ítem
+  `RES#…`/`META` es un evento, comparando la imagen vieja con la nueva. Publica en SNS (bus
+  `sns`) o llama en proceso al mismo handler (bus `inline`, compose y tests); el
+  `inbox_writer` arma los textos (`notifications/messages.py`, en castellano y en hora de
+  Buenos Aires) y llama a `notification_service.deliver`. Sin `NOTIFICATIONS_BUS`, apagado.
+- **Los vencimientos no se detectan solos**: el `deadline_scanner` (EventBridge cada 15 min; en
+  local, cada `NOTIFICATIONS_SCAN_SECONDS`) escribe una marca condicional en la reserva y el aviso
+  sale por el stream como cualquier otro. **No** vence la reserva: eso sigue siendo
+  `POST /reservations/expire`.
+- **Idempotencia por el `event_id` determinista** (reserva + tipo + instante del dato, nunca el
+  reloj): una reentrega del stream o de SNS choca contra la notificación ya escrita.
+- **Todo lo que escribe o borra una notificación pasa por `NotificationRepository`** y mueve el
+  contador `UNREAD` en la misma transacción. El único borrado que no pasa por ahí es el TTL, y lo
+  descuenta el notificador. Un camino nuevo que se lo saltee desalinea el contador.
+- **Autorización**: la bandeja sale del usuario, nunca del request (`scope=me` / `scope=library`,
+  esta última solo para un librarian con sede). Sin cache ni rate limit: depende del token.
+- **Seed**: las reservas sembradas llevan `origin = seed` y el notificador ignora sus `INSERT`. Las
+  notificaciones de demo (ana@ y Biblioteca Sur, últimos 30 días; las de las últimas 48 h sin leer)
+  las escribe `seed._build_demo_notifications` con los mismos `render` y formato de ítem
+  (`_items.notification_item`) que el pipeline. Si el seed pasara a escribir reservas con
+  `create` + `mark_picked_up` generaría `MODIFY`s y notificaría toda la historia.
+
 ### Tests
 
 `tests/conftest.py` da una tabla `bookup` vacía por test (`db`, una tabla compartida de la sesión que se vacía entre tests; `isolated_db` crea una propia, para los tests que miran el stream o la borran) y `make`, un `Factory` (`tests/factories.py`) para armar estado pasando por los repositories. El índice de búsqueda es un `FakeSearchIndex` en proceso (autouse); `tests/test_search_contract.py` corre las mismas expectativas contra el fake y contra OpenSearch real para que el fake no mienta. Un fixture de sesión impide que un test llegue por accidente al índice de desarrollo.
@@ -207,4 +236,5 @@ La base es **DynamoDB, tabla única `bookup`**, más un índice de **OpenSearch*
 - **Autenticación: el código de Cognito está, la infraestructura no.** Con `AUTH_MODE=local` (el default, y lo que usan el compose y la suite) la API emite su propio JWT (HS256, `pyjwt`) con `POST /auth/login`; el secreto sale de `JWT_SECRET` y tiene un default solo apto para desarrollo. Con `AUTH_MODE=cognito` el emisor es un User Pool y la API solo valida. Ese modo está probado con Cognito stubeado, pero **nunca corrió contra AWS**: faltan el User Pool, el app client, las dos Lambdas (puente y trigger) y el API Gateway del puente (`COGNITO_ROADMAP.md` fases 7 y 8, §8).
 - Sin refresh token en el navegador: con Cognito, la sesión dura lo que el access token (60 min) y después se vuelve a pasar por la Hosted UI (sin contraseña mientras viva su cookie). Ver `COGNITO_ROADMAP.md` §9.
 - **Falta, y es trabajo de infraestructura (no hay IaC todavía)**: la DLQ y `BisectBatchOnFunctionError` del event source mapping de la Lambda del indexador (un evento que falla siempre congela el shard), y la firma SigV4 del cliente de OpenSearch para un dominio gestionado de AWS (en local no aplica y no está probado). En AWS la tabla se crea por IaC con PITR activado, no con `table.py`.
+- **Notificaciones en AWS: el código y el módulo de Terraform están, falta verificarlos en el lab** (permisos de SNS y EventBridge del `LabRole`, `notifications-roadmap.md` §8.2), y reemplazar `tests/fixtures/sns_lambda_event.json` (el ejemplo de la documentación de AWS) por un evento grabado en la cuenta.
 - `table.py` no versiona: si la tabla existe con otros índices, `ensure_table()` falla en vez de repararla. Cambiar la forma de un ítem o un GSI es un backfill escrito a mano.

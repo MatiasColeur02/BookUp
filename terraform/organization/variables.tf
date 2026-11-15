@@ -135,6 +135,22 @@ variable "access_token_minutes" {
   default     = 60
 }
 
+# --- Notificaciones ----------------------------------------------------------
+
+variable "deadline_scan_minutes" {
+  description = "Cada cuántos minutos el job avisa los plazos vencidos (un aviso llega hasta este tiempo + 30 s tarde)."
+  type        = number
+  default     = 15
+}
+
+variable "notifications_retention_days" {
+  description = "Días que vive una notificación en la bandeja antes de que el TTL la borre."
+  type        = number
+  default     = 90
+}
+
+# --- Almacenamiento ----------------------------------------------------------
+
 variable "force_destroy_buckets" {
   description = "Permite que terraform destroy borre los buckets aunque tengan objetos."
   type        = bool

@@ -24,6 +24,7 @@ terraform/
     lambda_package/         # build del zip de api/ para Lambda (build.sh)
     auth/                   # Cognito, Lambda post-confirmation, puente HTTPS (API Gateway + Lambda)
     indexer/                # Lambda indexadora + event source mapping + DLQ
+    notifications/          # topic SNS, 3 Lambdas de notificaciones, rule de EventBridge
     compute/                # ECR + push de la imagen, ALB, ECS Fargate, tarea del seed
 ```
 
@@ -34,15 +35,16 @@ terraform/
 | `terraform-aws-modules/vpc/aws` (`~> 6.0`) | **Externo** (Registry) | VPC, 6 subnets, IGW, NAT, route tables | CIDR, AZs → ids de subnets |
 | [`network`](modules/network/README.md) | Propio | Envuelve el módulo externo + 5 security groups + reglas + endpoints S3/DynamoDB | `vpc_cidr`, `azs`, `single_nat_gateway` → `vpc_id`, subnets, `security_group_ids` |
 | [`storage`](modules/storage/README.md) | Propio | 2 buckets (alta/baja por CLI) con ownership, cifrado, acceso público, policy, website, CORS, y versionado + lifecycle en covers | `suffix` → `frontend_url`, nombres de bucket |
-| [`database`](modules/database/README.md) | Propio | Tabla DynamoDB con 4 GSIs y stream, replication group de Redis | subnets de datos, SG → `table_name`, `table_stream_arn`, `redis_url` |
+| [`database`](modules/database/README.md) | Propio | Tabla DynamoDB con 4 GSIs, stream y TTL, replication group de Redis | subnets de datos, SG → `table_name`, `table_stream_arn`, `redis_url` |
 | [`search`](modules/search/README.md) | Propio | NLB interno, target group, task definition y servicio de Fargate con OpenSearch | subnets privadas, SGs, cluster → `url` (espera a que el servicio esté sano) |
 | [`lambda_package`](modules/lambda_package/README.md) | Propio, reutilizable | `terraform_data` que corre `build.sh` + `archive_file` | `source_dir` → `zip_path`, `zip_hash` |
 | [`auth`](modules/auth/README.md) | Propio | User Pool, dominio, app client, 2 Lambdas, HTTP API con 2 rutas, permisos de invocación | `frontend_url`, zip de la API → `user_pool_id`, `client_id`, `cognito_domain`, URLs del puente |
-| [`indexer`](modules/indexer/README.md) | Propio | Lambda en VPC, SQS DLQ, event source mapping | zip, `stream_arn`, entorno → `dlq_url` |
+| [`indexer`](modules/indexer/README.md) | Propio | Lambda en VPC, SQS DLQ, event source mapping filtrado a libros y ejemplares | zip, `stream_arn`, entorno → `dlq_url` |
+| [`notifications`](modules/notifications/README.md) | Propio | Topic SNS + suscripción, 3 Lambdas fuera de la VPC (`for_each`), event source mapping filtrado, rule de EventBridge, permisos de invocación | zip, `table_stream_arn`, `deadline_scan_minutes` → `topic_arn`, `function_names` |
 | [`compute`](modules/compute/README.md) | Propio | ECR + lifecycle, push de la imagen, ALB/TG/listener, task definition, servicio, seed | subnets, SGs, cluster, entorno → `api_url`, `image_uri`, `reindex_command` |
 
-`lambda_package` se usa una vez y su zip lo consumen dos módulos (`auth` e `indexer`), que
-corren el mismo código de `api/`. El entorno común de la API y del indexador se arma una sola
+`lambda_package` se usa una vez y su zip lo consumen tres módulos (`auth`, `indexer` y
+`notifications`), que corren el mismo código de `api/`. El entorno común de la API y del indexador se arma una sola
 vez en `main.tf` (`local.shared_environment`) y la API le agrega lo suyo con `merge`.
 
 Cada módulo propio tiene un `README.md` con sus inputs, outputs y recursos, generado con
@@ -69,6 +71,8 @@ done
 | `search_cpu` / `search_memory` | `1024` / `2048` | Tamaño de la tarea de OpenSearch (la mitad de la memoria es heap) |
 | `run_seed` | `true` | Cargar los datos de demo al final del apply |
 | `covers_noncurrent_days` | `30` | Días que se conservan las versiones anteriores de las portadas |
+| `deadline_scan_minutes` | `15` | Cada cuántos minutos el job avisa los plazos de reserva vencidos |
+| `notifications_retention_days` | `90` | Días que vive una notificación en la bandeja (TTL) |
 
 Lista completa con descripciones en [`variables.tf`](organization/variables.tf).
 
@@ -80,9 +84,9 @@ Lista completa con descripciones en [`variables.tf`](organization/variables.tf).
 | `coalesce`, `lower` | `locals.tf` | Usar `name_suffix` o, si está vacío, el sufijo aleatorio |
 | `slice` | `locals.tf` | Tomar las primeras `az_count` zonas disponibles |
 | `substr` | `network/main.tf`, `compute/ecr.tf` | Nombre de subnet por zona (`1a`) y tag corto de la imagen |
-| `jsonencode` | `storage`, `database`, `compute`, `main.tf` | Bucket policy, policy de ECR, container definitions, `CORS_ORIGINS` |
+| `jsonencode` | `storage`, `database`, `compute`, `indexer`, `notifications`, `main.tf` | Bucket policy, policy de ECR, container definitions, filtros de los event source mappings, `CORS_ORIGINS` |
 | `merge` | `main.tf` | Entorno de la API = entorno común + variables propias |
-| `format`, `floor` | `database/outputs.tf`, `search/main.tf` | Armar `rediss://host:puerto/0`; heap de la JVM = mitad de la memoria |
+| `format`, `floor` | `database/outputs.tf`, `search/main.tf`, `notifications/schedule.tf` | Armar `rediss://host:puerto/0`; heap de la JVM = mitad de la memoria; `rate(N minutes)` del job (y validar que sea entero) |
 | `sha1`, `filesha1`, `fileset`, `sort`, `join` | `compute/ecr.tf`, `lambda_package` | Hash del código: cambia → nueva imagen / nuevo zip |
 | `fileexists`, `timestamp` | `lambda_package` | Rearmar el zip si falta el directorio de build |
 | `distinct`, `concat`, `flatten`, `values` | `database/dynamodb.tf` | Lista de atributos de la tabla a partir de los GSIs |
@@ -95,9 +99,9 @@ Lista completa con descripciones en [`variables.tf`](organization/variables.tf).
 
 | Meta-argumento | Dónde | Para qué |
 |---|---|---|
-| `for_each` | security groups y reglas, buckets y sus configuraciones, gateway endpoints, rutas del API Gateway | Un recurso por elemento de un mapa/conjunto, sin repetir bloques |
+| `for_each` | security groups y reglas, buckets y sus configuraciones, gateway endpoints, rutas del API Gateway, las 3 Lambdas de notificaciones y sus log groups | Un recurso por elemento de un mapa/conjunto, sin repetir bloques |
 | `count` | `terraform_data.seed` | Recurso opcional encendido por `run_seed` |
-| `depends_on` | bucket policy → public access block; servicio ECS → listener; task definition → push de la imagen; `archive_file` → build; servicio de OpenSearch → listener; output `search.url` → servicio sano; seed → servicio | Dependencias que no surgen de una referencia |
+| `depends_on` | bucket policy → public access block; servicio ECS → listener; task definition → push de la imagen; `archive_file` → build; servicio de OpenSearch → listener; output `search.url` → servicio sano; seed → servicio; target de EventBridge → event source mapping del notificador | Dependencias que no surgen de una referencia |
 | `lifecycle` | `create_before_destroy` en security groups y target group; `ignore_changes = [schema]` en el User Pool | Reemplazos sin corte; no recrear el pool (borraría las cuentas) |
 
 También se usan bloques `dynamic` (atributos y GSIs de DynamoDB, schema de Cognito) y
@@ -172,6 +176,22 @@ curl "$(terraform output -raw api_url)/health"
 
 `/health` tiene que devolver `ok` en `cache`, `storage` y `search`. Usuarios de demo: los de la
 tabla del [README principal](../README.md) (`admin@bookup.example` / `bookup123`, etc.).
+
+**Notificaciones.** Reservar un libro desde el frontend (o con la API) tiene que dejar una
+notificación en la campana del lector y otra en la de la sede en pocos segundos. Si no llega,
+seguir la cadena por los logs:
+
+```bash
+P=$(terraform output -json notifications_functions)
+aws logs tail "/aws/lambda/$(echo "$P" | jq -r .notifier)" --since 10m          # «published r…»
+aws logs tail "/aws/lambda/$(echo "$P" | jq -r '."inbox-writer"')" --since 10m  # «inbox_writer: r…»
+aws logs tail "/aws/lambda/$(echo "$P" | jq -r '."deadline-scanner"')" --since 1h # una corrida cada 15 min
+```
+
+Si el apply falla en el topic SNS o en la rule de EventBridge, el lab no los permite: comprobarlo
+con `aws iam simulate-principal-policy --policy-source-arn arn:aws:iam::<cuenta>:role/LabRole
+--action-names sns:CreateTopic sns:Subscribe sns:Publish events:PutRule events:PutTargets` (plan B
+en `notifications-roadmap.md` §8.2).
 
 ### 6. Desarme
 

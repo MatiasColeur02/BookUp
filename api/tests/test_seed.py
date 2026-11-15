@@ -9,12 +9,21 @@ import pytest
 from app import seed as seeding
 from app.persistence import keys
 from app.persistence.dynamo import Dynamo
-from app.persistence.entities import Author, PhysicalBook, PhysicalBookStatus, UserRole
+from app.persistence.entities import (
+    SEED_ORIGIN,
+    Author,
+    CloseReason,
+    InboxKind,
+    PhysicalBook,
+    PhysicalBookStatus,
+    UserRole,
+)
 from app.persistence.repositories import (
     AuthorRepository,
     BookRepository,
     GenreRepository,
     LibraryRepository,
+    NotificationRepository,
     PhysicalBookRepository,
     ReservationRepository,
     UserRepository,
@@ -280,3 +289,96 @@ def test_the_api_serves_the_seeded_data(fresh, client):
     )
     assert created.status_code == 201 and created.json()["id"] == 54
     assert client.get("/authors/1").json()["name"] == "Gabriel García Márquez"
+
+
+def test_seeded_reservations_carry_their_origin_and_history(seeded):
+    """`origin = seed` es lo que impide que el notificador inunde las bandejas con la
+    historia sembrada; `close_reason` y `picked_up_at`, lo que la API escribiría."""
+    reservations = ReservationRepository(seeded).list_all()
+    assert all(r.origin == SEED_ORIGIN for r in reservations)
+    for r in reservations:
+        if r.is_open:
+            assert r.close_reason is None
+        elif r.returned_at is not None:
+            assert r.close_reason is CloseReason.returned
+        else:
+            assert r.close_reason in (CloseReason.cancelled, CloseReason.expired)
+        assert (r.picked_up_at is not None) is r.picked_up
+        if r.picked_up_at is not None:
+            assert r.reserved_at < r.picked_up_at <= (r.returned_at or NOW)
+        assert r.pickup_deadline_notified_at is None and r.return_deadline_notified_at is None
+    reasons = {r.close_reason for r in reservations}
+    assert {CloseReason.returned, CloseReason.cancelled, CloseReason.expired} <= reasons
+    # Las vencidas cierran en su vencimiento; las canceladas las canceló el lector.
+    assert all(
+        r.cancelled_at == r.expires_at for r in reservations if r.close_reason is CloseReason.expired
+    )
+    assert all(
+        r.cancelled_by is not None for r in reservations if r.close_reason is CloseReason.cancelled
+    )
+
+
+def test_api_reservations_do_not_carry_the_seed_origin(fresh):
+    user = UserRepository(fresh).get_by_email("ana@bookup.example")
+    copy = next(c for c in PhysicalBookRepository(fresh).list_all(status=PhysicalBookStatus.available))
+    reservation = ReservationRepository(fresh).create(
+        seeding.Reservation(user_id=user.id, physical_book_id=copy.id, expires_at=NOW.replace(year=2030))
+    )
+    assert ReservationRepository(fresh).get(reservation.id).origin is None
+
+
+def _inbox(db: Dynamo, kind: InboxKind, owner_id: int):
+    found, cursor = [], None
+    while True:
+        page, cursor = NotificationRepository(db).list(kind, owner_id, now=NOW, limit=50, cursor=cursor)
+        found += page
+        if cursor is None:
+            return found
+
+
+def test_ana_and_biblioteca_sur_have_demo_notifications(seeded):
+    """§9.3: la campana de la demo tiene contenido sin que nadie escriba nada a mano, con
+    notificaciones leídas y no leídas, y el contador de cada bandeja coincide con su lista."""
+    users = UserRepository(seeded)
+    ana = users.get_by_email("ana@bookup.example")
+    sur = users.get_by_email("sur@bookup.example")
+    repo = NotificationRepository(seeded)
+
+    for kind, owner_id in ((InboxKind.user, ana.id), (InboxKind.library, sur.library_id)):
+        inbox = _inbox(seeded, kind, owner_id)
+        assert inbox, f"{kind.value} inbox is empty"
+        assert any(n.read_at is not None for n in inbox)
+        assert repo.unread_count(kind, owner_id) == sum(1 for n in inbox if n.read_at is None)
+        assert all(NOW - seeding.DEMO_NOTIFICATION_WINDOW < n.created_at <= NOW for n in inbox)
+        assert all(n.delete_after is None for n in inbox)  # no viaja en la entidad
+    # Ana tiene una reserva de ayer: su campana muestra al menos una sin leer.
+    assert repo.unread_count(InboxKind.user, ana.id) >= 1
+    # En la bandeja de la sede, las leídas las leyó su librarian.
+    sur_inbox = _inbox(seeded, InboxKind.library, sur.library_id)
+    assert {n.read_by for n in sur_inbox if n.read_at is not None} == {sur.id}
+
+
+def test_demo_notifications_match_their_reservations(seeded):
+    """Cada notificación de demo apunta a una reserva real de esa bandeja, y cada evento llegó
+    a las dos bandejas (la del lector y la de la sede), como en el pipeline real."""
+    reservations = {r.id: r for r in ReservationRepository(seeded).list_all()}
+    items = [i for i in scan(seeded).values() if keys.is_notification_sk(i[keys.SK])]
+    assert items
+    by_event: dict[str, set[str]] = {}
+    for item in items:
+        r = reservations[int(item["reservation_id"])]
+        kind, owner = keys.parse_inbox_pk(item[keys.PK])
+        assert owner == (r.user_id if kind == "USER" else r.library_id)
+        assert item["library_id"] == r.library_id and item["isbn"] == r.isbn
+        assert int(item["ttl_epoch"]) > NOW.timestamp()
+        by_event.setdefault(item[keys.SK], set()).add(kind)
+    assert all(kinds == {"USER", "LIB"} for kinds in by_event.values())
+
+
+def test_marking_all_demo_notifications_read_leaves_the_counter_at_zero(fresh):
+    ana = UserRepository(fresh).get_by_email("ana@bookup.example")
+    repo = NotificationRepository(fresh)
+    unread = repo.unread_count(InboxKind.user, ana.id)
+
+    assert repo.mark_all_read(InboxKind.user, ana.id, by=ana.id, at=NOW) == unread
+    assert repo.unread_count(InboxKind.user, ana.id) == 0

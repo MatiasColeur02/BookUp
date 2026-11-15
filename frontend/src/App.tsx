@@ -15,6 +15,7 @@ import { LibrariesView } from "./components/LibrariesView";
 import { LoginForm } from "./components/LoginForm";
 import { Logo } from "./components/Logo";
 import { MyReservationsView } from "./components/MyReservationsView";
+import { NotificationBell } from "./components/NotificationBell";
 import { ProfileView } from "./components/ProfileView";
 import { RegisterForm } from "./components/RegisterForm";
 import { RequireRole } from "./components/RequireRole";
@@ -26,15 +27,15 @@ function navClass({ isActive }: { isActive: boolean }) {
 }
 
 /**
- * Solo los accesos de entrada. Con sesión abierta el header no muestra nada: quién sos
- * y el cierre de sesión viven en «Mi perfil», que ya está en la navegación.
+ * Arriba a la derecha: con sesión, la campana de notificaciones (quién sos y el cierre de
+ * sesión viven en «Mi perfil», que ya está en la navegación); sin sesión, los accesos de entrada.
  */
 function SessionMenu() {
   const { user, loading } = useSession();
   const location = useLocation();
 
   if (loading) return <span className="muted">Cargando sesión...</span>;
-  if (user) return null;
+  if (user) return <NotificationBell />;
 
   if (isCognito) {
     // Directo a la Hosted UI, volviendo a la pantalla en la que estaba.
@@ -70,17 +71,17 @@ export default function App() {
   return (
     <div className="app">
       <header className="app-header">
-        <div className="app-header-top">
-          <Link to="/" className="brand">
-            <Logo className="brand-mark" />
-            <div>
-              <h1>BookUp</h1>
-              <p className="tagline">Catálogo y reservas de la red de bibliotecas</p>
-            </div>
-          </Link>
+        <Link to="/" className="brand">
+          <Logo className="brand-mark" />
+          <div>
+            <h1>BookUp</h1>
+            <p className="tagline">Catálogo y reservas de la red de bibliotecas</p>
+          </div>
+        </Link>
+        <div className="header-actions">
           <SessionMenu />
         </div>
-        <nav className="segmented" aria-label="Secciones">
+        <nav className="segmented app-nav" aria-label="Secciones">
           <NavLink to="/" className={navClass} end>
             Catálogo
           </NavLink>

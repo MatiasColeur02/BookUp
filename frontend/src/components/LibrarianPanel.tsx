@@ -2,8 +2,14 @@ import { useCallback, useEffect, useState } from "react";
 import { api } from "../api";
 import { useSession } from "../context/SessionContext";
 import { useConfirm } from "../context/ConfirmContext";
+import { useNotifications } from "../context/NotificationsContext";
 import { useToast } from "../context/ToastContext";
 import { useCopyDetails } from "../hooks/useCopyDetails";
+import {
+  reservationRowId,
+  useDeepLinkedReservation,
+  useRequestedReservation,
+} from "../hooks/useDeepLinkedReservation";
 import { describeError } from "../lib/errors";
 import { isOpen, isOpenParam, isOverdue, OPEN_FILTERS, type OpenFilter } from "../lib/reservations";
 import type { Library, Reservation } from "../types";
@@ -18,8 +24,11 @@ export function LibrarianPanel() {
   const confirm = useConfirm();
   const { isSysadmin, myLibraryId } = useSession();
   const toast = useToast();
+  const { refreshSoon } = useNotifications();
+  // Un deep link puede apuntar a una reserva cerrada: con él se muestran todas.
+  const requested = useRequestedReservation();
 
-  const [filter, setFilter] = useState<OpenFilter>("open");
+  const [filter, setFilter] = useState<OpenFilter>(() => (requested === null ? "open" : "all"));
   // Un `librarian` solo puede ver su sede (pedir otra da 403), así que el selector es
   // solo para `sysadmin`.
   const [libraryFilter, setLibraryFilter] = useState<string>(ALL_LIBRARIES);
@@ -71,6 +80,23 @@ export function LibrarianPanel() {
     load();
   }, [load]);
 
+  useEffect(() => {
+    if (requested !== null) setFilter("all");
+  }, [requested]);
+
+  const highlighted = useDeepLinkedReservation(reservations, loading);
+
+  // Desde la notificación se viene a hacer algo con la reserva: si sigue abierta, se abre
+  // directo su ficha de gestión.
+  useEffect(() => {
+    if (highlighted === null) return;
+    const target = reservations.find((reservation) => reservation.id === highlighted);
+    if (target && isOpen(target)) setManagingId(target.id);
+    // Solo al resaltar: si dependiera de `reservations`, la recarga que sigue a cada acción
+    // volvería a abrir la ficha que el bibliotecario acaba de cerrar.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [highlighted]);
+
   /**
    * Toda acción sobre una reserva: bloquea el diálogo, recarga y reporta por toast.
    * Si sale bien cierra el modal; si falla lo deja abierto para reintentar.
@@ -86,6 +112,7 @@ export function LibrarianPanel() {
       await action();
       setManagingId(null);
       toast.success(successMessage);
+      refreshSoon();
       await load();
     } catch (err) {
       toast.error(err, { 409: conflictMessage });
@@ -235,7 +262,11 @@ export function LibrarianPanel() {
                 const { book, library } = lookupCopy(reservation.physical_book_id);
 
                 return (
-                  <tr key={reservation.id}>
+                  <tr
+                    key={reservation.id}
+                    id={reservationRowId(reservation.id)}
+                    className={highlighted === reservation.id ? "row-highlight" : undefined}
+                  >
                     <td>
                       {book?.title ?? <span className="badge badge-neutral">#{reservation.physical_book_id}</span>}
                     </td>

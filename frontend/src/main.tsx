@@ -5,6 +5,7 @@ import App from "./App";
 import { AuthRedirectNotice } from "./components/AuthRedirectNotice";
 import { SessionProvider } from "./context/SessionContext";
 import { ConfirmProvider } from "./context/ConfirmContext";
+import { NotificationsProvider } from "./context/NotificationsContext";
 import { ThemeProvider } from "./context/ThemeContext";
 import { ToastProvider } from "./context/ToastContext";
 import { consumeAuthRedirect } from "./lib/auth";
@@ -22,8 +23,10 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
         <SessionProvider>
           <ToastProvider>
             <ConfirmProvider>
-              <AuthRedirectNotice />
-              <App />
+              <NotificationsProvider>
+                <AuthRedirectNotice />
+                <App />
+              </NotificationsProvider>
             </ConfirmProvider>
           </ToastProvider>
         </SessionProvider>

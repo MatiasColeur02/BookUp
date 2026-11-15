@@ -133,7 +133,12 @@ El modelo relacional de arriba **no se implementa tal cual**. Se eligió DynamoD
         └───────────▶ │ OpenSearch│ ◀──── │ indexador      │  único camino de escritura
           (solo       └───────────┘       │ (Lambda/poller)│  al índice
            lectura)                       └────────────────┘
+
+   el mismo stream ──▶ notificador ──▶ SNS ──▶ inbox-writer ──▶ ítems INBOX# de la tabla
 ```
+
+El stream tiene dos lectores: el indexador y el notificador (`notifications-roadmap.md`). Un
+tercero se cuelga de SNS, no del stream.
 
 ### 4.1 Tabla única: tipos de ítem
 
@@ -148,7 +153,7 @@ Una tabla, `bookup`, con `PK` y `SK` genéricos (ambos `String`) y modo On-Deman
 | Género | `GENRE#<id>` | `META` | `id`, `name` | — |
 | Sede | `LIB#<id>` | `META` | `id`, `name`, `address`, `state`, `city`, `hours`, `phone`, `email`, `website` | — |
 | Ejemplar | `COPY#<id>` | `META` | `id`, `isbn`, `library_id`, `status`, `open_reservation_id` | **`library_name`, `library_city`, `book_title`** |
-| Reserva | `RES#<id>` | `META` | `id`, `user_id`, `physical_book_id`, `reserved_at`, `expires_at`, `picked_up`, `cancelled_at`, `returned_at` | **`library_id`, `isbn`** |
+| Reserva | `RES#<id>` | `META` | `id`, `user_id`, `physical_book_id`, `reserved_at`, `expires_at`, `picked_up`, `picked_up_at`, `cancelled_at`, `returned_at`, `close_reason`, `cancelled_by`, `pickup_deadline_notified_at`, `return_deadline_notified_at`, `origin` | **`library_id`, `isbn`** |
 | Enlace ejemplar→reserva | `COPY#<id>` | `RES#<id>` | — | — |
 | Usuario | `USER#<id>` | `META` | `id`, `email`, `password_hash` (solo `AUTH_MODE=local`), `name`, `language`, `role`, `library_id`, `cognito_sub` | — |
 | Alias de email | `USEREMAIL#<email>` | `META` | `user_id` | unicidad y login |
@@ -156,8 +161,31 @@ Una tabla, `bookup`, con `PK` y `SK` genéricos (ambos `String`) y modo On-Deman
 | Alias de género | `GENRENAME#<name>` | `META` | `genre_id` | unicidad |
 | Contador | `COUNTER#<entidad>` | `META` | `seq` | — |
 | Marca del seed | `SEED` | `META` | `seeded_at` | — |
+| Notificación | `INBOX#USER#<id>` / `INBOX#LIB#<id>` | `NOTIF#<occurred_at>#<event_id>` | `type`, `title`, `body`, `reservation_id`, `library_id`, `isbn`, `created_at`, `read_at`, `read_by`, `ttl_epoch` | **título del libro, nombre de la sede y del lector, dentro del texto** |
+| Contador de no leídas | `INBOX#USER#<id>` / `INBOX#LIB#<id>` | `UNREAD` | `unread` | — |
 
 Los atributos con valor nulo **no se guardan**: un atributo ausente es el null. Por eso «reserva abierta» se expresa como `attribute_not_exists(cancelled_at) AND attribute_not_exists(returned_at)`.
+
+**Los atributos de la reserva que alimentan las notificaciones** (todos opcionales, así que los
+ítems anteriores siguen siendo válidos): `close_reason` (`cancelled` / `expired` / `returned` /
+`lost`) distingue una reserva vencida de una cancelada y un ejemplar perdido de uno devuelto;
+`cancelled_by` (`user` / `library`) separa «cancelaste» de «la sede canceló»; `picked_up_at` le da
+al retiro un instante determinista; las dos marcas `*_deadline_notified_at` las escribe el job de
+vencimientos con una condición `attribute_not_exists`, que es su idempotencia (extender el plazo
+borra la de retiro); y `origin = seed` hace que el notificador ignore las reservas sembradas.
+
+**Las bandejas** son una partición por bandeja: la de cada usuario y una compartida por sede. La
+SK empieza por la fecha, así que la página más nueva es un `Query` con `ScanIndexForward = false`;
+el `event_id` determinista en la SK hace idempotente la entrega (`Put` con
+`attribute_not_exists(PK)`). El contador `UNREAD` se mueve **en la misma transacción** que cada
+notificación que se escribe o se marca leída, porque contar las no leídas en cada polling sería un
+`Query` con filtro sobre 90 días. Los ítems no llevan atributos `GSI*`: no entran en ningún índice.
+El texto es un *snapshot*: renombrar después el libro no cambia las notificaciones viejas.
+
+**TTL.** La tabla tiene TTL sobre `ttl_epoch` (epoch en segundos; `TTL` es palabra reservada en las
+expresiones). Solo lo llevan las notificaciones, a los 90 días (`NOTIFICATIONS_RETENTION_DAYS`).
+DynamoDB borra con hasta ~48 h de atraso, así que el listado filtra `ttl_epoch > ahora`; y cuando
+borra una **no leída**, el notificador ve el `REMOVE` en el stream y descuenta el contador.
 
 **Las desnormalizaciones que más importan** (las tres que convierten un join en una lectura por clave):
 
@@ -198,6 +226,10 @@ Detalles que importan:
 | Reservas de un usuario / de una sede | `Query` GSI2 / GSI3 |
 | Reservas abiertas, vencidas | `Query` GSI4 (`SK < ahora`) |
 | Reserva abierta de un ejemplar | puntero `open_reservation_id` en el ejemplar |
+| Reservas con el plazo vencido (job de avisos) | `Query` GSI4 (`SK < ahora`), sin filtrar por `picked_up` |
+| Página de una bandeja de notificaciones | `Query` `PK = INBOX#…`, `begins_with(SK, "NOTIF#")`, de la más nueva a la más vieja |
+| Contador de no leídas (polling cada 30 s) | `GetItem` `INBOX#…` / `UNREAD`: uno o dos por request |
+| Marcar una notificación como leída | `TransactWriteItems`: `SET read_at` condicionado a que no estuviera leída + `ADD unread -1` |
 | «¿Tiene libros este autor?» (el 409 al borrar) | `Query` GSI2 con `Limit = 1` — contar en DynamoDB es recorrer; preguntar si hay uno, no |
 | **Listado del catálogo con filtros, búsqueda de texto, ciudades** | **OpenSearch** (4.5) |
 
