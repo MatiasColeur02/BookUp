@@ -68,7 +68,26 @@ variable "cpu_architecture" {
 }
 
 variable "desired_count" {
-  type = number
+  description = "Tareas con las que arranca el servicio. Después las maneja el autoscaling."
+  type        = number
+}
+
+variable "autoscaling_min_capacity" {
+  description = "Mínimo de tareas de la API (una por AZ para no perder disponibilidad)."
+  type        = number
+  default     = 2
+}
+
+variable "autoscaling_max_capacity" {
+  description = "Máximo de tareas de la API. Bajo a propósito para cuidar el crédito del lab."
+  type        = number
+  default     = 4
+}
+
+variable "autoscaling_cpu_target" {
+  description = "CPU promedio (%) que el autoscaling intenta mantener en el servicio."
+  type        = number
+  default     = 50
 }
 
 variable "environment" {
