@@ -1,6 +1,6 @@
 # Empaqueta api/ (código + dependencias de requirements.txt para Linux x86_64) en un zip que
-# comparten las dos Lambdas que reutilizan el código de la API: el indexador y el trigger
-# Post Confirmation de Cognito.
+# comparten las Lambdas que reutilizan el código de la API: el indexador, el trigger
+# Post Confirmation de Cognito y las tres de notificaciones.
 locals {
   build_dir = "${path.root}/.build/${var.name}"
   zip_path  = "${path.root}/.build/${var.name}.zip"

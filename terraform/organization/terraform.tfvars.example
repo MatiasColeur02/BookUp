@@ -16,5 +16,9 @@ api_cpu_architecture = "X86_64"
 
 redis_replicas = 1
 
+# Notificaciones: frecuencia del job de vencimientos y retención de la bandeja.
+deadline_scan_minutes        = 15
+notifications_retention_days = 90
+
 
 run_seed = true

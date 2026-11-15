@@ -721,6 +721,19 @@ Cada fase deja el sistema andando, y las fases 1–4 no necesitan AWS.
   desplegado llega a la campana; CloudWatch muestra el job cada 15 min; los logs de las tres Lambdas no tienen
   errores.
 
+> **Fase 7: código hecho, falta verificarlo en AWS.** `terraform validate` pasa y los README de
+> los módulos están regenerados; los permisos de §8.2 y el apply desde cero quedan para la
+> próxima sesión del lab. Detalles respecto del plan: el módulo es `topics.tf`, `lambdas.tf` y
+> `schedule.tf`; las Lambdas tienen 256 MB y timeouts de 60 / 30 / 120 s (notifier /
+> inbox-writer / scanner); el mapping del notificador filtra `RES#` **con `SK = META`** (los
+> enlaces `RES#…` viven como SK bajo otras particiones, pero así queda explícito) y el `REMOVE`
+> por TTL por `userIdentity` + `INBOX#`/`NOTIF#`; el target de EventBridge depende del mapping,
+> para que el job no escriba una marca antes de que el notificador esté enganchado (mismo
+> problema que en local, fase 5). El indexador también se filtró (`BOOK#` y `COPY#` + `META`).
+> `rate(1 minute)` va en singular si `deadline_scan_minutes = 1`. Outputs nuevos:
+> `notifications_topic_arn` y `notifications_functions`. Queda pendiente de esta fase reemplazar
+> `tests/fixtures/sns_lambda_event.json` por un evento SNS real grabado en la cuenta.
+
 ### Fase 8 — Demo y documentación
 - Notificaciones de demo en el seed (§9.3) y la documentación de §14.
 

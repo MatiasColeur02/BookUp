@@ -43,6 +43,16 @@ output "indexer_dlq_url" {
   value = module.indexer.dlq_url
 }
 
+output "notifications_topic_arn" {
+  description = "Topic SNS de los eventos de reservas."
+  value       = module.notifications.topic_arn
+}
+
+output "notifications_functions" {
+  description = "Lambdas de las notificaciones (para `aws logs tail /aws/lambda/<nombre>`)."
+  value       = module.notifications.function_names
+}
+
 # Listo para `terraform output -raw frontend_env > ../frontend/.env.production`.
 output "frontend_env" {
   description = "Variables VITE_* del build del frontend."

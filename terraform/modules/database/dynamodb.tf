@@ -43,9 +43,17 @@ resource "aws_dynamodb_table" "main" {
     }
   }
 
-  # Alimenta a la Lambda indexadora de OpenSearch.
+  # Alimenta a la Lambda indexadora de OpenSearch y al notificador.
   stream_enabled   = true
   stream_view_type = "NEW_AND_OLD_IMAGES"
+
+  # Vencimiento de las notificaciones (las únicas que llevan el atributo). Mismo nombre que
+  # TTL_ATTRIBUTE en table.py, que el seed también activa (idempotente). No es `ttl` porque
+  # `TTL` es palabra reservada en las expresiones de DynamoDB.
+  ttl {
+    attribute_name = "ttl_epoch"
+    enabled        = true
+  }
 
   point_in_time_recovery {
     enabled = var.dynamodb_pitr

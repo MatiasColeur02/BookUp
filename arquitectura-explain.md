@@ -17,9 +17,13 @@ Qué crea `terraform/` y cómo se conectan las piezas. Región `us-east-1`, cuen
 | Frontend | Bucket S3 con website hosting, lectura pública | Sirve la SPA de React (HTTP) |
 | Portadas | Bucket S3 público de lectura, con CORS hacia el frontend y versionado (las versiones anteriores se borran a los 30 días) | El browser sube la portada con un PUT firmado por la API y la muestra con `<img>` |
 | API | ECR + ECS Fargate (2 tareas) detrás de un ALB HTTP:80 | FastAPI en `AUTH_MODE=cognito`; health check en `/health` |
-| Base de datos | DynamoDB, tabla única `bookup`, 4 GSIs, On-Demand, PITR, stream `NEW_AND_OLD_IMAGES` | Fuente de verdad de todo |
+| Base de datos | DynamoDB, tabla única `bookup`, 4 GSIs, On-Demand, PITR, stream `NEW_AND_OLD_IMAGES`, TTL sobre `ttl_epoch` | Fuente de verdad de todo. El TTL borra las notificaciones a los 90 días (solo ellas llevan el atributo) |
 | Búsqueda | OpenSearch 2.17 en Fargate (1 tarea) detrás de un NLB interno :9200 | Listado, búsqueda y filtros del catálogo. No es el servicio gestionado: el Learner Lab no lo permite. El índice es descartable y se reconstruye desde DynamoDB (`reindex_command`) |
-| Indexador | Lambda en VPC + event source mapping al stream + DLQ en SQS | Mantiene OpenSearch al día con DynamoDB e invalida el cache |
+| Indexador | Lambda en VPC + event source mapping al stream (filtrado a `BOOK#` y `COPY#`) + DLQ en SQS | Mantiene OpenSearch al día con DynamoDB e invalida el cache |
+| Notificador | Lambda fuera de la VPC + event source mapping al stream (filtrado a `RES#` y a los borrados por TTL de `INBOX#`) | Segundo lector del stream: detecta los cambios de cada reserva y los publica en SNS |
+| Bus de eventos | SNS `bookup-reservation-events` (estándar, cifrado con `alias/aws/sns`) | Desacopla quién detecta de quién entrega: un canal nuevo (email, analítica) es una suscripción más |
+| Bandejas | Lambda `inbox-writer` fuera de la VPC, suscripta al topic | Arma el texto y escribe la notificación del lector y la de la sede en DynamoDB |
+| Job de vencimientos | Rule de EventBridge `rate(15 minutes)` + Lambda `deadline-scanner` fuera de la VPC | Marca las reservas con el plazo vencido; el aviso sale por el stream como cualquier otro cambio |
 | Cache | ElastiCache Redis, primario + 1 réplica Multi-AZ, TLS (`rediss://`) | Cache de lecturas y rate limiting |
 | Identidad | Cognito User Pool + dominio de Hosted UI + app client confidencial | Login, registro y recuperación de contraseña |
 | Registro | Lambda `post-confirmation` (trigger del pool) | Crea el `User` (`customer`) en DynamoDB al confirmar el registro |
@@ -51,11 +55,23 @@ El logout pasa por el `/logout` de Cognito y vuelve por `/signed-out` del mismo 
 Escritura en la API → DynamoDB → stream → Lambda indexador → OpenSearch (+ invalidación de
 Redis). Las lecturas del catálogo salen de OpenSearch (con cache en Redis); el resto, de DynamoDB.
 
+## Flujo de notificaciones
+
+API (escribe la reserva) o `deadline-scanner` (escribe la marca «venció el plazo») → DynamoDB →
+stream → Lambda `notifier` → SNS → Lambda `inbox-writer` → ítems `INBOX#USER#…` / `INBOX#LIB#…`
+de la misma tabla. El frontend pregunta `GET /notifications/unread-count` cada 30 s.
+
+Las tres Lambdas corren fuera de la VPC: solo hablan con DynamoDB y SNS, que son endpoints
+públicos, así que no ocupan ENIs ni pasan por el NAT. SNS y EventBridge las invocan con permisos
+basados en recursos (`aws_lambda_permission`): no hace falta ningún rol nuevo. Lo que falla tres
+veces en el `inbox-writer` queda solo en CloudWatch: se pierde el aviso, nunca la reserva.
+
 ## Qué hace `terraform apply`, en orden
 
 1. Red, security groups y endpoints.
 2. Buckets S3, tabla DynamoDB, Redis, y OpenSearch en Fargate (espera a que esté sano).
-3. Empaqueta `api/` como zip de Lambda; crea Cognito, el puente y el indexador.
+3. Empaqueta `api/` como zip de Lambda; crea Cognito, el puente, el indexador y las
+   notificaciones (topic, Lambdas, mapping y, recién con el mapping listo, la rule del job).
 4. Hace `docker build` + `push` de la API a ECR; crea el ALB y el servicio de ECS.
 5. Corre la tarea del seed y espera a que termine.
 
