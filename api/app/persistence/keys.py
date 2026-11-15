@@ -129,6 +129,46 @@ def is_reservation_pk(pk: str) -> bool:
     return pk.startswith("RES#")
 
 
+# ---------------------------------------------------------------------------
+# Bandejas de notificaciones (`notifications-roadmap.md` §5.2). Una partición por bandeja,
+# sin GSI: los ítems no llevan `GSI*`, así que no entran en ningún índice.
+# ---------------------------------------------------------------------------
+
+INBOX_KINDS = ("USER", "LIB")
+NOTIFICATION_PREFIX = "NOTIF#"
+# El contador de no leídas de la bandeja: un ítem más de su partición.
+UNREAD = "UNREAD"
+
+
+def inbox_pk(kind: str, owner_id: int) -> str:
+    """`INBOX#USER#<id>` (la de un usuario) o `INBOX#LIB#<id>` (la compartida de una sede).
+    `kind` es `"USER"` o `"LIB"`."""
+    if kind not in INBOX_KINDS:
+        raise ValueError(f"Unknown inbox kind {kind!r}")
+    return f"INBOX#{kind}#{owner_id}"
+
+
+def parse_inbox_pk(pk: str) -> tuple[str, int] | None:
+    """`(kind, owner_id)` de la PK de una bandeja, o `None` si no es una."""
+    parts = pk.split("#")
+    if len(parts) != 3 or parts[0] != "INBOX" or parts[1] not in INBOX_KINDS:
+        return None
+    try:
+        return parts[1], int(parts[2])
+    except ValueError:
+        return None
+
+
+def notification_sk(occurred_at: datetime, event_id: str) -> str:
+    """Empieza por la fecha: un Query hacia atrás trae las más nuevas. El `event_id` la hace
+    única y determinista (la entrega repetida de un evento choca contra su propio ítem)."""
+    return f"{NOTIFICATION_PREFIX}{iso(occurred_at)}#{event_id}"
+
+
+def is_notification_sk(sk: str) -> bool:
+    return sk.startswith(NOTIFICATION_PREFIX)
+
+
 def user_pk(user_id: int) -> str:
     return f"USER#{user_id}"
 

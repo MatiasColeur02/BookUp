@@ -44,6 +44,14 @@ def test_ensure_table_is_idempotent(dynamo):
     assert ensure_table(dynamo) is False
 
 
+def test_ensure_table_enables_the_ttl_of_the_notifications(dynamo):
+    ensure_table(dynamo)
+    ensure_table(dynamo)  # activarlo dos veces no falla
+
+    ttl = dynamo.client.describe_time_to_live(TableName=dynamo.table_name)["TimeToLiveDescription"]
+    assert ttl["TimeToLiveStatus"] == "ENABLED" and ttl["AttributeName"] == "ttl_epoch"
+
+
 def test_ensure_table_rejects_a_table_with_other_indexes(dynamo):
     dynamo.client.create_table(
         TableName=dynamo.table_name,

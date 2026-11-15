@@ -76,6 +76,11 @@ class Settings(BaseSettings):
     # a un 503 rápido, no colgar los workers de la API.
     opensearch_timeout_seconds: float = 3.0
 
+    # Notificaciones (`notifications-roadmap.md`). Cuánto viven en la bandeja (TTL de DynamoDB)
+    # y en qué zona se escriben las fechas de los textos (se guardan en UTC).
+    notifications_retention_days: int = 90
+    notifications_timezone: str = "America/Argentina/Buenos_Aires"
+
     # Vacías en AWS: ahí las credenciales salen del rol de la tarea (ECS) o de la
     # función (Lambda), que es la cadena default de boto3.
     aws_access_key_id: str = ""

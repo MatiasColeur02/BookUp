@@ -16,6 +16,11 @@ lo único que decide qué cuenta como «algo que pasó» (`notifications-roadmap
 | `MODIFY`    | aparece `returned_at`, `close_reason = lost`                           | — (interno)      |
 | `REMOVE`    | — (las reservas no se borran)                                          | —                |
 
+`expired_unread_inbox(record)` reconoce el otro registro que le interesa al notificador: el
+`REMOVE` que hace DynamoDB por TTL de una notificación **no leída** (§4, último párrafo). No es
+un evento: es el único borrado de la bandeja que no pasa por su repository, y hay que
+descontarlo del contador.
+
 Una reserva cerrada sin `close_reason` (la escribió código anterior a la fase 1) se toma como
 cancelada o devuelta según la columna: es lo que significaba antes.
 
@@ -35,7 +40,8 @@ from typing import Any
 from boto3.dynamodb.types import TypeDeserializer
 
 from ..persistence import keys
-from ..persistence.entities import SEED_ORIGIN, CancelledBy, CloseReason, Reservation
+from ..persistence.entities import SEED_ORIGIN, CancelledBy, CloseReason, InboxKind, Reservation
+from ..persistence.repositories import NotificationRepository
 from ..persistence.repositories import _support as s
 
 _deserializer = TypeDeserializer()
@@ -94,12 +100,43 @@ class ReservationEvent:
                 "physical_book_id": r.physical_book_id,
                 "isbn": r.isbn,
                 "expires_at": _iso_seconds(r.expires_at),
+                # Distingue «el ejemplar se perdió» de «la sede canceló», y un vencimiento ya
+                # cerrado de uno avisado con la reserva abierta, sin que el que entrega tenga
+                # que releer la reserva (que pudo cambiar después del evento).
+                "close_reason": r.close_reason.value if r.close_reason else None,
             },
         }
+
+    @classmethod
+    def from_message(cls, message: dict[str, Any]) -> "ReservationEvent":
+        """El inverso de `to_message`, para el que recibe el mensaje (el inbox-writer). El
+        `event_id` se recalcula y coincide con el publicado: sale de los mismos datos."""
+        r = message["reservation"]
+        event = cls(
+            type=EventType(message["type"]),
+            occurred_at=_parse(message["occurred_at"]),
+            actor=Actor(message["actor"]),
+            reservation=Reservation(
+                id=int(r["id"]),
+                user_id=int(r["user_id"]),
+                library_id=int(r["library_id"]),
+                physical_book_id=int(r["physical_book_id"]),
+                isbn=r["isbn"],
+                expires_at=_parse(r["expires_at"]),
+                close_reason=CloseReason(r["close_reason"]) if r.get("close_reason") else None,
+            ),
+        )
+        if message.get("event_id") not in (None, event.event_id):
+            raise ValueError(f"event_id {message['event_id']!r} does not match its content")
+        return event
 
 
 def _iso_seconds(moment: datetime) -> str:
     return moment.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _parse(text: str) -> datetime:
+    return datetime.strptime(text, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
 
 
 def _image(record: dict[str, Any], name: str) -> dict[str, Any] | None:
@@ -179,3 +216,25 @@ def detect(record: dict[str, Any]) -> list[ReservationEvent]:
         # `lost` con el libro prestado: es interno de la sede, el lector no tiene nada que hacer.
 
     return events
+
+
+# Así firma DynamoDB los borrados que hace él mismo por TTL (`userIdentity` del registro).
+_TTL_IDENTITY = {"type": "Service", "principalId": "dynamodb.amazonaws.com"}
+
+
+def expired_unread_inbox(record: dict[str, Any]) -> tuple[InboxKind, int] | None:
+    """La bandeja a la que hay que descontarle 1, si el registro es el borrado por TTL de una
+    notificación no leída. `None` para cualquier otro (incluido el TTL de una ya leída, que no
+    estaba en el contador)."""
+    if record.get("eventName") != "REMOVE":
+        return None
+    identity = record.get("userIdentity") or {}
+    if any(identity.get(k) != v for k, v in _TTL_IDENTITY.items()):
+        return None
+    key = _image(record, "Keys") or {}
+    if not keys.is_notification_sk(str(key.get(keys.SK, ""))):
+        return None
+    old = _image(record, "OldImage") or {}
+    if "read_at" in old:
+        return None
+    return NotificationRepository.parse_inbox(str(key.get(keys.PK, "")))

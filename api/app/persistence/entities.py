@@ -185,3 +185,35 @@ class Reservation:
     @property
     def is_open(self) -> bool:
         return self.cancelled_at is None and self.returned_at is None
+
+
+class InboxKind(str, enum.Enum):
+    """De quién es una bandeja: de un usuario, o compartida por el personal de una sede."""
+
+    user = "user"
+    library = "library"
+
+
+@dataclass(frozen=True, kw_only=True)
+class Notification:
+    """Una notificación de una bandeja (`notifications-roadmap.md` §5.2).
+
+    Es un mensaje histórico, no una vista: el título del libro y los nombres se copian al
+    escribirla, y un renombre posterior no la cambia.
+    """
+
+    type: str
+    title: str
+    body: str
+    reservation_id: int
+    library_id: int
+    isbn: str
+    # El `occurred_at` del evento, no la hora de escritura: ordena la bandeja y es parte del id.
+    created_at: datetime
+    read_at: datetime | None = None
+    # Quién la marcó como leída (en la bandeja de una sede, cuál de sus librarians).
+    read_by: int | None = None
+    # Desde cuándo DynamoDB la puede borrar (TTL). Lo calcula el service con la retención.
+    delete_after: datetime | None = None
+    # Id público y opaco, lo asigna el repository. El cliente no lo interpreta.
+    id: str | None = None

@@ -650,6 +650,22 @@ Cada fase deja el sistema andando, y las fases 1–4 no necesitan AWS.
   contador en 1; marcar una como leída dos veces descuenta una sola vez; «leer todas» deja 0; un
   usuario borrado no rompe la entrega a la sede.
 
+> **Fase 3 hecha.** Detalles respecto del plan: la entidad es `Notification` (con `InboxKind`
+> `user`/`library`) y lleva `delete_after`, que el repository escribe como `ttl_epoch`. La
+> entrega lleva un `ConditionCheck` sobre el `User` en la misma transacción: si el lector se
+> borró entre la lectura y la escritura, `deliver` reintenta solo con la sede. «Leer todas»
+> pone el contador en 0 condicionado al valor leído, para no pisar una entrega concurrente. El
+> id y el cursor opacos se rearman con la PK de la bandeja *del que pregunta* (uno ajeno no lee
+> nada), y uno mal formado es `InvalidReferenceError` (persistencia → 422 en la fase 4).
+> **Cambio al contrato de §4**: el bloque `reservation` del mensaje suma `close_reason`; sin él
+> no se distingue «el ejemplar se perdió» de «la sede canceló», ni un vencimiento ya cerrado de
+> uno avisado con la reserva abierta (el texto de la sede cambia: no dice «sigue reservado» si
+> ya no lo está). `ReservationEvent.from_message` es el inverso de `to_message` y valida el
+> `event_id`. El `REMOVE` por TTL de una no leída se reconoce con
+> `events.expired_unread_inbox(record)` (pendiente de la fase 2) y se descuenta con
+> `NotificationRepository.decrement_unread`; conectarlos es de la fase 5. `tzdata` en
+> `requirements.txt` (hay que rebuildear la imagen).
+
 ### Fase 4 — API
 - Los 4 endpoints, esquemas, `openapi.yml`.
 - **Hecho cuando**: hay tests de que un customer no puede leer `scope=library` (403), un librarian

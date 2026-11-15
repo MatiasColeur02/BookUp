@@ -396,5 +396,88 @@ def test_the_published_message_follows_the_contract(rec, repo, make, copy):
             "physical_book_id": copy.id,
             "isbn": copy.isbn,
             "expires_at": stamp,
+            "close_reason": None,
         },
     }
+
+
+def test_a_message_reads_back_as_the_same_event(rec, repo, make, copy):
+    reservation = reserve(make, copy)
+    event = only(
+        events.detect(rec.reservation_record(lambda: repo.cancel(reservation.id, by=CancelledBy.library)))
+    )
+    message = event.to_message()
+
+    back = events.ReservationEvent.from_message(message)
+
+    assert back.event_id == event.event_id and back.to_message() == message
+    assert back.reservation.close_reason is event.reservation.close_reason
+
+
+def test_a_message_whose_id_does_not_match_its_content_is_rejected(rec, make, copy):
+    event = only(events.detect(rec.reservation_record(lambda: reserve(make, copy))))
+    message = {**event.to_message(), "event_id": "r1.created.20200101T000000Z"}
+    with pytest.raises(ValueError, match="does not match"):
+        events.ReservationEvent.from_message(message)
+
+
+# -- el borrado por TTL de una notificación no leída ----------------------------
+# DynamoDB Local no borra por TTL: el `REMOVE` se captura de un borrado real y se le agrega el
+# `userIdentity` con el que AWS firma los borrados de TTL (lo único que los distingue).
+
+TTL_IDENTITY = {"type": "Service", "principalId": "dynamodb.amazonaws.com"}
+
+
+def _notification_removal(rec, table, make, copy, *, read: bool) -> tuple[dict, int]:
+    from app.services import notification_service
+    from app.persistence.entities import InboxKind
+    from app.persistence.repositories import NotificationRepository
+
+    reservation = reserve(make, copy)
+    event = events.ReservationEvent(
+        type=EventType.created, occurred_at=reservation.reserved_at, actor=Actor.user,
+        reservation=reservation,
+    )
+    notification_service.deliver(table, event)
+    repo = NotificationRepository(table)
+    [notification], _ = repo.list(InboxKind.library, copy.library_id, now=now(), limit=50)
+    if read:
+        repo.mark_read(InboxKind.library, copy.library_id, notification.id, by=1, at=now())
+    pk = keys.inbox_pk("LIB", copy.library_id)
+    sk = keys.notification_sk(reservation.reserved_at, event.event_id)
+    [record] = [
+        r
+        for r in rec.capture(lambda: table.table.delete_item(Key={"PK": pk, "SK": sk}))
+        if r["eventName"] == "REMOVE"
+    ]
+    return record, copy.library_id
+
+
+def test_a_ttl_removal_of_an_unread_notification_names_its_inbox(rec, table, make, copy):
+    from app.persistence.entities import InboxKind
+
+    record, library_id = _notification_removal(rec, table, make, copy, read=False)
+
+    assert events.expired_unread_inbox({**record, "userIdentity": TTL_IDENTITY}) == (
+        InboxKind.library,
+        library_id,
+    )
+    assert events.detect({**record, "userIdentity": TTL_IDENTITY}) == []
+
+
+def test_a_removal_that_is_not_the_ttl_is_not_discounted(rec, table, make, copy):
+    record, _ = _notification_removal(rec, table, make, copy, read=False)
+    assert events.expired_unread_inbox(record) is None
+
+
+def test_a_ttl_removal_of_a_read_notification_is_not_discounted(rec, table, make, copy):
+    record, _ = _notification_removal(rec, table, make, copy, read=True)
+    assert events.expired_unread_inbox({**record, "userIdentity": TTL_IDENTITY}) is None
+
+
+def test_a_ttl_identity_on_something_else_is_not_a_notification(rec, table, make, copy):
+    reservation = reserve(make, copy)
+    record = rec.reservation_record(
+        lambda: table.table.delete_item(Key=keys.key(keys.reservation_pk(reservation.id)))
+    )
+    assert events.expired_unread_inbox({**record, "userIdentity": TTL_IDENTITY}) is None
