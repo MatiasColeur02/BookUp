@@ -76,4 +76,10 @@ resource "aws_ecs_service" "api" {
 
   # El target group tiene que estar asociado a un listener antes de crear el servicio.
   depends_on = [aws_lb_listener.http]
+
+  # Después de crearlo, la cantidad de tareas la maneja el autoscaling (autoscaling.tf).
+  # Sin esto, cada apply volvería a forzar `desired_count` y pisaría lo que decidió.
+  lifecycle {
+    ignore_changes = [desired_count]
+  }
 }
