@@ -53,6 +53,24 @@ output "notifications_functions" {
   value       = module.notifications.function_names
 }
 
+output "public_api_url" {
+  description = "Catálogo público para bibliotecas externas (API Gateway, solo lectura, pide x-api-key)."
+  value       = module.public_api.invoke_url
+}
+
+# Valores en claro de las API keys de los consumidores externos. Sensible.
+#   terraform output -json public_api_keys
+output "public_api_keys" {
+  description = "Valor de la API key de cada consumidor externo del catálogo (header x-api-key)."
+  value       = module.public_api.api_key_values
+  sensitive   = true
+}
+
+output "public_api_example" {
+  description = "Ejemplo de consumo del catálogo público (reemplazar <API_KEY> por el valor real)."
+  value       = module.public_api.example_curl
+}
+
 # Listo para `terraform output -raw frontend_env > ../frontend/.env.production`.
 output "frontend_env" {
   description = "Variables VITE_* del build del frontend."

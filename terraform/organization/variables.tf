@@ -149,6 +149,14 @@ variable "notifications_retention_days" {
   default     = 90
 }
 
+# --- API pública -------------------------------------------------------------
+
+variable "public_api_consumers" {
+  description = "Consumidores externos del catálogo público: una API key por nombre, todas ligadas al mismo usage plan."
+  type        = set(string)
+  default     = ["demo-library"]
+}
+
 # --- Almacenamiento ----------------------------------------------------------
 
 variable "force_destroy_buckets" {

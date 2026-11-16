@@ -20,5 +20,8 @@ redis_replicas = 1
 deadline_scan_minutes        = 15
 notifications_retention_days = 90
 
+# API pública: una API key por consumidor externo del catálogo (todas con el mismo usage plan).
+public_api_consumers = ["demo-library"]
+
 
 run_seed = true

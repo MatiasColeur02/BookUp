@@ -159,3 +159,14 @@ module "compute" {
   run_seed              = var.run_seed
   seed_trigger          = module.database.table_arn
 }
+
+# API pública gobernada (TP1): un API Gateway REST delante del ALB que expone solo la lectura
+# del catálogo a bibliotecas externas, con API key + usage plan (throttling/quota por cliente)
+# y métricas en CloudWatch. No toca la API interna: hace proxy a los mismos endpoints.
+module "public_api" {
+  source = "../modules/public-api"
+
+  name_prefix        = local.name_prefix
+  backend_base_url   = module.compute.api_url
+  external_consumers = var.public_api_consumers
+}
