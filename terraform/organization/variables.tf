@@ -157,6 +157,14 @@ variable "public_api_consumers" {
   default     = ["demo-library"]
 }
 
+# --- Reportes ----------------------------------------------------------------
+
+variable "analytics_export_minutes" {
+  description = "Cada cuántos minutos se reescribe en S3 la foto de los datos que consulta Athena."
+  type        = number
+  default     = 60
+}
+
 # --- Almacenamiento ----------------------------------------------------------
 
 variable "force_destroy_buckets" {

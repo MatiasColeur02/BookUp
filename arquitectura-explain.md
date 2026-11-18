@@ -24,6 +24,7 @@ Qué crea `terraform/` y cómo se conectan las piezas. Región `us-east-1`, cuen
 | Bus de eventos | SNS `bookup-reservation-events` (estándar, cifrado con `alias/aws/sns`) | Desacopla quién detecta de quién entrega: un canal nuevo (email, analítica) es una suscripción más |
 | Bandejas | Lambda `inbox-writer` fuera de la VPC, suscripta al topic | Arma el texto y escribe la notificación del lector y la de la sede en DynamoDB |
 | Job de vencimientos | Rule de EventBridge `rate(15 minutes)` + Lambda `deadline-scanner` fuera de la VPC | Marca las reservas con el plazo vencido; el aviso sale por el stream como cualquier otro cambio |
+| Reportes | Rule de EventBridge `rate(60 minutes)` + Lambda `analytics-exporter` fuera de la VPC → bucket S3 privado (JSON Lines) → Glue Catalog + Athena (workgroup propio, 4 queries guardadas) | Estadísticas (reservas por sede y mes, libros más pedidos...) sin cargar la app. La Lambda lee por GSI1 y reescribe la foto completa; no exporta datos personales |
 | Cache | ElastiCache Redis, primario + 1 réplica Multi-AZ, TLS (`rediss://`) | Cache de lecturas y rate limiting |
 | Identidad | Cognito User Pool + dominio de Hosted UI + app client confidencial | Login, registro y recuperación de contraseña |
 | Registro | Lambda `post-confirmation` (trigger del pool) | Crea el `User` (`customer`) en DynamoDB al confirmar el registro |
@@ -65,6 +66,13 @@ Las tres Lambdas corren fuera de la VPC: solo hablan con DynamoDB y SNS, que son
 públicos, así que no ocupan ENIs ni pasan por el NAT. SNS y EventBridge las invocan con permisos
 basados en recursos (`aws_lambda_permission`): no hace falta ningún rol nuevo. Lo que falla tres
 veces en el `inbox-writer` queda solo en CloudWatch: se pierde el aviso, nunca la reserva.
+
+## Flujo de reportes
+
+EventBridge (cada hora, o a mano con `analytics_export_command`) → Lambda `analytics-exporter` → lee reservas,
+sedes y libros de DynamoDB por GSI1 (sin `Scan`) → reescribe tres archivos JSON Lines en el bucket privado →
+Athena los consulta a través de las tablas de Glue. Es una foto completa, no un incremental: reescribir es
+idempotente y Athena nunca suma un dato dos veces.
 
 ## Qué hace `terraform apply`, en orden
 
