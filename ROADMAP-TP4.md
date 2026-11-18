@@ -77,9 +77,9 @@ Un lugar aparte para sacar estadísticas (ej: reservas por sede/mes) sin afectar
 - Exportar datos de DynamoDB a S3 (export o un job chico) y crear una tabla de Athena + **una
   query de ejemplo**. Alternativa: un crawler de Glue.
 
-#### 5. Actualizar el diagrama — 📋 consigna
+#### 5. Actualizar el diagrama — 📋 consigna — *hecho: `docs/Arquitectura-TP4.pdf`*
 Que el dibujo coincida con lo armado (ECS, DynamoDB, Cognito **+ las piezas nuevas**).
-- **Por dónde empezar:** partir de `docs/arquitectura.drawio.pdf` y sumar API Gateway, SNS y autoscaling.
+- **Por dónde empezar:** partir de `docs/arquitectura.drawio.pdf` (versión anterior) y sumar API Gateway, SNS, autoscaling y reportes. El resultado es `docs/Arquitectura-TP4.pdf`.
 - ⚠️ Se puede **empezar** en paralelo, pero se **cierra al final**, cuando 1–4 estén definidas.
 
 ### 🔴 Para el final (cuando ya está todo junto)
