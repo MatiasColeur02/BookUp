@@ -71,6 +71,26 @@ output "public_api_example" {
   value       = module.public_api.example_curl
 }
 
+output "analytics_database" {
+  description = "Base de Athena (Glue Catalog) con las tablas reservations, libraries y books."
+  value       = module.analytics.database
+}
+
+output "analytics_workgroup" {
+  description = "Workgroup de Athena de los reportes."
+  value       = module.analytics.workgroup
+}
+
+output "analytics_export_command" {
+  description = "Refresca ya la foto de los datos (si no, la rule de EventBridge lo hace cada hora)."
+  value       = module.analytics.export_command
+}
+
+output "analytics_example_query_command" {
+  description = "Corre desde la CLI el reporte de reservas por sede y mes."
+  value       = module.analytics.example_query_command
+}
+
 # Listo para `terraform output -raw frontend_env > ../frontend/.env.production`.
 output "frontend_env" {
   description = "Variables VITE_* del build del frontend."

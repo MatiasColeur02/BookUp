@@ -71,7 +71,7 @@ Que la plataforma sume/saque contenedores según la demanda. Hoy corre con 2 tar
   por CPU** al servicio ECS (ver `terraform/modules/compute/ecs.tf`, `desired_count` fijo hoy).
 - Para la demo: generar carga y mostrar cómo nacen tareas nuevas.
 
-#### 4. Reportes / analítica — 📋 consigna (TP1)
+#### 4. Reportes / analítica — 📋 consigna (TP1) — *implementado y verificado en el lab (Lambda → S3 → Athena, 4 queries)*
 Un lugar aparte para sacar estadísticas (ej: reservas por sede/mes) sin afectar la app.
 - **Por dónde empezar:** lo más barato para el lab es **Athena sobre S3** (evitar Redshift, es caro).
 - Exportar datos de DynamoDB a S3 (export o un job chico) y crear una tabla de Athena + **una

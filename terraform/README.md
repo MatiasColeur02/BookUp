@@ -25,6 +25,7 @@ terraform/
     auth/                   # Cognito, Lambda post-confirmation, puente HTTPS (API Gateway + Lambda)
     indexer/                # Lambda indexadora + event source mapping + DLQ
     notifications/          # topic SNS, 3 Lambdas de notificaciones, rule de EventBridge
+    analytics/              # reportes: Lambda exportadora, bucket S3 privado, Glue + Athena
     compute/                # ECR + push de la imagen, ALB, ECS Fargate, tarea del seed
 ```
 
@@ -41,6 +42,7 @@ terraform/
 | [`auth`](modules/auth/README.md) | Propio | User Pool, dominio, app client, 2 Lambdas, HTTP API con 2 rutas, permisos de invocación | `frontend_url`, zip de la API → `user_pool_id`, `client_id`, `cognito_domain`, URLs del puente |
 | [`indexer`](modules/indexer/README.md) | Propio | Lambda en VPC, SQS DLQ, event source mapping filtrado a libros y ejemplares | zip, `stream_arn`, entorno → `dlq_url` |
 | [`notifications`](modules/notifications/README.md) | Propio | Topic SNS + suscripción, 3 Lambdas fuera de la VPC (`for_each`), event source mapping filtrado, rule de EventBridge, permisos de invocación | zip, `table_stream_arn`, `deadline_scan_minutes` → `topic_arn`, `function_names` |
+| [`analytics`](modules/analytics/README.md) | Propio | Bucket S3 privado (CLI), Lambda exportadora + rule de EventBridge, base y tablas de Glue (`for_each`), workgroup de Athena y queries guardadas | zip, `table_name`, `export_minutes` → `database`, `workgroup`, `export_command` |
 | [`compute`](modules/compute/README.md) | Propio | ECR + lifecycle, push de la imagen, ALB/TG/listener, task definition, servicio, seed | subnets, SGs, cluster, entorno → `api_url`, `image_uri`, `reindex_command` |
 
 `lambda_package` se usa una vez y su zip lo consumen tres módulos (`auth`, `indexer` y
@@ -73,6 +75,7 @@ done
 | `covers_noncurrent_days` | `30` | Días que se conservan las versiones anteriores de las portadas |
 | `deadline_scan_minutes` | `15` | Cada cuántos minutos el job avisa los plazos de reserva vencidos |
 | `notifications_retention_days` | `90` | Días que vive una notificación en la bandeja (TTL) |
+| `analytics_export_minutes` | `60` | Cada cuántos minutos se reescribe en S3 la foto de los datos que consulta Athena |
 
 Lista completa con descripciones en [`variables.tf`](organization/variables.tf).
 

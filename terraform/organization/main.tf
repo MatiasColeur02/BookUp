@@ -170,3 +170,21 @@ module "public_api" {
   backend_base_url   = module.compute.api_url
   external_consumers = var.public_api_consumers
 }
+
+# Reportes y analítica (TP1): una Lambda exporta reservas, sedes y libros de DynamoDB a un bucket
+# privado en JSON Lines, y Athena (Glue Catalog + workgroup + queries guardadas) los consulta con
+# SQL sin cargar la app. La API no sabe que existe.
+module "analytics" {
+  source = "../modules/analytics"
+
+  name_prefix        = local.name_prefix
+  suffix             = local.suffix
+  region             = var.aws_region
+  force_destroy      = var.force_destroy_buckets
+  lambda_role_arn    = data.aws_iam_role.lab.arn
+  package_zip        = module.api_package.zip_path
+  package_hash       = module.api_package.zip_hash
+  table_name         = module.database.table_name
+  export_minutes     = var.analytics_export_minutes
+  log_retention_days = var.log_retention_days
+}

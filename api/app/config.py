@@ -90,6 +90,10 @@ class Settings(BaseSettings):
     # vencimientos. En AWS lo programa una rule de EventBridge (`deadline_scan_minutes`).
     notifications_scan_seconds: int = 60
 
+    # Analítica (`app/analytics/exporter.py`): bucket donde la Lambda exportadora deja la foto de
+    # los datos que consulta Athena. Solo lo lee esa Lambda; vacío = la exportación falla fuerte.
+    analytics_bucket: str = ""
+
     # Vacías en AWS: ahí las credenciales salen del rol de la tarea (ECS) o de la
     # función (Lambda), que es la cadena default de boto3.
     aws_access_key_id: str = ""
