@@ -1,0 +1,417 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BookUp · API pública</title>
+<style>
+  :root {
+    --bg: #f6f5f1; --surface: #fff; --surface-2: #efede7; --border: #e0ddd5;
+    --text: #1d1c1a; --muted: #77746b; --accent: #1f5f8b; --accent-soft: #e3eef6;
+    --ok: #1e7a46; --ok-soft: #e2f3e8; --warn: #9a5b00; --warn-soft: #fbefd9;
+    --err: #b3261e; --err-soft: #fbe5e3; --on-accent: #fff;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #151514; --surface: #1e1e1c; --surface-2: #272725; --border: #34332e;
+      --text: #ecebe6; --muted: #9c998f; --accent: #6fb1e0; --accent-soft: #1d3140;
+      --ok: #5cc98a; --ok-soft: #173325; --warn: #e8b05a; --warn-soft: #3a2c14;
+      --err: #f08a82; --err-soft: #3d1e1b; --on-accent: #0d1b25;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #151514; --surface: #1e1e1c; --surface-2: #272725; --border: #34332e;
+    --text: #ecebe6; --muted: #9c998f; --accent: #6fb1e0; --accent-soft: #1d3140;
+    --ok: #5cc98a; --ok-soft: #173325; --warn: #e8b05a; --warn-soft: #3a2c14;
+    --err: #f08a82; --err-soft: #3d1e1b; --on-accent: #0d1b25;
+  }
+
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.5 var(--sans); }
+  .wrap { max-width: 960px; margin: 0 auto; padding: 0 16px; }
+
+  header { display: flex; align-items: center; gap: 10px; padding: 20px 0 16px; flex-wrap: wrap; }
+  .brand { font-weight: 700; font-size: 17px; }
+  .brand span { color: var(--muted); font-weight: 500; }
+  .spacer { flex: 1; }
+  .pill { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+  .ok .dot { background: var(--ok); }
+  .err .dot { background: var(--err); }
+  .icon-btn { background: none; border: 0; color: var(--muted); cursor: pointer; font-size: 16px; padding: 4px; }
+
+  .bar {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 6px;
+  }
+  .seg { display: flex; gap: 2px; overflow-x: auto; scrollbar-width: none; }
+  .seg button {
+    flex: 1 0 auto; font: inherit; font-size: 14px; padding: 8px 14px; border: 0; border-radius: 10px;
+    background: none; color: var(--muted); cursor: pointer; white-space: nowrap;
+  }
+  .seg button:hover { color: var(--text); }
+  .seg button[aria-selected="true"] { background: var(--surface-2); color: var(--text); font-weight: 600; }
+
+  form { display: flex; gap: 8px; padding: 8px 4px 4px; flex-wrap: wrap; }
+  form input {
+    flex: 1 1 160px; min-width: 0; font: inherit; padding: 9px 12px; border-radius: 10px;
+    border: 1px solid var(--border); background: var(--bg); color: var(--text);
+  }
+  form input.sm { flex: 0 1 90px; }
+  form input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+  form button {
+    font: inherit; font-weight: 600; padding: 9px 20px; border-radius: 10px; border: 0;
+    background: var(--accent); color: var(--on-accent); cursor: pointer;
+  }
+  form button:disabled { opacity: .6; cursor: progress; }
+
+  .url { display: flex; align-items: center; gap: 8px; margin: 10px 4px 0; font: 12.5px var(--mono); color: var(--muted); }
+  .url span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+  .url button { font: 12px var(--sans); background: none; border: 1px solid var(--border); border-radius: 6px; color: var(--muted); padding: 2px 8px; cursor: pointer; flex: none; }
+
+  .result { margin: 20px 0 40px; }
+  .rhead { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; font-size: 13px; color: var(--muted); }
+  .status { font: 600 12.5px var(--mono); padding: 2px 8px; border-radius: 6px; }
+  .s2 { background: var(--ok-soft); color: var(--ok); }
+  .s4 { background: var(--warn-soft); color: var(--warn); }
+  .s5 { background: var(--err-soft); color: var(--err); }
+  .rhead .toggle { margin-left: auto; font: inherit; background: none; border: 0; color: var(--accent); cursor: pointer; }
+  .empty { color: var(--muted); text-align: center; padding: 48px 0; }
+  .msg { padding: 12px 14px; border-radius: 10px; background: var(--warn-soft); font-size: 14px; }
+  .msg.err { background: var(--err-soft); }
+  pre { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 12px; overflow: auto; font: 12.5px/1.5 var(--mono); max-height: 70vh; margin: 0; }
+
+  .books { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; }
+  .book {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px;
+    text-align: left; font: inherit; color: inherit; cursor: pointer; display: flex; flex-direction: column; gap: 2px;
+  }
+  .book:hover { border-color: var(--accent); }
+  .book b { line-height: 1.3; }
+  .book small { color: var(--muted); }
+  .more { display: flex; justify-content: center; gap: 8px; margin-top: 14px; }
+  .more button, .chip {
+    font: inherit; font-size: 14px; background: var(--surface); border: 1px solid var(--border);
+    border-radius: 999px; padding: 6px 14px; color: var(--text); cursor: pointer;
+  }
+  .more button:hover, .chip:hover { border-color: var(--accent); color: var(--accent); }
+  .more button:disabled { opacity: .4; cursor: default; border-color: var(--border); color: var(--text); }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; }
+
+  .detail { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 18px; display: flex; gap: 18px; }
+  .cover { width: 110px; flex: none; aspect-ratio: 2/3; border-radius: 6px; background: var(--surface-2); object-fit: cover; }
+  .detail h2 { margin: 0 0 2px; font-size: 19px; }
+  .detail .by { color: var(--muted); margin-bottom: 10px; }
+  .detail p { margin: 10px 0; font-size: 14px; }
+  .meta { font-size: 13px; color: var(--muted); }
+  .link { font: inherit; font-size: 14px; background: none; border: 0; padding: 0; color: var(--accent); cursor: pointer; }
+
+  table { width: 100%; border-collapse: collapse; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+  th, td { text-align: left; padding: 10px 14px; border-bottom: 1px solid var(--border); font-size: 14px; }
+  tr:last-child td { border-bottom: 0; }
+  th { font-size: 12px; color: var(--muted); font-weight: 600; background: var(--surface-2); }
+  td.n { text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; }
+  .avail-title { margin: 0 0 10px; font-weight: 600; }
+
+  dialog {
+    border: 1px solid var(--border); border-radius: 14px; padding: 20px; width: min(440px, calc(100vw - 32px));
+    background: var(--surface); color: var(--text);
+  }
+  dialog::backdrop { background: rgba(0,0,0,.35); }
+  dialog h3 { margin: 0 0 14px; font-size: 16px; }
+  dialog label { display: block; font-size: 12.5px; color: var(--muted); margin: 10px 0 4px; }
+  dialog .row { display: flex; gap: 6px; }
+  dialog input {
+    width: 100%; min-width: 0; font: 13px var(--mono); padding: 9px 11px; border-radius: 10px;
+    border: 1px solid var(--border); background: var(--bg); color: var(--text);
+  }
+  dialog input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+  dialog .ghost { font: inherit; font-size: 13px; background: none; border: 1px solid var(--border); border-radius: 10px; color: var(--muted); padding: 0 10px; cursor: pointer; }
+  dialog .actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
+  dialog .actions button { font: inherit; font-size: 14px; padding: 8px 16px; border-radius: 10px; cursor: pointer; }
+  dialog .cancel { background: none; border: 1px solid var(--border); color: var(--text); }
+  dialog .save { background: var(--accent); color: var(--on-accent); border: 0; font-weight: 600; }
+  dialog .error { color: var(--err); font-size: 13px; margin-top: 10px; min-height: 1em; }
+
+  @media (max-width: 600px) {
+    .detail { flex-direction: column; }
+    .cover { width: 90px; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="brand">BookUp <span>· API pública</span></div>
+    <div class="spacer"></div>
+    <span class="pill" id="pill"><span class="dot"></span><span id="pillText">Conectando…</span></span>
+    <button class="icon-btn" id="themeBtn" type="button" aria-label="Cambiar tema">◐</button>
+    <button class="icon-btn" id="cfgBtn" type="button" aria-label="Configurar URL y API key" title="URL y API key">⚙</button>
+  </header>
+
+  <dialog id="cfgDialog">
+    <form method="dialog" id="cfgForm">
+      <h3>Conexión al API Gateway</h3>
+      <label for="cfgUrl">URL del stage</label>
+      <input id="cfgUrl" type="url" required placeholder="https://<api-id>.execute-api.us-east-1.amazonaws.com/v1">
+      <label for="cfgKey">API key (x-api-key)</label>
+      <div class="row">
+        <input id="cfgKey" type="password" placeholder="Valor de la clave">
+        <button type="button" class="ghost" id="cfgShow">Ver</button>
+      </div>
+      <div class="error" id="cfgError"></div>
+      <div class="actions">
+        <button type="button" class="cancel" id="cfgCancel">Cancelar</button>
+        <button type="submit" class="save">Guardar</button>
+      </div>
+    </form>
+  </dialog>
+
+  <div class="bar">
+    <div class="seg" role="tablist" id="seg"></div>
+    <form id="form" autocomplete="off"></form>
+    <div class="url"><span id="url"></span><button type="button" id="copy">Copiar curl</button></div>
+  </div>
+
+  <section class="result" id="result"><div class="empty">Elegí un endpoint y enviá.</div></section>
+</div>
+
+<script>
+(() => {
+  "use strict";
+  const $ = id => document.getElementById(id);
+  const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+  // Tema
+  const root = document.documentElement;
+  try { const t = localStorage.getItem("bookup-demo-theme"); if (t) root.dataset.theme = t; } catch (_) {}
+  $("themeBtn").onclick = () => {
+    const dark = root.dataset.theme ? root.dataset.theme === "dark" : matchMedia("(prefers-color-scheme: dark)").matches;
+    root.dataset.theme = dark ? "light" : "dark";
+    try { localStorage.setItem("bookup-demo-theme", root.dataset.theme); } catch (_) {}
+  };
+
+  // Endpoints
+  const ISBN = "9780307474728";
+  const EPS = [
+    { id: "list", label: "Catálogo", fields: [["q", "Buscar en el catálogo…"], ["city", "Ciudad"], ["limit", "limit", "12", "sm"], ["offset", "offset", "0", "sm"]],
+      req: v => ["books", { q: v.q, city: v.city, limit: v.limit, offset: v.offset }] },
+    { id: "search", label: "Búsqueda", fields: [["q", "Título, autor, ISBN…", "borges"]],
+      req: v => ["books/search", { q: v.q }] },
+    { id: "cities", label: "Ciudades", fields: [],
+      req: () => ["books/cities", {}] },
+    { id: "detail", label: "Detalle", fields: [["isbn", "ISBN", ISBN]],
+      req: v => ["books/" + encodeURIComponent(v.isbn || ""), {}] },
+    { id: "availability", label: "Disponibilidad", fields: [["isbn", "ISBN", ISBN]],
+      req: v => ["books/" + encodeURIComponent(v.isbn || "") + "/availability", {}] },
+  ];
+  const vals = {};
+  EPS.forEach(e => { vals[e.id] = Object.fromEntries(e.fields.map(f => [f[0], f[2] || ""])); });
+
+  let cfg = { api_url: null };
+  let ep = EPS[0];
+  let last = null;      // última respuesta, para el toggle JSON
+  let showRaw = false;
+
+  EPS.forEach(e => {
+    const b = document.createElement("button");
+    b.type = "button"; b.textContent = e.label; b.dataset.id = e.id; b.setAttribute("role", "tab");
+    b.onclick = () => select(e.id);
+    $("seg").appendChild(b);
+  });
+
+  function select(id, patch, run) {
+    ep = EPS.find(e => e.id === id);
+    if (patch) Object.assign(vals[id], patch);
+    $("seg").querySelectorAll("button").forEach(b => b.setAttribute("aria-selected", String(b.dataset.id === id)));
+    $("form").innerHTML = ep.fields.map(([n, ph, , cls]) =>
+      `<input name="${n}" placeholder="${esc(ph)}" value="${esc(vals[id][n])}" aria-label="${esc(ph)}"${cls ? ` class="${cls}"` : ""}${cls ? ' type="number" min="0"' : ""}>`
+    ).join("") + `<button type="submit" id="send">Enviar</button>`;
+    $("form").querySelectorAll("input").forEach(i => i.oninput = () => { vals[id][i.name] = i.value; preview(); });
+    preview();
+    if (run || ep.fields.length === 0 || ep.id === "list") send();
+  }
+
+  function request() {
+    const v = Object.fromEntries(Object.entries(vals[ep.id]).map(([k, x]) => [k, String(x).trim()]));
+    const [path, query] = ep.req(v);
+    const qs = new URLSearchParams(Object.entries(query).filter(([, x]) => x)).toString();
+    return path + (qs ? "?" + qs : "");
+  }
+
+  function fullUrl() { return `${cfg.api_url || "https://<api-id>.execute-api.<region>.amazonaws.com/v1"}/${request()}`; }
+  function preview() { $("url").textContent = "GET " + fullUrl(); }
+
+  $("copy").onclick = async () => {
+    const cmd = `curl -s -H "x-api-key: $API_KEY" "${fullUrl()}"`;
+    try { await navigator.clipboard.writeText(cmd); $("copy").textContent = "Copiado"; }
+    catch (_) { prompt("curl:", cmd); }
+    setTimeout(() => { $("copy").textContent = "Copiar curl"; }, 1500);
+  };
+
+  $("form").onsubmit = e => { e.preventDefault(); send(); };
+
+  async function send() {
+    const btn = $("send"), mine = ep;
+    btn.disabled = true;
+    $("result").innerHTML = `<div class="empty">Cargando…</div>`;
+    try {
+      const r = await fetch("/proxy/" + request(), { cache: "no-store" });
+      const data = await r.json();
+      if (mine !== ep) return;
+      if (data.status === undefined) return fail(data.error || "Error del proxy local");
+      last = { ep: mine, data };
+      render();
+    } catch (_) {
+      if (mine === ep) fail(location.protocol === "file:"
+        ? "Abrí la demo con su servidor: python demos/public_api_demo.py"
+        : "No se pudo hablar con el proxy local.");
+    } finally { btn.disabled = false; }
+  }
+
+  function fail(msg) { last = null; $("result").innerHTML = `<div class="msg err">${esc(msg)}</div>`; }
+
+  function render() {
+    const { ep: e, data } = last;
+    const cls = data.status < 300 ? "s2" : data.status < 500 ? "s4" : "s5";
+    let body;
+    if (showRaw) body = `<pre>${esc(typeof data.body === "string" ? data.body : JSON.stringify(data.body, null, 2))}</pre>`;
+    else if (data.status >= 300) body = errorView(data);
+    else body = VIEWS[e.id](data.body);
+    $("result").innerHTML = `
+      <div class="rhead"><span class="status ${cls}">${data.status}</span><span>${data.elapsed_ms} ms</span>
+        <button class="toggle" id="toggle" type="button">${showRaw ? "Ver resultado" : "Ver JSON"}</button></div>${body}`;
+    $("toggle").onclick = () => { showRaw = !showRaw; render(); };
+    $("result").querySelectorAll("[data-go]").forEach(b => b.onclick = () => go(b.dataset));
+  }
+
+  function errorView(d) {
+    const b = d.body;
+    let m = typeof b === "string" ? b : (b && (b.message || b.detail)) || "";
+    if (Array.isArray(m)) m = m.map(x => x.msg).join("; ");
+    const hint = { 403: "Sin API key válida o ruta no expuesta.", 429: "Límite del usage plan alcanzado.", 404: "No existe." }[d.status];
+    return `<div class="msg${d.status >= 500 ? " err" : ""}">${esc(m || hint || "Error")}${m && hint ? ` <span class="meta">· ${esc(hint)}</span>` : ""}</div>`;
+  }
+
+  function go(d) {
+    if (d.go === "list") select("list", d.city !== undefined ? { q: "", city: d.city, offset: "0" } : { offset: d.offset }, true);
+    else select(d.go, { isbn: d.isbn }, true);
+  }
+
+  const authors = b => (b.authors || []).map(a => a.name).join(", ");
+  const card = b => `<button type="button" class="book" data-go="detail" data-isbn="${esc(b.isbn)}">
+      <b>${esc(b.title)}</b><small>${esc(authors(b)) || "—"}</small></button>`;
+
+  const VIEWS = {
+    list(p) {
+      if (!p.items.length) return `<div class="empty">Sin resultados.</div>`;
+      const prev = Math.max(0, p.offset - p.limit), next = p.offset + p.limit;
+      return `<div class="books">${p.items.map(card).join("")}</div>
+        <div class="more">
+          <button type="button" data-go="list" data-offset="${prev}" ${p.offset === 0 ? "disabled" : ""}>← Anterior</button>
+          <span class="meta" style="align-self:center">${p.offset + 1}–${p.offset + p.items.length} de ${p.total}</span>
+          <button type="button" data-go="list" data-offset="${next}" ${next >= p.total ? "disabled" : ""}>Siguiente →</button>
+        </div>`;
+    },
+    search(list) {
+      return list.length ? `<div class="books">${list.map(card).join("")}</div>` : `<div class="empty">Sin resultados.</div>`;
+    },
+    cities(list) {
+      return list.length
+        ? `<div class="chips">${list.map(c => `<button type="button" class="chip" data-go="list" data-city="${esc(c)}">${esc(c)}</button>`).join("")}</div>`
+        : `<div class="empty">Ninguna ciudad con stock.</div>`;
+    },
+    detail(b) {
+      const facts = [b.language, b.pages && b.pages + " págs.", (b.genres || []).map(g => g.name).join(", ")].filter(Boolean).join(" · ");
+      return `<div class="detail">
+        ${b.cover_url ? `<img class="cover" src="${esc(b.cover_url)}" alt="">` : `<div class="cover"></div>`}
+        <div>
+          <h2>${esc(b.title)}</h2>
+          <div class="by">${esc(authors(b))}</div>
+          <div class="meta">ISBN ${esc(b.isbn)}${facts ? " · " + esc(facts) : ""}</div>
+          ${b.synopsis ? `<p>${esc(b.synopsis)}</p>` : ""}
+          <button type="button" class="link" data-go="availability" data-isbn="${esc(b.isbn)}">Ver disponibilidad →</button>
+        </div></div>`;
+    },
+    availability(a) {
+      const rows = a.libraries || [];
+      const title = `<p class="avail-title">${esc(a.book && a.book.title)}</p>`;
+      if (!rows.length) return title + `<div class="empty">Sin ejemplares disponibles ahora.</div>`;
+      return title + `<table><thead><tr><th>Sede</th><th>Ciudad</th><th style="text-align:right">Disponibles</th></tr></thead><tbody>
+        ${rows.map(r => `<tr><td>${esc(r.library.name)}</td><td>${esc(r.library.city || "—")}</td><td class="n">${esc(r.available_copies)}</td></tr>`).join("")}
+        </tbody></table>`;
+    },
+  };
+
+  // Config del proxy
+  const STORE = "bookup-demo-conn";
+  const saved = () => { try { return JSON.parse(localStorage.getItem(STORE) || "null"); } catch (_) { return null; } };
+
+  function showCfg(state) {
+    const pill = $("pill"), txt = $("pillText");
+    pill.classList.remove("ok", "err");
+    if (state === "nofile") { pill.classList.add("err"); txt.textContent = "Sin servidor"; return; }
+    if (state === "down") { pill.classList.add("err"); txt.textContent = "Proxy caído"; return; }
+    pill.classList.add(cfg.configured ? "ok" : "err");
+    txt.textContent = cfg.configured ? `Clave ${cfg.key_masked}` : "Falta URL o API key";
+    preview();
+  }
+
+  async function pushCfg(api_url, api_key) {
+    const r = await fetch("/config", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ api_url, api_key }) });
+    let data;
+    try { data = await r.json(); }
+    catch (_) { throw new Error("El servidor de la demo está desactualizado: cortalo (Ctrl+C) y volvé a correr python demos/public_api_demo.py."); }
+    if (!r.ok) throw new Error(data.error || "No se pudo guardar.");
+    cfg = data;
+    showCfg();
+  }
+
+  // Diálogo de configuración
+  const dlg = $("cfgDialog");
+  $("cfgBtn").onclick = () => {
+    const s = saved();
+    $("cfgUrl").value = cfg.api_url || (s && s.api_url) || "";
+    $("cfgKey").value = (s && s.api_key) || "";
+    $("cfgKey").placeholder = cfg.key_masked ? `Actual: ${cfg.key_masked}` : "Valor de la clave";
+    $("cfgError").textContent = "";
+    dlg.showModal();
+  };
+  $("cfgCancel").onclick = () => dlg.close();
+  $("cfgShow").onclick = () => {
+    const k = $("cfgKey"); k.type = k.type === "password" ? "text" : "password";
+    $("cfgShow").textContent = k.type === "password" ? "Ver" : "Ocultar";
+  };
+  $("cfgForm").onsubmit = async e => {
+    e.preventDefault();
+    const api_url = $("cfgUrl").value.trim(), api_key = $("cfgKey").value.trim();
+    if (!api_key) { $("cfgError").textContent = "Falta la API key."; return; }
+    try {
+      await pushCfg(api_url, api_key);
+      try { localStorage.setItem(STORE, JSON.stringify({ api_url, api_key })); } catch (_) {}
+      dlg.close();
+      send();
+    } catch (err) { $("cfgError").textContent = err.message; }
+  };
+
+  (async () => {
+    if (location.protocol === "file:") return showCfg("nofile");
+    try {
+      cfg = await (await fetch("/config", { cache: "no-store" })).json();
+      // Si el servidor arrancó sin config y la página tiene una guardada, se la pasa.
+      const s = saved();
+      if (!cfg.configured && s && s.api_url && s.api_key) {
+        try { await pushCfg(s.api_url, s.api_key); send(); } catch (_) { showCfg(); }
+      } else {
+        showCfg();
+        if (!cfg.configured) $("cfgBtn").click();
+      }
+    } catch (_) { showCfg("down"); }
+  })();
+
+  select("list");
+})();
+</script>
+</body>
+</html>
